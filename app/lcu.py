@@ -32,6 +32,7 @@ NOWIN = 0x08000000  # CREATE_NO_WINDOW: не мигать консолью
 class LCU:
     def __init__(self):
         self.port = self.token = None
+        self.last_error = ''
 
     def find(self):
         """Порт и пароль клиента: из командной строки LeagueClientUx, иначе из lockfile."""
@@ -57,12 +58,18 @@ class LCU:
     def call(self, path, method='GET', body=None):
         if not self.port and not self.find(): return None
         try:
-            return _req(f'https://127.0.0.1:{self.port}{path}', method, body, self.token)
+            return _req(f'https://127.0.0.1:{self.port}{path}', method, body, self.token, timeout=2 if method == 'GET' else 10)
         except urllib.error.HTTPError as e:
-            if e.code == 404: return None
+            try: msg = json.loads(e.read() or b'{}').get('message', '')
+            except Exception: msg = ''
+            self.last_error = f'{method} {path.split("?")[0]}: {e.code} {msg}'.strip()
+            if e.code == 404 and method == 'GET': return None
             raise
-        except Exception:
+        except Exception as e:
             self.port = None   # клиент перезапустили: найдём заново
+            if method != 'GET':
+                self.last_error = f'{method} {path}: {type(e).__name__} {e}'
+                raise
             return None
 
     def me(self):
@@ -129,30 +136,39 @@ class LCU:
         return self.call('/lol-champ-select/v1/session')
 
     def set_runes(self, name, prim, sec, perks, shards=None):
-        """Создаёт страницу рун «LoL Helper», заменяя прошлую такую же."""
-        pages = self.call('/lol-perks/v1/pages') or []
-        for p in pages:
-            if p.get('name', '').startswith('LoL Helper') and p.get('isDeletable'):
-                self.call(f"/lol-perks/v1/pages/{p['id']}", 'DELETE')
-        body = {'name': f'LoL Helper: {name}', 'primaryStyleId': prim, 'subStyleId': sec,
+        """Страница рун «LoL Helper»: правим свою, иначе создаём, иначе перезаписываем текущую редактируемую."""
+        body = {'name': f'LoL Helper: {name}'[:25], 'primaryStyleId': prim, 'subStyleId': sec,
                 'selectedPerkIds': list(perks) + list(shards or [5008, 5008, 5011]), 'current': True}
-        try:
-            self.call('/lol-perks/v1/pages', 'POST', body); return True
-        except urllib.error.HTTPError:
-            # лимит страниц: удаляем текущую редактируемую и пробуем ещё раз
-            cur = self.call('/lol-perks/v1/currentpage')
-            if cur and cur.get('isDeletable'):
-                self.call(f"/lol-perks/v1/pages/{cur['id']}", 'DELETE')
-                try:
-                    self.call('/lol-perks/v1/pages', 'POST', body); return True
-                except Exception:
-                    pass
+        pages = self.call('/lol-perks/v1/pages') or []
+        mine = next((p for p in pages if p.get('name', '').startswith('LoL Helper') and p.get('isEditable', p.get('isDeletable'))), None)
+        tries = []
+        if mine: tries.append(('PUT', f"/lol-perks/v1/pages/{mine['id']}", mine['id']))
+        tries.append(('POST', '/lol-perks/v1/pages', None))
+        cur = self.call('/lol-perks/v1/currentpage') or {}
+        if cur.get('isEditable', cur.get('isDeletable')) and cur.get('id') != (mine or {}).get('id'):
+            tries.append(('PUT', f"/lol-perks/v1/pages/{cur['id']}", cur['id']))
+        for method, path, pid in tries:
+            try:
+                b = dict(body, id=pid) if pid else body
+                r = self.call(path, method, b)
+                new_id = pid or (r or {}).get('id')
+                if new_id: self.call('/lol-perks/v1/currentpage', 'PUT', new_id)
+                self.last_error = ''
+                return True
+            except Exception:
+                continue
         return False
 
     def set_items(self, summoner_id, champ_id, title, blocks):
         """Набор предметов в магазине для чемпиона. blocks: [(название, [id предметов])]."""
+        if not summoner_id:
+            s = self.call('/lol-summoner/v1/current-summoner') or {}
+            summoner_id = s.get('summonerId') or s.get('accountId')
+        if not summoner_id: self.last_error = 'клиент не отдал id призывателя'; return False
         path = f'/lol-item-sets/v1/item-sets/{summoner_id}/sets'
-        cur = self.call(path) or {'itemSets': [], 'accountId': summoner_id, 'timestamp': 0}
+        try: cur = self.call(path) or {}
+        except Exception: cur = {}
+        cur = {'accountId': cur.get('accountId', summoner_id), 'itemSets': cur.get('itemSets') or [], 'timestamp': cur.get('timestamp', 0)}
         sets = [s for s in cur.get('itemSets', []) if not s.get('title', '').startswith('LoL Helper')]
         sets.append({'title': f'LoL Helper: {title}', 'associatedChampions': [int(champ_id)], 'associatedMaps': [11],
                      'type': 'custom', 'map': 'any', 'mode': 'any', 'sortrank': 0, 'startedFrom': 'blank',

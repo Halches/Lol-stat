@@ -1236,20 +1236,34 @@ class App:
         if not cs or not cs['me'] or not p:
             self.import_msg.configure(text='Сначала выбери чемпиона'); return
         me = cs['me']
+        self.client.last_error = ''
         eu = self.lola_build(me, self.draft_role(cs)[0])
-        if eu: ok_r = self.client.set_runes(self.data.cn(me), eu['prim'], eu['sec'], eu['perks'], eu['shards'] if len(eu['shards']) == 3 else None)
-        else:
-            ru = p.best_runes(me)
-            ok_r = ru and self.client.set_runes(self.data.cn(me), ru['prim'], ru['sec'], ru['perks'])
+        try:
+            if eu: ok_r = self.client.set_runes(self.data.cn(me), eu['prim'], eu['sec'], eu['perks'], eu['shards'] if len(eu['shards']) == 3 else None)
+            else:
+                ru = p.best_runes(me)
+                ok_r = bool(ru) and self.client.set_runes(self.data.cn(me), ru['prim'], ru['sec'], ru['perks'])
+        except Exception as e:
+            ok_r = False; self.client.last_error = self.client.last_error or repr(e)
+        err_r = self.client.last_error
+        self.client.last_error = ''
         acc = self.account or self.client.me() or {}
         cid = next((k for k, v in self.data.ids.items() if v == me), None)
         if eu:
             blocks = [('Старт (Европа)', eu['start']), ('Основа (Европа)', eu['core']), ('Предмет 4', eu['i4']), ('Предмет 5', eu['i5']),
                       ('Предмет 6', eu['i6']), ('Тотемы', [2055, 3340, 3364])]
         else: blocks = [('Сборка из твоих побед', p.best_build(me)), ('Тотемы', [2055, 3340, 3364])]
-        ok_i = bool(acc.get('id') and cid and blocks[0][1] and self.client.set_items(acc['id'], cid, self.data.cn(me), blocks))
+        try: ok_i = bool(cid and blocks[0][1]) and self.client.set_items(acc.get('id'), cid, self.data.cn(me), blocks)
+        except Exception as e: ok_i = False; self.client.last_error = self.client.last_error or repr(e)
+        err_i = self.client.last_error
         self.imported = me
-        self.import_msg.configure(text=f"Руны: {'готово' if ok_r else 'не получилось'} · предметы: {'готово' if ok_i else 'не получилось'}")
+        src = 'по Европе' if eu else 'из твоих игр'
+        msg = (f"Руны {src}: {'готово' if ok_r else 'не получилось' + (f' ({err_r})' if err_r else '')} · "
+               f"предметы: {'готово' if ok_i else 'не получилось' + (f' ({err_i})' if err_i else '')}")
+        self.import_msg.configure(text=msg)
+        try:
+            with open(os.path.join(self.home, 'import.log'), 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + me + ' ' + msg + '\n')
+        except Exception: pass
 
     # --- клавиши и Tab
     def keys(self):
@@ -1424,7 +1438,7 @@ class App:
         self.auto_var = tk.BooleanVar(value=self.s['auto_import'])
         ttk.Checkbutton(row, text='сам после выбора', variable=self.auto_var,
                         command=lambda: (self.s.__setitem__('auto_import', self.auto_var.get()), self.s.save())).pack(side='left', padx=10)
-        self.import_msg = ttk.Label(f, text='', style='M.TLabel'); self.import_msg.pack(anchor='w')
+        self.import_msg = ttk.Label(f, text='', style='M.TLabel', wraplength=self.fs(660)); self.import_msg.pack(anchor='w')
         self.note(f, 'Руны берутся из твоих игр на этом чемпионе с лучшим винрейтом (от 3 игр), сборка — частые первые предметы и лучшие в итоге. '
                      'Создаётся страница «LoL Helper: …» и набор в магазине.')
 
