@@ -140,6 +140,9 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
     gd=gd,xd=xd,kev=[[round(e['timestamp']/60000,1),byid[e['killerId']]['teamId'] if e.get('killerId') in byid else 300-byid[e['victimId']]['teamId']] for e in kills],parts=plist,me=me_list,
     obev=[dict(t=round(e['timestamp']/60000,1),type=e.get('monsterType') or e.get('buildingType'),sub=e.get('monsterSubType') or e.get('towerType'),
       team=(e.get('killerTeamId') or (300-e['teamId'] if e.get('teamId') else None))) for e in obj]))
+if os.path.exists('games.json'):
+  new_ids={g['id'] for g in games}
+  games+=[g for g in json.load(open('games.json')) if g['id'] not in new_ids]
 games.sort(key=lambda g:-g['start'])
 cnt={'halch':0,'drv':0}
 for g in games:

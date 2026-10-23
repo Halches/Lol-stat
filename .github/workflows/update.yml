@@ -1,0 +1,74 @@
+name: Обновление игр
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: update-games
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+      INCREMENTAL: "1"
+    steps:
+      - name: Проверить ключ
+        id: key
+        run: |
+          if [ -z "$RIOT_API_KEY" ]; then
+            echo "::notice::Секрет RIOT_API_KEY не задан, пропускаю."
+            echo "ok=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == '1'
+
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.ok == '1'
+        with:
+          python-version: "3.12"
+
+      - name: Найти новые игры
+        id: fetch
+        if: steps.key.outputs.ok == '1'
+        working-directory: tools
+        run: python fetch.py
+
+      - name: Пересобрать сайт
+        if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
+        working-directory: tools
+        run: |
+          pip install --quiet pillow
+          mkdir -p dd
+          V=$(curl -s https://ddragon.leagueoflegends.com/api/versions.json | python -c "import json,sys;print(json.load(sys.stdin)[0])")
+          echo "$V" > dd/ver
+          for f in champion item summoner; do curl -s -o dd/$f.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/$f.json; done
+          curl -s -o dd/runes.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/runesReforged.json
+          python analyze.py
+          python icons.py
+          python build.py
+          { printf '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body>'; cat index.html; printf '</body></html>'; } > ../index.html
+          rm index.html
+
+      - name: Опубликовать
+        if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html tools/games.json tools/icons.json tools/seen.json
+          git commit -m "Новые игры: ${{ steps.fetch.outputs.new }}" || exit 0
+          git push
+          gh api -X POST "repos/${{ github.repository }}/pages/builds" || true

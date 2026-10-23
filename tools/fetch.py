@@ -14,18 +14,28 @@ def get(url):
   raise Exception('fail '+url)
 B='https://europe.api.riotgames.com/lol/match/v5/matches/'
 ids=set()
+INC=os.environ.get('INCREMENTAL')=='1'
+os.makedirs(D,exist_ok=True)
+seen=set(json.load(open('seen.json'))) if os.path.exists('seen.json') else set()
 SEASON=int(os.environ.get('SEASON_START','1767830400'))
-for n,p in P.items():
-  allids=[]
-  for typ in ('ranked','normal'):
-    st=0
-    while True:
-      l=get(B+f'by-puuid/{p}/ids?type={typ}&startTime={SEASON}&start={st}&count=100')
-      allids+=l; st+=100
-      if len(l)<100: break
-  json.dump(allids,open(f'{D}/ids_{n.split("#")[0]}.json','w')); ids|=set(allids)
-  print(n,len(allids),file=sys.stderr,flush=True)
-print(len(ids),file=sys.stderr,flush=True)
+try:
+  for n,p in P.items():
+    allids=[]
+    for typ in ('ranked','normal'):
+      st=0
+      while True:
+        l=get(B+f'by-puuid/{p}/ids?type={typ}&startTime={SEASON}&start={st}&count={20 if INC else 100}')
+        allids+=l; st+=100
+        if INC or len(l)<100: break
+    ids|=set(allids)
+    print(n,len(allids),file=sys.stderr,flush=True)
+except urllib.error.HTTPError as e:
+  print(f'Riot API ответил {e.code}: ключ недействителен или истёк',file=sys.stderr)
+  ids=set()
+if INC: ids-=seen
+print('new',len(ids),file=sys.stderr,flush=True)
+if os.environ.get('GITHUB_OUTPUT'):
+  open(os.environ['GITHUB_OUTPUT'],'a').write(f'new={len(ids)}\n')
 n_done=0
 for m in sorted(ids):
   f=f'{D}/{m}.json'
@@ -38,4 +48,5 @@ for m in sorted(ids):
     if not os.path.exists(t): json.dump(get(B+m+'/timeline'),open(t,'w'))
   n_done+=1
   if n_done%50==0: print('progress',n_done,file=sys.stderr,flush=True)
+json.dump(sorted(seen|ids),open('seen.json','w'))
 print('done',file=sys.stderr)
