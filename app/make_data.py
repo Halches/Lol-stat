@@ -14,7 +14,7 @@ patch = open(os.path.join(T, 'dd/ver')).read().strip()
 
 POOLS = {'halch': {'TOP': ['Sett', 'Aatrox', 'Camille', 'DrMundo', 'Garen', 'Irelia'], 'JUNGLE': ['RekSai', 'Sylas', 'Ivern', 'Karthus'],
                    'MIDDLE': ['Viktor', 'Leblanc', 'AurelionSol', 'Sylas'], 'BOTTOM': ['Viktor', 'Aphelios', 'Jinx', 'Jhin'], 'UTILITY': ['Rakan']},
-         'drv': {}}
+         'drv': {'MIDDLE': ['Hwei', 'Lux'], 'BOTTOM': ['MissFortune', 'Nilah', 'Hwei'], 'UTILITY': ['TahmKench', 'Leona', 'Poppy'], 'JUNGLE': ['Sejuani', 'Briar', 'Volibear'], 'TOP': ['Riven', 'Malphite', 'Chogath', 'Poppy', 'Shen', 'Garen']}}
 RIOT = {'halch': 'Halch#9200', 'drv': 'DrVoldemar#EUW'}
 
 players = {w: {'riot': r, 'g': []} for w, r in RIOT.items()}

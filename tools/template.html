@@ -894,7 +894,7 @@ const skillRow=sk=>sk?`<div class="skills">${[...sk].map((x,i)=>`<span class="${
 const CLAUDE_URL='https://claude.ai/artifact/KSoqaMSvYzWQ68NXUGtKrg';
 let SAMPLE=null,SAMPLE_STATE='wait';
 const POOL={halch:'Halch (Никита). Основная роль: топ. Ранг: Изумруд, сервер EUW. Пул: топ — Сетт (мейн), Атрокс, Камилла, Доктор Мундо, Гарен, Ирелия; лес — Рек\'Сай (мейн), Сайлас, Айверн, Картус; мид — Виктор (мейн), Ле Блан, Аурелион Сол, Сайлас; бот — Виктор, Афелий, Джинкс, Джин; саппорт — Рэйкан (мейн).',
-  drv:'DrVoldemar (друг Никиты). Ранг: Золото, сервер EUW. Пул не указан, суди по статистике.'};
+  drv:'DrVoldemar (друг Никиты). Ранг: Золото, сервер EUW. Пул: мид — Хвей, Люкс; бот — Мисс Фортуна, Нила, Хвей; саппорт — Таам Кенч, Леона, Поппи; лес — Седжуани, Брайер, Волибир; топ — Ривен, Мальфит, Чо\'Гат, Поппи, Шен, Гарен.'};
 function md(s){
   const e=esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>');
   const out=[];let list=null;
@@ -1355,7 +1355,7 @@ function emerald(list){
 }
 
 /* ---------- Драфт ---------- */
-const POOLS={halch:{TOP:['Sett','Aatrox','Camille','DrMundo','Garen','Irelia'],JUNGLE:['RekSai','Sylas','Ivern','Karthus'],MIDDLE:['Viktor','Leblanc','AurelionSol','Sylas'],BOTTOM:['Viktor','Aphelios','Jinx','Jhin'],UTILITY:['Rakan']},drv:{}};
+const POOLS={halch:{TOP:['Sett','Aatrox','Camille','DrMundo','Garen','Irelia'],JUNGLE:['RekSai','Sylas','Ivern','Karthus'],MIDDLE:['Viktor','Leblanc','AurelionSol','Sylas'],BOTTOM:['Viktor','Aphelios','Jinx','Jhin'],UTILITY:['Rakan']},drv:{MIDDLE:['Hwei','Lux'],BOTTOM:['MissFortune','Nilah','Hwei'],UTILITY:['TahmKench','Leona','Poppy'],JUNGLE:['Sejuani','Briar','Volibear'],TOP:['Riven','Malphite','Chogath','Poppy','Shen','Garen']}};
 const LSLUG={TOP:'top',JUNGLE:'jungle',MIDDLE:'middle',BOTTOM:'bottom',UTILITY:'support'};
 const META_URL='https://claude.ai/artifact/JPJHh4M2dkuwyWTuNwg8TZ';
 let drole=null;
