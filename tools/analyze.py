@@ -1,4 +1,12 @@
 import json,glob,os
+def _seg(px,py,ax,ay,bx,by):
+  dx,dy=bx-ax,by-ay;t=max(0,min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy)))
+  return ((px-ax-t*dx)**2+(py-ay-t*dy)**2)**.5
+LANES={'top':[(1000,4000,1000,13800),(1000,13800,11000,13800)],'mid':[(2000,2000,12800,12800)],'bot':[(4000,1000,13800,1000),(13800,1000,13800,11000)]}
+def lane_of(x,y):
+  d={k:min(_seg(x,y,*s) for s in v) for k,v in LANES.items()}
+  k=min(d,key=d.get)
+  return k if d[k]<1600 else 'jg'
 D='data'
 P={'rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA':'halch',
    '8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ':'drv'}
@@ -83,6 +91,11 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
       else: typ='roam'
       xy=e.get('position',{})
       dpos.append([round(e['timestamp']/60000,1),xy.get('x',0),xy.get('y',0),typ,byid[kid]['championName'] if kid in byid else None])
+    gk=[]
+    for e in kills:
+      if e['timestamp']>=15*60000 or not e.get('position'): continue
+      if e.get('killerId')!=pid and pid not in (e.get('assistingParticipantIds') or []): continue
+      gk.append([round(e['timestamp']/60000,1),lane_of(e['position']['x'],e['position']['y']),1 if e.get('killerId')==pid else 0])
     skills=''.join('QWER'[e['skillSlot']-1] for fm in frames for e in fm['events'] if e['type']=='SKILL_LEVEL_UP' and e.get('participantId')==pid and e.get('levelUpType')=='NORMAL' and 1<=e['skillSlot']<=4)
     mykills=[e for e in kills if e.get('killerId')==pid]
     solo=sum(1 for e in mykills if not e.get('assistingParticipantIds'))
@@ -108,7 +121,7 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
       keystone=perks[0]['selections'][0]['perk'],prim=perks[0]['style'],sec=perks[1]['style'],
       ff=p['gameEndedInSurrender'],early_ff=p['gameEndedInEarlySurrender'],
       firstblood=p['firstBloodKill'] or p['firstBloodAssist'],
-      dpos=dpos,skills=skills,first=[i for i,t in buys[pid] if 'Boots' not in ITEMS[str(i)].get('tags',[])][:2],
+      dpos=dpos,gk=gk,skills=skills,first=[i for i,t in buys[pid] if 'Boots' not in ITEMS[str(i)].get('tags',[])][:2],
       perks=[sel['perk'] for st_ in perks for sel in st_['selections']]))
   W=dict(dmg=.28,kp=.20,g=.15,taken=.10,obj=.07,vs=.08,cc=.05,heal=.04)
   for tm in (100,200):

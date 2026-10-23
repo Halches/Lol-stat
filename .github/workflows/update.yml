@@ -57,9 +57,9 @@ jobs:
           curl -s -o dd/runes.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/runesReforged.json
           python analyze.py
           python icons.py
+          # средние Изумруд+ с lolalytics: обновлять раз в 3 дня
+          python -c "import json,time,sys;t=json.load(open('lola.json')).get('_t','2000-01-01');sys.exit(0 if time.time()-time.mktime(time.strptime(t,'%Y-%m-%d'))>3*86400 else 1)" && python lola.py || true
           python build.py
-          { printf '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body>'; cat index.html; printf '</body></html>'; } > ../index.html
-          rm index.html
 
       - name: Опубликовать
         if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
@@ -68,7 +68,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html tools/games.json tools/icons.json tools/seen.json tools/ranks.json
+          git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json
           git commit -m "Новые игры: ${{ steps.fetch.outputs.new }}" || exit 0
           git push
           gh api -X POST "repos/${{ github.repository }}/pages/builds" || true

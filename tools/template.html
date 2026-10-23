@@ -221,6 +221,32 @@ button:disabled{opacity:.5;cursor:default}
 .sb .sep td{border-bottom:2px solid var(--line)}
 .foot{font-size:12px;color:var(--muted);max-width:90ch}
 .empty{padding:20px;color:var(--muted)}
+.goals{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.goal{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.gh{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.gh b{font-family:var(--f-disp);font-size:15px}
+.gh label{font-size:12px;color:var(--muted)}
+.gh input,.dfield input{font:inherit;width:5.5em;padding:2px 6px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.gn{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.gn b{font-family:var(--f-disp);font-size:20px;font-variant-numeric:tabular-nums}
+.gn small{display:block;font-size:11px;color:var(--muted)}
+.gdots{display:flex;gap:3px}
+.gdots i{flex:1;height:10px;border-radius:2px}
+.gdots i.ok{background:var(--good)} .gdots i.no{background:var(--line)}
+.gk2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
+@media (max-width:760px){.gk2{grid-template-columns:minmax(0,1fr)}}
+.drow{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.dfield{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted);flex:1 1 240px;min-width:0}
+.dfield input{width:100%;font-size:14px;padding:7px 10px;border-radius:6px}
+.xs-scroll{overflow-x:auto;min-width:0}
+.dout{display:flex;flex-direction:column;gap:12px}
+.dout a,.legend a{color:var(--blue)}
+.dcard{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--panel2)}
+.dcard h3{display:flex;align-items:center;gap:8px}
+.dpick{display:flex;gap:12px;align-items:center;border:1px solid var(--gold);border-radius:8px;padding:10px 12px}
+.dpick .rl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.dpick b{font-family:var(--f-disp);font-size:20px;display:block}
+.dpick small{color:var(--muted)}
 </style>
 
 <div class="wrap">
@@ -260,8 +286,21 @@ button:disabled{opacity:.5;cursor:default}
 
   <div class="seg viewtabs" id="view" role="tablist" aria-label="Раздел">
     <button data-view="stats" aria-pressed="true">Статистика</button>
+    <button data-view="draft" aria-pressed="false">Драфт</button>
     <button data-view="coach" aria-pressed="false">Тренер</button>
   </div>
+
+  <section id="draftview" hidden>
+    <div class="coach">
+      <div class="coach-head"><h2>Драфт</h2><div class="muted">Кого взять на свою роль, по твоим играм за сезон</div></div>
+      <div class="drow">
+        <div class="seg sm" id="drole" role="group" aria-label="Роль"><button data-r="TOP">Топ</button><button data-r="JUNGLE">Лес</button><button data-r="MIDDLE">Мид</button><button data-r="BOTTOM">Бот</button><button data-r="UTILITY">Саппорт</button></div>
+        <label class="dfield"><span>Враг на твоей линии</span><input id="denemy" list="dlist" placeholder="Начни вводить: Дариус, Ренектон…" autocomplete="off"></label>
+        <datalist id="dlist"></datalist>
+      </div>
+      <div id="dout" class="dout"></div>
+    </div>
+  </section>
 
   <section id="coachview" hidden>
     <div class="coach">
@@ -288,6 +327,17 @@ button:disabled{opacity:.5;cursor:default}
 
   <div id="statsview">
   <div class="tiles" id="tiles"></div>
+
+  <section id="goalsec">
+    <div class="ctitle"><h2>Цели</h2><button type="button" class="cbtn" id="goalreset">Сбросить пороги</button></div>
+    <div class="muted" style="font-size:12px;margin-top:-6px">Поменяй порог, и он сохранится в этом браузере. Цели считаются по последним играм выбранной очереди, без учёта ползунка.</div>
+    <div class="goals" id="goals"></div>
+  </section>
+
+  <section id="lpsec">
+    <h2>Рейтинг за сезон</h2>
+    <div class="chart" id="lp"></div>
+  </section>
 
   <section>
     <h2>Что видно по играм</h2>
@@ -319,6 +369,11 @@ button:disabled{opacity:.5;cursor:default}
     <div class="deaths" id="deaths"></div>
   </section>
 
+  <section id="ganksec">
+    <h2>Ганки</h2>
+    <div class="chart" id="ganks"></div>
+  </section>
+
   <section id="buildsec">
     <h2>Билды и руны</h2>
     <div class="chart"><div class="lgs" id="bchamps"></div><div class="builds" id="builds"></div></div>
@@ -333,6 +388,11 @@ button:disabled{opacity:.5;cursor:default}
     <section><h2>Активность</h2><div class="chart" id="activity"></div></section>
     <section id="peersec"><h2>С кем играешь</h2><div class="tbl" id="peers"></div></section>
   </div>
+
+  <section id="emsec">
+    <h2>Ты и средний игрок Изумруд+</h2>
+    <div class="tbl" id="emerald"></div>
+  </section>
 
   <div class="grid2">
     <section><h2>Чемпионы</h2><div class="tbl" id="champs"></div></section>
@@ -351,7 +411,7 @@ button:disabled{opacity:.5;cursor:default}
 </div>
 
 <script>
-const GAMES=/*DATA*/;
+let GAMES=[],GBY={};
 const IC=/*ICONS*/;
 const META=/*META*/;
 const ROLE={TOP:'Топ',JUNGLE:'Лес',MIDDLE:'Мид',BOTTOM:'Бот',UTILITY:'Саппорт','':'—',Invalid:'—'};
@@ -746,6 +806,8 @@ function statsContext(list){
   const grp=f=>{const b={};ms.forEach(m=>{const k=f(m);if(k)(b[k]=b[k]||[]).push(m)});return Object.entries(b).sort((x,y)=>y[1].length-x[1].length)};
   L.push('Роли:\n'+grp(m=>ROLE[m.pos]).map(([k,x])=>'- '+row(k,x)).join('\n'));
   L.push('Чемпионы (до 15):\n'+grp(m=>cn(m.c)).slice(0,15).map(([k,x])=>'- '+row(k,x)).join('\n'));
+  const LL=META.lola||{};const emr=grp(m=>LL[m.c+'|'+m.pos]?m.c+'|'+m.pos:null).filter(([,x])=>x.length>=3).slice(0,10);
+  if(emr.length)L.push('Средние Изумруд+ (lolalytics) на тех же чемпионах и ролях, для сравнения:\n'+emr.map(([k,x])=>{const e=LL[k];return `- ${cn(k.split('|')[0])} ${ROLE[k.split('|')[1]]}: WR ${e.wr}%, ${e.k}/${e.d}/${e.a}, урон ${Math.round(e.dmg)}, золото ${Math.round(e.g)}, CS ${Math.round(e.cs)}`}).join('\n'));
   L.push('Частые оппоненты по линии (2+ игры):\n'+grp(m=>m.opp&&cn(m.opp.c)).filter(([k,x])=>x.length>=2).slice(0,12).map(([k,x])=>'- '+row('против '+k,x)).join('\n'));
   const lr={w:[],d:[],l:[]};ms.forEach(m=>{const r=laneRes(m);if(r)lr[r].push(m)});
   L.push('Исход линии (±500 золота на 15 мин): '+['w','d','l'].map(k=>`${LANE[k]} ${lr[k].length} (винрейт ${lr[k].length?Math.round(lr[k].filter(m=>m.win).length/lr[k].length*100):0}%)`).join(', '));
@@ -977,13 +1039,15 @@ function render(){
   const list=rows();
   const sl=$('ngames');sl.max=Math.max(10,Math.ceil(TOTAL/10)*10);sl.value=st.n&&st.n<TOTAL?st.n:sl.max;nlab();
   $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} ${({all:'игр',win:'побед',loss:'поражений'})[st.res]} в выборке · обновлено ${META.updated} · патч ${META.patch}`;
-  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=st.who==='duo';
+  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=$('goalsec').hidden=$('lpsec').hidden=$('ganksec').hidden=$('emsec').hidden=st.who==='duo';
   if(st.who==='duo'){duoNotes(list);trend(list);champs(list);lanes(list);activity(list)}
-  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list)}
+  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list)}
   impact(list);winloss();
   CUR=list;showGames();showView();
 }
-$('games').addEventListener('toggle',e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){d.innerHTML=detailHTML(DETAIL[d.dataset.id]);d.querySelectorAll('.creview').forEach(renderCR);d.querySelectorAll('.tmap').forEach(drawTM)}},true);
+$('games').addEventListener('toggle',async e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){const r=DETAIL[d.dataset.id];
+  if(!r.g.loaded){d.innerHTML='<div class="empty">Загружаю подробности игры…</div>';try{await loadChunk(r.g.ck)}catch(err){d.innerHTML='<div class="empty">Не удалось загрузить подробности. Обнови страницу.</div>';return}}
+  d.innerHTML=detailHTML(r);d.querySelectorAll('.creview').forEach(renderCR);d.querySelectorAll('.tmap').forEach(drawTM)}},true);
 $('games').addEventListener('click',e=>{
   const kb=e.target.closest('[data-k]');
   if(kb){const det=kb.closest('.detail'),r=DETAIL[det.dataset.id];kb.parentNode.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===kb));kb.closest('.chart').querySelector('.pc').innerHTML=playersChart(r.g,r.m,kb.dataset.k);return}
@@ -1014,7 +1078,7 @@ $('games').addEventListener('click',e=>{const b=e.target.closest('[data-cr]');if
 $('games').addEventListener('input',e=>{const r=e.target.closest('[data-tmr]');if(!r)return;const el=r.closest('.tmap');TM[el.dataset.id].t=+r.value;drawTM(el)});
 $('games').addEventListener('click',e=>{const p=e.target.closest('[data-tmplay]');if(p){tmPlay(p.closest('.tmap'));return}const md_=e.target.closest('[data-tmm]');if(md_){const el=md_.closest('.tmap');TM[el.dataset.id].mode=md_.dataset.tmm;drawTM(el)}});
 $('view').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;st.view=b.dataset.view;showView()});
-function showView(){const c=st.view==='coach';$('coachview').hidden=!c;$('statsview').hidden=c;$('view').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===(c?'coach':'stats')));coachScope();coachAvail()}
+function showView(){const v=st.view;$('coachview').hidden=v!=='coach';$('draftview').hidden=v!=='draft';$('statsview').hidden=v!=='stats';$('view').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===v));coachScope();coachAvail();if(v==='draft'&&GAMES.length)draft()}
 $('quick').addEventListener('click',e=>{const b=e.target.closest('button');if(b)ask(b.textContent)});
 $('askform').addEventListener('submit',e=>{e.preventDefault();ask($('askq').value)});
 $('askq').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask($('askq').value)}});
@@ -1026,5 +1090,167 @@ document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.
 document.querySelectorAll('#res button').forEach(b=>b.onclick=()=>{st.res=b.dataset.r;render()});
 $('plates').innerHTML=META.ranks.map(r=>`<div class="plate"><div class="who">${esc(r.name)}</div>${r.q.map(q=>`<div class="rk">${q.t}: <b>${q.r}</b> · ${q.wl}</div>`).join('')}</div>`).join('');
 $('foot').textContent=`Данные: Riot API (все игры сезона с 8 января, рейтинговые и обычные, только Ущелье призывателей, игры короче 10 минут не считаются). Разница с оппонентом считается против игрока той же роли во вражеской команде. «Мало» в таблицах: меньше 5 игр, винрейт ненадёжен. Иконки и названия: Data Dragon ${META.dd}.`;
-render();
+/* ---------- Цели ---------- */
+const GOALS=[
+  {id:'csm',name:'CS в минуту',get:m=>m.pos==='UTILITY'?null:m.csm,op:'>=',def:7,step:.1,d:1},
+  {id:'d',name:'Смертей за игру',get:m=>m.d,op:'<=',def:5,step:1,d:0},
+  {id:'early',name:'Смертей до 14 минуты',get:m=>m.early_d,op:'<=',def:1,step:1,d:0},
+  {id:'g15',name:'Золото vs оппонент на 15 мин',get:m=>m.diffs&&m.diffs[15]?m.diffs[15].gold:null,op:'>=',def:0,step:100,d:0},
+  {id:'kp',name:'Участие в убийствах, %',get:m=>m.kp,op:'>=',def:50,step:5,d:0},
+  {id:'vsm',name:'Обзор в минуту',get:m=>m.vsm,op:'>=',def:.8,step:.1,d:1},
+  {id:'cw',name:'Контрольных тотемов',get:m=>m.cw,op:'>=',def:1,step:1,d:0}
+];
+function goalVals(){try{return JSON.parse(localStorage.getItem('lolgoals_'+st.who))||{}}catch(e){return{}}}
+function goals(){
+  const gv=goalVals(),all=allRows(true);
+  $('goals').innerHTML=GOALS.map(G=>{
+    const th=gv[G.id]??G.def,ok=v=>G.op==='>='?v>=th:v<=th;
+    const vals=all.map(r=>({v:G.get(r.m),r})).filter(x=>x.v!=null);
+    const l20=vals.slice(0,20),l10=vals.slice(0,10),p20=vals.slice(20,40);
+    const c=a=>a.filter(x=>ok(x.v)).length;
+    const now=l20.length?c(l20)/l20.length*100:null,prev=p20.length>=10?c(p20)/p20.length*100:null,dl=now!=null&&prev!=null?now-prev:null;
+    const dots=l20.slice().reverse().map(x=>`<i class="${ok(x.v)?'ok':'no'}" title="${esc(cn(x.r.m.c))} · ${fmt(x.v,G.d)} · ${x.r.m.win?'победа':'поражение'}"></i>`).join('');
+    return `<div class="goal"><div class="gh"><b>${G.name}</b><label>${G.op==='>='?'не меньше':'не больше'} <input type="number" data-goal="${G.id}" value="${th}" step="${G.step}"></label></div>
+      <div class="gn"><span><b>${c(l10)}</b>/${l10.length}<small>последние 10</small></span><span><b>${c(l20)}</b>/${l20.length}<small>последние 20</small></span>
+      <span><b class="${cls(dl)}">${dl==null?'—':sgn(dl)+' п.п.'}</b><small>к прошлым 20</small></span></div>
+      <div class="gdots" aria-label="Последние 20 игр, слева старые">${dots}</div></div>`}).join('');
+}
+$('goals').addEventListener('change',e=>{const i=e.target.closest('[data-goal]');if(!i)return;const gv=goalVals();const v=parseFloat(i.value);if(isNaN(v))delete gv[i.dataset.goal];else gv[i.dataset.goal]=v;try{localStorage.setItem('lolgoals_'+st.who,JSON.stringify(gv))}catch(err){}goals()});
+$('goalreset').onclick=()=>{try{localStorage.removeItem('lolgoals_'+st.who)}catch(e){}goals()};
+
+/* ---------- LP ---------- */
+const TIERS=['IRON','BRONZE','SILVER','GOLD','PLATINUM','EMERALD','DIAMOND','MASTER','GRANDMASTER','CHALLENGER'];
+const TRU={IRON:'Железо',BRONZE:'Бронза',SILVER:'Серебро',GOLD:'Золото',PLATINUM:'Платина',EMERALD:'Изумруд',DIAMOND:'Алмаз',MASTER:'Мастер',GRANDMASTER:'Грандмастер',CHALLENGER:'Претендент'};
+const lpv=h=>{const t=TIERS.indexOf(h.tier);return t>=7?2800+h.lp:t*400+['IV','III','II','I'].indexOf(h.div)*100+h.lp};
+const lpname=v=>{if(v>=2800)return 'Мастер+';const t=Math.floor(v/400),d=Math.floor(v%400/100);return `${TRU[TIERS[t]]} ${['IV','III','II','I'][d]}`};
+function lpChart(){
+  const W=1000,H=220,pl=56,pr=10,pt=12,pb=24;
+  // чистые победы в соло по сезону
+  const g=GAMES.filter(x=>x.q===420).map(x=>x.me.find(m=>m.who===st.who)?{t:x.start,w:x.me.find(m=>m.who===st.who).win}:null).filter(Boolean).reverse();
+  let s='',net=0;const pts=g.map(x=>({t:x.t,v:net+=x.w?1:-1}));
+  if(pts.length>1){
+    const mn=Math.min(0,...pts.map(p=>p.v)),mx=Math.max(0,...pts.map(p=>p.v)),y=v=>pt+(H-pt-pb)*(1-(v-mn)/((mx-mn)||1)),x=i=>pl+(W-pl-pr)*i/(pts.length-1);
+    s+=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Победы минус поражения в соло по сезону"><line x1="${pl}" x2="${W-pr}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)" stroke-width="1.5"/>`;
+    const step=Math.max(1,niceStep(mx-mn,1)/2);for(let v=Math.ceil(mn/step)*step;v<=mx;v+=step)s+=`<text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${sgn(v)}</text>`;
+    let lastM='',lastX=-99;pts.forEach((p,i)=>{const m=new Date(p.t).toLocaleString('ru-RU',{month:'short'});if(m!==lastM&&x(i)-lastX>45){lastM=m;lastX=x(i);s+=`<line x1="${x(i)}" x2="${x(i)}" y1="${pt}" y2="${H-pb}" stroke="var(--line)" stroke-dasharray="2 4"/><text x="${x(i)+3}" y="${H-6}" font-size="11" fill="var(--muted)">${m}</text>`}});
+    s+=`<polyline points="${pts.map((p,i)=>`${x(i)},${y(p.v)}`).join(' ')}" fill="none" stroke="var(--gold)" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
+    s+=`<div class="legend"><span>Соло, ${pts.length} игр за сезон: победы минус поражения, итого ${sgn(net)}. Линия вверх = серия побед. Riot не отдаёт историю LP, поэтому это ближайшая замена из реальных игр.</span></div>`;
+  }else s+='<div class="empty">Нет рейтинговых соло-игр.</div>';
+  const nm=st.who==='halch'?'Halch':'DrVoldemar',h=(META.lp||[]).filter(x=>x.who===nm&&x.q==='solo');
+  if(h.length>=2){
+    const mn=Math.min(...h.map(lpv))-20,mx=Math.max(...h.map(lpv))+20,t0=h[0].t,t1=h[h.length-1].t,y=v=>pt+(H-pt-pb)*(1-(v-mn)/(mx-mn)),x=t=>pl+(W-pl-pr)*(t-t0)/((t1-t0)||1);
+    let c=`<h3 style="margin-top:14px">LP по снимкам</h3><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="LP по времени">`;
+    for(let v=Math.ceil(mn/100)*100;v<=mx;v+=100)c+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${lpname(v)}</text>`;
+    c+=`<polyline points="${h.map(p=>`${x(p.t)},${y(lpv(p))}`).join(' ')}" fill="none" stroke="var(--blue)" stroke-width="2.5"/>`+h.map(p=>`<circle cx="${x(p.t)}" cy="${y(lpv(p))}" r="4" fill="var(--blue)"><title>${date(p.t)}: ${TRU[p.tier]} ${p.div} · ${p.lp} LP · ${p.w}–${p.l}</title></circle>`).join('')+'</svg>';
+    s+=c;
+  }else{const last=h[h.length-1];s+=`<div class="legend"><span>${last?`Сейчас: ${TRU[last.tier]} ${last.div}, ${last.lp} LP. `:''}Точный LP сайт записывает с каждым автообновлением, начиная с ${META.lp&&META.lp[0]?date(META.lp[0].t):'следующего обновления'}. Когда наберётся несколько снимков, здесь появится график LP.</span></div>`}
+  $('lp').innerHTML=s;
+}
+
+/* ---------- Ганки ---------- */
+const LN={top:'Топ',mid:'Мид',bot:'Бот',jg:'Лес/река'},LC={top:'#2fb36d',mid:'#7b61ff',bot:'#f08c2b',jg:'#8a94a6'};
+function histo(bins,colorOf,label){
+  const W=1000,H=170,pl=34,pr=8,pt=10,pb=24,n=bins.length,mx=Math.max(1,...bins.map(b=>Object.values(b).reduce((s,x)=>s+x,0))),bw=(W-pl-pr)/n,y=v=>pt+(H-pt-pb)*(1-v/mx);
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">`;
+  [0,mx/2,mx].forEach(v=>s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${pl-5}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmt(v)}</text>`);
+  bins.forEach((b,i)=>{let acc=0;Object.entries(b).forEach(([k,v])=>{if(!v)return;s+=`<rect x="${pl+i*bw+bw*.12}" y="${y(acc+v)}" width="${bw*.76}" height="${y(acc)-y(acc+v)}" fill="${colorOf(k)}" rx="2"><title>${i}–${i+1} мин: ${v}${k!=='_'?' · '+LN[k]:''}</title></rect>`;acc+=v});
+    if(i%2===0)s+=`<text x="${pl+i*bw+bw/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="var(--muted)">${i}</text>`});
+  return s+'</svg>';
+}
+function ganks(list){
+  const ds=list.flatMap(r=>(r.m.dpos||[]).filter(d=>d[3]==='jungle'&&d[0]<20));
+  let s='<div class="gk2"><div>';
+  if(ds.length){
+    const bins=Array.from({length:20},()=>({_:0}));ds.forEach(d=>bins[Math.floor(d[0])]._++);
+    const peak=bins.reduce((b,x,i)=>x._>bins[b]._?i:b,0),pre6=ds.filter(d=>d[0]<6).length,kc={};ds.forEach(d=>{if(d[4])kc[d[4]]=(kc[d[4]]||0)+1});
+    const games=list.filter(r=>r.m.pos!=='JUNGLE').length||list.length;
+    s+=`<h3>Когда тебя ганкают</h3><div class="legend" style="margin:2px 0 6px"><span>${ds.length} смертей с участием лесника до 20 минуты, ${fmt(ds.length/Math.max(1,games),2)} за игру. Пик: ${peak}–${peak+1} минута. До 6 минуты: ${fmt(pre6/ds.length*100,0)}%.</span></div>
+      ${histo(bins,()=>'#9b5cf6','Смерти от ганков по минутам')}
+      <div class="legend"><span>По горизонтали минута игры.</span></div>
+      <div class="killers" style="margin-top:8px">${Object.entries(kc).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([c,k])=>`<span class="killer">${cimg(c,'xs')}${esc(cn(c))} <b>${k}</b></span>`).join('')}</div>`;
+  }else s+='<h3>Когда тебя ганкают</h3><div class="empty">В выборке нет смертей от ганков.</div>';
+  s+='</div><div>';
+  const jg=list.filter(r=>r.m.pos==='JUNGLE'&&r.m.gk);
+  if(jg.length){
+    const ev=jg.flatMap(r=>r.m.gk.filter(k=>k[0]<14&&k[1]!=='jg')),bins=Array.from({length:14},()=>({top:0,mid:0,bot:0}));ev.forEach(k=>bins[Math.floor(k[0])][k[1]]++);
+    const firsts=jg.map(r=>({r,f:r.m.gk.filter(k=>k[1]!=='jg').sort((a,b)=>a[0]-b[0])[0]})).filter(x=>x.f&&x.f[0]<14);
+    const fl={};firsts.forEach(({r,f})=>{const o=fl[f[1]]=fl[f[1]]||{n:0,w:0};o.n++;o.w+=r.m.win});
+    s+=`<h3>Твои ганки в лесу</h3><div class="legend" style="margin:2px 0 6px"><span>${jg.length} игр в лесу. Убийств и помощи на линиях до 14 мин: ${fmt(ev.length/jg.length,1)} за игру. Первый успешный ганк в среднем на ${fmt(avg(firsts.map(x=>x.f[0])),1)} мин.</span></div>
+      ${histo(bins,k=>LC[k],'Твои убийства и помощь на линиях по минутам')}
+      <div class="legend">${['top','mid','bot'].map(k=>`<span><i style="background:${LC[k]}"></i>${LN[k]}: ${ev.filter(e=>e[1]===k).length}</span>`).join('')}</div>
+      <table style="margin-top:8px"><thead><tr><th>Первый ганк</th><th>Игр</th><th>Винрейт</th></tr></thead><tbody>${['top','mid','bot'].filter(k=>fl[k]).map(k=>`<tr><td>${LN[k]}</td><td>${fl[k].n}</td><td>${fmt(fl[k].w/fl[k].n*100,0)}%${fl[k].n<5?' <span class="few">мало</span>':''}</td></tr>`).join('')}</tbody></table>
+      <div class="legend"><span>Считаются убийства и помощь, где ты участвовал на линии (не в лесу и не на реке), до 14 минуты. Без ганков без килла: Riot их не отмечает.</span></div>`;
+  }else s+=`<h3>Твои ганки в лесу</h3><div class="empty">В выборке нет игр в лесу. Здесь будет видно, на какую линию и на какой минуте ты ганкаешь, когда сыграешь в лесу.</div>`;
+  $('ganks').innerHTML=s+'</div></div>';
+}
+
+/* ---------- Изумруд+ ---------- */
+function emerald(list){
+  const L=META.lola||{},by={};
+  list.forEach(r=>{const k=r.m.c+'|'+r.m.pos;if(L[k])(by[k]=by[k]||[]).push(r.m)});
+  const rowsE=Object.entries(by).filter(([,a])=>a.length>=3).sort((a,b)=>b[1].length-a[1].length);
+  if(!rowsE.length){$('emerald').innerHTML='<div class="empty">Нет чемпионов с 3+ играми, для которых есть данные lolalytics.</div>';return}
+  const cell=(mine,ref,d=0,inv)=>{const p=(mine-ref)/ref*100,good=inv?p<0:p>0;return `${fmt(mine,d)} <span class="${Math.abs(p)<5?'':good?'pos':'neg'}" style="font-size:11px">${sgn(p)}%</span>`};
+  const body=rowsE.map(([k,a])=>{const [c,pos]=k.split('|'),e=L[k],n=a.length,wr=a.filter(m=>m.win).length/n*100,K=avg(a.map(m=>m.k)),D=avg(a.map(m=>m.d)),A=avg(a.map(m=>m.a));
+    return `<tr><td><span class="ch">${cimg(c,'sm')}${esc(cn(c))} <span class="muted">${ROLE[pos]}</span></span></td><td>${n}</td>
+      <td>${fmt(wr,0)}% <span class="${wr-e.wr>=0?'pos':'neg'}" style="font-size:11px">${sgn(wr-e.wr)}</span>${n<10?' <span class="few">мало</span>':''}</td><td class="muted">${fmt(e.wr,1)}%</td>
+      <td>${cell(kda(K,D,A),kda(e.k,e.d,e.a),2)}</td><td>${cell(D,e.d,1,true)}</td><td>${cell(avg(a.map(m=>m.dmg)),e.dmg)}</td><td>${cell(avg(a.map(m=>m.g)),e.g)}</td><td>${cell(avg(a.map(m=>m.cs)),e.cs)}</td></tr>`});
+  const any=Object.values(L).find(v=>v&&v.patch);
+  table('emerald',['Чемпион','Игр','Твой WR','WR Изумруд+','KDA','Смерти','Урон','Золото','CS'],body);
+  $('emerald').insertAdjacentHTML('beforeend',`<div class="legend" style="padding:0 10px 10px"><span>Справа от твоего значения: насколько ты выше или ниже среднего игрока Изумруд+ на этом чемпионе и роли (lolalytics, патч ${any?any.patch:''}, обновлено ${L._t||''}). Средние берутся по всем длинам игр, поэтому урон и золото зависят и от того, насколько длинные у тебя игры. Меньше 10 игр: сравнение шумное.</span></div>`);
+}
+
+/* ---------- Драфт ---------- */
+const POOLS={halch:{TOP:['Sett','Aatrox','Camille','DrMundo','Garen','Irelia'],JUNGLE:['RekSai','Sylas','Ivern','Karthus'],MIDDLE:['Viktor','Leblanc','AurelionSol','Sylas'],BOTTOM:['Viktor','Aphelios','Jinx','Jhin'],UTILITY:['Rakan']},drv:{}};
+const LSLUG={TOP:'top',JUNGLE:'jungle',MIDDLE:'middle',BOTTOM:'bottom',UTILITY:'support'};
+const META_URL='https://claude.ai/artifact/JPJHh4M2dkuwyWTuNwg8TZ';
+let drole=null;
+function draftInit(){
+  $('dlist').innerHTML=Object.entries(IC.names).sort((a,b)=>a[1].localeCompare(b[1],'ru')).map(([k,v])=>`<option value="${esc(v)}">`).join('');
+}
+function enemyKey(){const v=$('denemy').value.trim().toLowerCase();if(!v)return null;const e=Object.entries(IC.names).find(([k,n])=>n.toLowerCase()===v||k.toLowerCase()===v)||Object.entries(IC.names).find(([k,n])=>n.toLowerCase().startsWith(v));return e?e[0]:null}
+function draft(){
+  if(st.who==='duo'){$('dout').innerHTML='<div class="empty">Выбери наверху Halch или DrVoldemar: драфт считается по играм одного игрока.</div>';return}
+  const all=GAMES.map(g=>({g,m:g.me.find(m=>m.who===st.who)})).filter(r=>r.m);
+  if(!drole){const c={};all.forEach(r=>c[r.m.pos]=(c[r.m.pos]||0)+1);drole=Object.keys(c).sort((a,b)=>c[b]-c[a])[0]||'TOP'}
+  $('drole').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===drole));
+  const E=enemyKey(),pool=new Set((POOLS[st.who]||{})[drole]||[]);
+  const inRole=all.filter(r=>r.m.pos===drole),byC={};
+  inRole.forEach(r=>{const o=byC[r.m.c]=byC[r.m.c]||{n:0,w:0,lw:0,ln:0,g15:[]};o.n++;o.w+=r.m.win;const l=laneRes(r.m);if(l){o.ln++;o.lw+=l==='w'};if(r.m.diffs[15])o.g15.push(r.m.diffs[15].gold)});
+  pool.forEach(c=>byC[c]=byC[c]||{n:0,w:0,lw:0,ln:0,g15:[]});
+  const vsE={};if(E)all.filter(r=>r.m.opp&&r.m.opp.c===E).forEach(r=>{const o=vsE[r.m.c]=vsE[r.m.c]||{n:0,w:0,g15:[]};o.n++;o.w+=r.m.win;if(r.m.diffs[15])o.g15.push(r.m.diffs[15].gold)});
+  // оценка: винрейт со сглаживанием к 50% (10 виртуальных игр), плюс матчап, если был
+  const score=c=>{const o=byC[c],v=vsE[c];let s=(o.w+5)/(o.n+10);if(v&&v.n)s=s*.6+((v.w+1)/(v.n+2))*.4;return s+(pool.has(c)?.01:0)};
+  const cand=Object.keys(byC).filter(c=>byC[c].n>=2||pool.has(c)).sort((a,b)=>score(b)-score(a));
+  const L=META.lola||{};
+  let s='';
+  if(E){
+    const tot=Object.values(vsE).reduce((a,o)=>({n:a.n+o.n,w:a.w+o.w}),{n:0,w:0});
+    const anyE=all.filter(r=>r.g.parts.some(p=>p.c===E&&p.team!==r.m.team)),wE=anyE.filter(r=>r.m.win).length;
+    s+=`<div class="dcard"><h3>${cimg(E,'sm')} Против: ${esc(cn(E))}</h3>
+      <div class="legend" style="margin:4px 0 8px"><span>Этот чемпион был у врагов в ${anyE.length} твоих играх, винрейт ${anyE.length?fmt(wE/anyE.length*100,0)+'%':'—'}. Против него на линии: ${tot.n} игр${tot.n?`, ${fmt(tot.w/tot.n*100,0)}% побед`:''}.</span></div>
+      ${tot.n?`<div class="xs-scroll"><table><thead><tr><th>Ты играл</th><th>Игр</th><th>Винрейт</th><th>Золото на 15</th></tr></thead><tbody>${Object.entries(vsE).sort((a,b)=>b[1].n-a[1].n).map(([c,o])=>`<tr><td><span class="ch">${cimg(c,'xs')}${esc(cn(c))}</span></td><td>${o.n}</td><td>${fmt(o.w/o.n*100,0)}%${o.n<5?' <span class="few">мало</span>':''}</td><td class="${cls(avg(o.g15))}">${sgn(avg(o.g15))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty" style="padding:6px 0">Против него на линии ты ещё не играл.</div>'}
+      <div class="legend"><span><a href="https://lolalytics.com/lol/${E==='MonkeyKing'?'wukong':E.toLowerCase()}/counters/?lane=${LSLUG[drole]}&tier=emerald_plus" target="_blank" rel="noopener">Контрпики ${esc(cn(E))} на lolalytics</a></span></div></div>`;
+  }
+  const best=cand[0];
+  if(best){const o=byC[best],v=vsE[best];
+    s+=`<div class="dpick">${cimg(best)}<div><div class="rl">Совет по твоим играм</div><b>${esc(cn(best))}</b><small>${o.n?`${o.n} игр на роли, ${fmt(o.w/o.n*100,0)}% побед`:'в пуле, но игр на этой роли пока нет'}${v&&v.n?` · против ${esc(cn(E))}: ${v.w}–${v.n-v.w}`:''}${L[best+'|'+drole]?` · Изумруд+ ${fmt(L[best+'|'+drole].wr,1)}%`:''}</small></div></div>`}
+  s+=`<div class="xs-scroll"><table><thead><tr><th>${ROLE[drole]}: твои чемпионы</th><th>Игр</th><th>Винрейт</th><th>Линия выиграна</th><th>Золото на 15</th><th>Изумруд+ WR</th></tr></thead><tbody>${cand.map(c=>{const o=byC[c],e=L[c+'|'+drole];
+    return `<tr><td><span class="ch">${cimg(c,'xs')}${esc(cn(c))}${pool.has(c)?' <span class="badge">пул</span>':''}</span></td><td>${o.n}</td><td>${o.n?fmt(o.w/o.n*100,0)+'%':'—'}${o.n&&o.n<5?' <span class="few">мало</span>':''}</td><td>${o.ln?fmt(o.lw/o.ln*100,0)+'%':'—'}</td><td class="${cls(avg(o.g15))}">${sgn(avg(o.g15))}</td><td class="muted">${e?fmt(e.wr,1)+'%':'—'}</td></tr>`}).join('')||'<tr><td colspan="6" class="empty">Нет игр на этой роли.</td></tr>'}</tbody></table></div>
+    <div class="legend"><span>Порядок: твой винрейт на роли со сглаживанием к 50% (у чемпиона с 3 играми он почти не влияет), а если ты уже играл против этого врага, то и результат матчапа. Мета патча: <a href="${META_URL}" target="_blank" rel="noopener">тир-лист</a>.</span></div>`;
+  s+=`<div class="askbtns" style="justify-content:flex-start">${SAMPLE?`<button type="button" class="cbtn primary" id="dask">Спросить тренера про этот драфт</button>`:`<span class="muted" style="font-size:12px">Разбор драфта тренером доступен в <a href="${CLAUDE_URL}" target="_blank" rel="noopener">версии сайта в Claude</a>.</span>`}</div>`;
+  $('dout').innerHTML=s;
+}
+$('drole').addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(b){drole=b.dataset.r;draft()}});
+$('denemy').addEventListener('input',()=>{if(!$('denemy').value||enemyKey())draft()});
+$('dout').addEventListener('click',e=>{if(e.target.id!=='dask')return;const E=enemyKey();st.view='coach';showView();ask(`Драфт: я играю на роли ${ROLE[drole]}${E?`, против меня ${cn(E)}`:''}. Кого из моего пула взять и почему (смотри мою статистику и мету), какой план на линию до 14 минуты, руны и первый предмет?`)});
+
+const CHUNKS={};
+function loadChunk(i){
+  if(!CHUNKS[i])CHUNKS[i]=fetch(`data/d-${i}.json`).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(arr=>{arr.forEach(d=>{const g=GBY[d.id];if(g){Object.assign(g,d);g.loaded=true}})}).catch(e=>{delete CHUNKS[i];throw e});
+  return CHUNKS[i];
+}
+$('games').innerHTML='<div class="empty">Загружаю игры…</div>';
+fetch('data/summary.json').then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(j=>{GAMES=j;GBY=Object.fromEntries(j.map(g=>[g.id,g]));draftInit();render()})
+  .catch(()=>{$('games').innerHTML='<div class="empty">Не удалось загрузить данные. Обнови страницу.</div>'});
 </script>
