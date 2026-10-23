@@ -128,7 +128,11 @@ def restart_into(app, new):
         f'start "" "{exe}"\r\n'
         'del "%~f0"\r\n')
     log(f'restart via {bat}')
-    subprocess.Popen(['cmd', '/c', bat], creationflags=0x08000000)
+    # Новый exe не должен унаследовать переменные PyInstaller старого процесса: иначе он ищет
+    # python312.dll во временной папке старого, которую тот удаляет при выходе.
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('_PYI', '_MEI'))}
+    env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    subprocess.Popen(['cmd', '/c', bat], creationflags=0x08000000, env=env)
     app.root.destroy()
     os._exit(0)
 
