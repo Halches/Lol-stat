@@ -42,7 +42,7 @@ header{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-
 .plate .tier{font-family:var(--f-disp);font-weight:700;font-size:20px;line-height:1.15}
 .plate .tier span{font-size:14px;color:var(--ink);font-weight:600;margin-left:8px}
 .plate .rk.sub{margin-top:3px}
-.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:8px;border-bottom:1px solid var(--line)}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding-block:8px}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px;gap:2px;flex-wrap:wrap}
 .seg button{font:inherit;font-family:var(--f-disp);font-weight:600;font-size:14px;border:0;background:transparent;color:var(--muted);padding:6px 12px;border-radius:4px;cursor:pointer}
@@ -137,7 +137,6 @@ th:first-child,td:first-child{text-align:left}
 .skills span.R{background:var(--gold);color:var(--bg);border-color:transparent}
 .more{font:inherit;font-family:var(--f-disp);font-weight:600;font-size:15px;padding:12px;border:1px dashed var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
 .more:hover{border-color:var(--gold)}
-@media (max-width:640px){.controls{position:static}}
 .range{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-basis:100%;font-size:13px}
 .range label{color:var(--muted)}
 .range input{flex:1 1 180px;min-width:0;accent-color:var(--gold)}
@@ -146,8 +145,6 @@ th:first-child,td:first-child{text-align:left}
 .presets button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:12px;padding:2px 10px;cursor:pointer}
 .presets button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 #statsview{display:flex;flex-direction:column;gap:22px}
-.viewtabs{align-self:flex-start}
-.viewtabs button{font-size:15px;padding:8px 18px}
 .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .coach{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
 .coach-head{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
@@ -229,12 +226,6 @@ button:disabled{opacity:.5;cursor:default}
 .sb .sep td{border-bottom:2px solid var(--line)}
 .foot{font-size:12px;color:var(--muted);max-width:90ch}
 .empty{padding:20px;color:var(--muted)}
-.jump{display:flex;flex-wrap:wrap;gap:4px;flex-basis:100%;padding-bottom:2px}
-.jump::-webkit-scrollbar{display:none}
-.jump button{font:inherit;font-size:12px;white-space:nowrap;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:12px;padding:3px 10px;cursor:pointer}
-.jump button:hover{border-color:var(--gold)}
-.jump button.main{background:var(--gold);color:var(--bg);border-color:var(--gold);font-weight:600}
-.jump button[hidden]{display:none}
 .dact{display:flex;gap:6px;flex-wrap:wrap}
 .dsel{display:flex;gap:8px 16px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
 .dsel select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px;margin-left:4px;max-width:60vw}
@@ -256,7 +247,6 @@ button:disabled{opacity:.5;cursor:default}
 .cmptray{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));right:140px;max-width:640px;z-index:6;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--gold);border-radius:10px;padding:8px 10px;font-size:13px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
 .cmptray>span{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
 @media (max-width:640px){.cmptray{right:16px;bottom:70px}}
-.totop{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));z-index:6;font:inherit;font-family:var(--f-disp);font-weight:600;font-size:14px;padding:8px 14px;border-radius:20px;border:0;background:var(--ink);color:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}
 .goals{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
 .goal{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .gh{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
@@ -284,6 +274,33 @@ button:disabled{opacity:.5;cursor:default}
 .dpick .rl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .dpick b{font-family:var(--f-disp);font-size:20px;display:block}
 .dpick small{color:var(--muted)}
+/* вкладки разделов: липнут к верху вместо строки кнопок */
+.offtab{display:none!important}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:6px 0 18px;overflow-x:auto;scrollbar-width:none;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg)}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{font:inherit;font-family:var(--f-disp);font-weight:600;font-size:15px;background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);padding:10px 14px 9px;cursor:pointer;white-space:nowrap}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--gold)}
+.tabs .sep{flex:1}
+.clip{position:relative;max-height:220px;overflow:hidden}
+.clip::after{content:"";position:absolute;inset:auto 0 0;height:70px;background:linear-gradient(transparent,var(--panel))}
+@media (max-width:640px){
+  header{gap:10px}
+  h1{font-size:24px}
+  .plates{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .plate{position:relative;flex-direction:column;align-items:flex-start;gap:4px;padding:10px}
+  .plate .emb{width:44px;height:44px;position:absolute;right:8px;top:8px}
+  .plate .who{font-size:13px;max-width:calc(100% - 46px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .plate .tier{font-size:16px}.plate .tier span{display:block;margin:0;font-size:12px}
+  .plate .rk{font-size:11px}.plate .rk.sub{display:none}
+  .controls{flex-wrap:nowrap;overflow-x:auto;gap:6px;scrollbar-width:none}
+  .controls>*{flex:none}
+  .controls .seg button{padding:5px 9px;font-size:13px}
+  .range{flex:none;min-width:260px}
+  .goal .gn{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+  .goal .gn b{font-size:16px}
+  .goal .gn small{font-size:10px;line-height:1.2}
+}
 </style>
 
 <div class="wrap">
@@ -319,16 +336,12 @@ button:disabled{opacity:.5;cursor:default}
       <output id="nlabel" for="ngames"></output>
       <div class="presets" id="npre"><button data-n="20">20</button><button data-n="50">50</button><button data-n="100">100</button><button data-n="0">все</button></div>
     </div>
-    <nav class="jump" id="jump" aria-label="Перейти к разделу">
-      <button data-to="gamesec" class="main">↓ Матчи</button><button data-to="top">Наверх</button><button data-to="livesec">В игре</button><button data-to="weeksec">Отчёт</button><button data-to="goalsec">Цели</button><button data-to="lpsec">Рейтинг</button><button data-to="notesec">Выводы</button><button data-to="trendsec">Линия</button><button data-to="impsec">Вклад</button><button data-to="wlsec">Победы/поражения</button><button data-to="deathsec">Смерти</button><button data-to="duosec">Дуо</button><button data-to="tiltsec">Серии</button><button data-to="patchsec">Патчи</button><button data-to="ganksec">Ганки</button><button data-to="buildsec">Билды</button><button data-to="recsec">Рекорды</button><button data-to="actsec">Активность</button><button data-to="mupsec">Матчапы</button><button data-to="badsec">Неудобные враги</button><button data-to="emsec">Изумруд+</button><button data-to="mastsec">Мастерство</button><button data-to="champsec">Чемпионы</button>
-    </nav>
   </div>
 
-  <div class="seg viewtabs" id="view" role="tablist" aria-label="Раздел">
-    <button data-view="stats" aria-pressed="true">Статистика</button>
-    <button data-view="draft" aria-pressed="false">Драфт</button>
-    <button data-view="coach" aria-pressed="false">Тренер</button>
-  </div>
+  <nav class="tabs" id="view" aria-label="Разделы">
+    <button data-view="stats" data-tab="over">Обзор</button><button data-view="stats" data-tab="lane">Линия</button><button data-view="stats" data-tab="fight">Бои и смерти</button><button data-view="stats" data-tab="champ">Чемпионы</button><button data-view="stats" data-tab="habit">Привычки</button><button data-view="stats" data-tab="games">Игры</button>
+    <span class="sep"></span><button data-view="draft">Драфт</button><button data-view="coach">Тренер</button>
+  </nav>
 
   <section id="draftview" hidden>
     <div class="coach">
@@ -399,7 +412,7 @@ button:disabled{opacity:.5;cursor:default}
     <div class="chart" id="trend"></div>
   </section>
 
-  <section>
+  <section id="lanesec">
     <h2>Исход линии</h2>
     <div class="chart" id="lanes"></div>
   </section>
@@ -493,7 +506,6 @@ button:disabled{opacity:.5;cursor:default}
 
   <p class="foot" id="foot"></p>
   <div class="cmptray" id="cmptray" hidden></div>
-  <button type="button" class="totop" id="totop" hidden aria-label="Наверх, к разделам">↑ Разделы</button>
 </div>
 
 <script>
@@ -502,7 +514,7 @@ const IC=/*ICONS*/;
 const META=/*META*/;
 const ROLE={TOP:'Топ',JUNGLE:'Лес',MIDDLE:'Мид',BOTTOM:'Бот',UTILITY:'Саппорт','':'—',Invalid:'—'};
 const NAME={halch:'Halch',drv:'DrVoldemar'};
-const st={who:'halch',queue:'all',n:0,view:'stats',res:'all'};
+const st={who:'halch',queue:'all',n:0,view:'stats',res:'all',tab:'over'};
 try{const s=JSON.parse(localStorage.getItem('lolsite')||'{}');Object.assign(st,s)}catch(e){}
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1156,7 +1168,6 @@ function render(){
   else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);badEnemies(list);weekly();mastery()}
   impact(list);winloss();patches(list);
   CUR=list;showGames();showView();
-  $('jump').querySelectorAll('[data-to]').forEach(b=>{const el=$(b.dataset.to);b.hidden=!!(el&&el.hidden)});
 }
 $('games').addEventListener('toggle',async e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){const r=DETAIL[d.dataset.id];
   if(!r.g.loaded){d.innerHTML='<div class="empty">Загружаю подробности игры…</div>';try{await loadChunk(r.g.ck)}catch(err){d.innerHTML='<div class="empty">Не удалось загрузить подробности. Обнови страницу.</div>';return}}
@@ -1192,8 +1203,13 @@ $('npre').addEventListener('click',e=>{const b=e.target.closest('[data-n]');if(!
 $('games').addEventListener('click',e=>{const b=e.target.closest('[data-cr]');if(b){reviewGame(b.dataset.cr);return}const s=e.target.closest('[data-crstop]');if(s)CR[s.dataset.crstop]?.ctl?.abort()});
 $('games').addEventListener('input',e=>{const r=e.target.closest('[data-tmr]');if(!r)return;const el=r.closest('.tmap');TM[el.dataset.id].t=+r.value;drawTM(el)});
 $('games').addEventListener('click',e=>{const p=e.target.closest('[data-tmplay]');if(p){tmPlay(p.closest('.tmap'));return}const md_=e.target.closest('[data-tmm]');if(md_){const el=md_.closest('.tmap');TM[el.dataset.id].mode=md_.dataset.tmm;drawTM(el)}});
-$('view').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;st.view=b.dataset.view;showView()});
-function showView(){const v=st.view;$('coachview').hidden=v!=='coach';$('draftview').hidden=v!=='draft';$('statsview').hidden=v!=='stats';$('view').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===v));coachScope();coachAvail();if(v==='draft'&&GAMES.length)draft()}
+const TABS={over:['tiles','livesec','weeksec','notesec','goalsec','lpsec'],lane:['trendsec','lanesec','mupsec','badsec','ganksec','emsec'],fight:['impsec','wlsec','deathsec'],
+  champ:['champsec','buildsec','mastsec','patchsec'],habit:['tiltsec','actsec','recsec','duosec'],games:['gamesec','cmp']};
+$('view').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;st.view=b.dataset.view;if(b.dataset.tab)st.tab=b.dataset.tab;showView();try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(err){}
+  const top=$('view').getBoundingClientRect().top+window.scrollY;if(window.scrollY>top)window.scrollTo({top})});
+function showView(){const v=st.view;$('coachview').hidden=v!=='coach';$('draftview').hidden=v!=='draft';$('statsview').hidden=v!=='stats';if(!TABS[st.tab])st.tab='over';
+  Object.entries(TABS).forEach(([k,ids])=>ids.forEach(id=>{const e=$(id);if(e)e.classList.toggle('offtab',k!==st.tab)}));
+  $('view').querySelectorAll('button').forEach(b=>{const on=v==='stats'?b.dataset.tab===st.tab:b.dataset.view===v;b.setAttribute('aria-pressed',on);if(on&&b.scrollIntoView&&$('view').scrollWidth>$('view').clientWidth)$('view').scrollLeft=b.offsetLeft-40});coachScope();coachAvail();if(v==='draft'&&GAMES.length)draft()}
 $('quick').addEventListener('click',e=>{const b=e.target.closest('button');if(b)ask(b.textContent)});
 $('askform').addEventListener('submit',e=>{e.preventDefault();ask($('askq').value)});
 $('askq').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask($('askq').value)}});
@@ -1383,13 +1399,6 @@ $('drole').addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(
 $('denemy').addEventListener('input',()=>{if(!$('denemy').value||enemyKey())draft()});
 $('dout').addEventListener('click',e=>{if(e.target.id!=='dask')return;const E=enemyKey();st.view='coach';showView();ask(`Драфт: я играю на роли ${ROLE[drole]}${E?`, против меня ${cn(E)}`:''}. Кого из моего пула взять и почему (смотри мою статистику и мету), какой план на линию до 14 минуты, руны и первый предмет?`)});
 
-$('jump').addEventListener('click',e=>{const b=e.target.closest('[data-to]');if(!b)return;
-  if(st.view!=='stats'){st.view='stats';showView()}
-  if(b.dataset.to==='top'){window.scrollTo({top:0,behavior:'smooth'});return}
-  const el=$(b.dataset.to);if(!el)return;const c=document.querySelector('.controls'),off=getComputedStyle(c).position==='sticky'?c.offsetHeight+8:8;
-  window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-off,behavior:'smooth'})});
-$('totop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
-addEventListener('scroll',()=>{$('totop').hidden=window.scrollY<900},{passive:true});
 /* ---------- Серии и тильт ---------- */
 function sessions(list){
   const a=list.slice().sort((x,y)=>x.g.start-y.g.start),out=[];let cur=[];
@@ -1556,7 +1565,7 @@ $('gsearch').addEventListener('input',()=>{Q=$('gsearch').value.trim().toLowerCa
 function openFromHash(){
   const m=location.hash.match(/^#g-(EUW1_\d+)$/);if(!m)return;const g=GBY[m[1]];if(!g)return;
   if(!g.me.some(x=>x.who===st.who)||st.who==='duo'){st.who=g.me[0].who}
-  st.queue='all';st.res='all';st.n=0;st.view='stats';Q='';$('gsearch').value='';render();
+  st.queue='all';st.res='all';st.n=0;st.view='stats';st.tab='games';Q='';$('gsearch').value='';render();
   const i=CUR.findIndex(r=>r.g.id===g.id);if(i>=LIM){LIM=i+10;showGames()}
   const el=$('g-'+g.id);if(el){el.open=true;el.classList.add('flash');setTimeout(()=>el.scrollIntoView({block:'start'}),50)}
 }
@@ -1564,9 +1573,10 @@ addEventListener('hashchange',openFromHash);
 
 /* ---------- Недельный отчёт ---------- */
 let WEEK=null;
+$('week').addEventListener('click',e=>{if(e.target.id!=='weekmore')return;const b=$('weekbody');b.classList.toggle('clip');e.target.textContent=b.classList.contains('clip')?'Читать отчёт полностью':'Свернуть'});
 function weekly(){
   const s=$('weeksec');if(!WEEK||!WEEK[st.who]){s.hidden=true;return}
-  s.hidden=false;$('week').innerHTML=`<div class="msg a">${md(WEEK[st.who])}</div><div class="legend"><span>Отчёт тренера за неделю до ${esc(WEEK.date||'')}. Новый приходит по понедельникам.</span></div>`;
+  s.hidden=false;$('week').innerHTML=`<div class="msg a clip" id="weekbody">${md(WEEK[st.who])}</div><button type="button" class="cbtn" id="weekmore" style="margin-top:6px">Читать отчёт полностью</button><div class="legend"><span>Отчёт тренера за неделю до ${esc(WEEK.date||'')}. Новый приходит по понедельникам.</span></div>`;
 }
 fetch('data/weekly.json').then(r=>r.ok?r.json():null).then(j=>{WEEK=j;if(GAMES.length)weekly()}).catch(()=>{});
 
