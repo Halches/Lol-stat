@@ -79,8 +79,8 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
       elif ejg in inv: typ='jungle'
       elif opp and opp['participantId'] in inv: typ='lane'
       else: typ='roam'
-      pos=e.get('position',{})
-      dpos.append([round(e['timestamp']/60000,1),pos.get('x',0),pos.get('y',0),typ,byid[kid]['championName'] if kid in byid else None])
+      xy=e.get('position',{})
+      dpos.append([round(e['timestamp']/60000,1),xy.get('x',0),xy.get('y',0),typ,byid[kid]['championName'] if kid in byid else None])
     skills=''.join('QWER'[e['skillSlot']-1] for fm in frames for e in fm['events'] if e['type']=='SKILL_LEVEL_UP' and e.get('participantId')==pid and e.get('levelUpType')=='NORMAL' and 1<=e['skillSlot']<=4)
     mykills=[e for e in kills if e.get('killerId')==pid]
     solo=sum(1 for e in mykills if not e.get('assistingParticipantIds'))
@@ -124,6 +124,6 @@ for g in games:
   g['full']=keep
   if not keep:
     for p in g['parts']:
-      for k in ('sg','sx','sc'): p.pop(k,None)
+      for k in ('sg','sx','sc','buys'): p.pop(k,None)
 json.dump(games,open('games.json','w'),ensure_ascii=False,separators=(',',':'))
 print(len(games), os.path.getsize('games.json'))
