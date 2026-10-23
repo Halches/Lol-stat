@@ -140,23 +140,33 @@ class LCU:
         body = {'name': f'LoL Helper: {name}'[:25], 'primaryStyleId': prim, 'subStyleId': sec,
                 'selectedPerkIds': list(perks) + list(shards or [5008, 5008, 5011]), 'current': True}
         pages = self.call('/lol-perks/v1/pages') or []
-        mine = next((p for p in pages if p.get('name', '').startswith('LoL Helper') and p.get('isEditable', p.get('isDeletable'))), None)
-        tries = []
-        if mine: tries.append(('PUT', f"/lol-perks/v1/pages/{mine['id']}", mine['id']))
-        tries.append(('POST', '/lol-perks/v1/pages', None))
+        editable = lambda p: p.get('isEditable', p.get('isDeletable'))
+        mine = next((p for p in pages if p.get('name', '').startswith('LoL Helper') and editable(p)), None)
         cur = self.call('/lol-perks/v1/currentpage') or {}
-        if cur.get('isEditable', cur.get('isDeletable')) and cur.get('id') != (mine or {}).get('id'):
-            tries.append(('PUT', f"/lol-perks/v1/pages/{cur['id']}", cur['id']))
-        for method, path, pid in tries:
+        # Как делают Blitz и Porofessor: удалить свою старую страницу и создать заново; при лимите страниц
+        # заменить текущую редактируемую. Правка через PUT — последний вариант (в части клиентов отвечает 400).
+        plans = []
+        if mine: plans.append(('replace', mine['id']))
+        plans.append(('post', None))
+        if editable(cur) and cur.get('id') != (mine or {}).get('id'): plans.append(('replace', cur['id']))
+        if mine: plans.append(('put', mine['id']))
+        errors = []
+        for kind, pid in plans:
             try:
-                b = dict(body, id=pid) if pid else body
-                r = self.call(path, method, b)
-                new_id = pid or (r or {}).get('id')
-                if new_id: self.call('/lol-perks/v1/currentpage', 'PUT', new_id)
+                if kind == 'replace':
+                    self.call(f'/lol-perks/v1/pages/{pid}', 'DELETE')
+                    r = self.call('/lol-perks/v1/pages', 'POST', body)
+                elif kind == 'post': r = self.call('/lol-perks/v1/pages', 'POST', body)
+                else: r = self.call(f'/lol-perks/v1/pages/{pid}', 'PUT', dict(body, id=pid)) or {'id': pid}
+                new_id = (r or {}).get('id')
+                if new_id:
+                    try: self.call('/lol-perks/v1/currentpage', 'PUT', new_id)
+                    except Exception: pass
                 self.last_error = ''
                 return True
             except Exception:
-                continue
+                errors.append(self.last_error)
+        self.last_error = '; '.join(e for e in errors if e)
         return False
 
     def set_items(self, summoner_id, champ_id, title, blocks):
