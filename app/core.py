@@ -331,7 +331,7 @@ HINTS = [
     ('scout', 'Загрузка', 'Карточка оппонента и твоя история против него', 'text', 0),
     ('jungler', 'Загрузка', 'Кто лесник врагов: ранний ганкер или фармер', 'voice', 0),
     ('trinket', 'Загрузка', 'Купи тотем, если слот пуст', 'voice', 60),
-    ('early_ward', 'Загрузка', 'Ранний вард в реку / вражеский лес', 'text', 0),
+    ('early_ward', 'Загрузка', 'Первый вард: когда и куда (своё для роли)', 'text', 0),
     ('crab', 'Лес', 'Лесник: крабы в 3:30 и на какой стороне сильнее линии', 'voice', 0),
     ('gank1', 'Линия', 'Ганк 1: лесник взял 3 лагеря', 'voice', 0),
     ('gank2', 'Линия', 'Ганк 2: полная зачистка', 'voice', 0),
@@ -361,6 +361,19 @@ HINTS = [
     ('postgame', 'После игры', 'Итог игры: цели и главная ошибка', 'text', 0),
 ]
 HINT_IDS = [h[0] for h in HINTS]
+LANERS = ('TOP', 'MIDDLE', 'BOTTOM', 'UTILITY')
+# Подсказки, которые нужны не всем ролям; у каждой роли свои режимы. Остальные — общие для всех.
+HINT_ROLES = {
+    'scout': LANERS, 'crab': ('JUNGLE',), 'gank1': LANERS, 'gank2': LANERS, 'gank3': LANERS, 'jg_seen': LANERS,
+    'cs_norm': ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM'), 'lane_gold': LANERS, 'levels': LANERS, 'tp': ('TOP',),
+    'cannon': ('TOP', 'MIDDLE', 'BOTTOM'), 'lens': ('UTILITY',), 'enemy_item': LANERS, 'side_lane': ('TOP', 'MIDDLE'),
+    'early_ward': ROLES,
+}
+
+
+def hint_for(hid, role):
+    """Подходит ли подсказка роли (пустая роль — тренировка, подходит всё)."""
+    return not role or role in HINT_ROLES.get(hid, ROLES)
 
 
 class Hint:
@@ -395,7 +408,7 @@ class Engine:
     def tick(self, g):
         out = []
         if not g.me: return out
-        add = lambda hid, text, say=None: out.append(Hint(hid, text, say)) if self.enabled.get(hid, True) else None
+        add = lambda hid, text, say=None: out.append(Hint(hid, text, say)) if self.enabled.get(hid, True) and hint_for(hid, g.role) else None
         t, me, opp, d = g.t, g.me, g.opp, self.data
         p = self.prev
         norm = self.player.norm(me['c'], g.role) if self.player else {}
@@ -413,8 +426,13 @@ class Engine:
             add('scout', txt)
         if 30 < t < 120 and not any(i in (3340, 3363, 3364) for i in me['items']) and self._cool('trinket', t):
             add('trinket', 'Слот тотема пуст: купи Скрытый тотем', 'Купи тотем')
-        if 55 < t < 70 and self._once('early_ward'):
-            add('early_ward', 'Поставь первый вард в реку или вход во вражеский лес к 1:30', 'Первый вард в реку')
+        if 20 < t < 40 and self._once('early_ward'):   # пока идёшь на линию, до первой встречи у реки
+            if g.role == 'JUNGLE':
+                add('early_ward', 'Тотем: поставь у входа в свой лес со стороны второго бафа, чтобы увидеть вторжение', 'Вард у входа в свой лес')
+            elif g.role == 'UTILITY':
+                add('early_ward', 'Поставь вард в куст реки у бота до 1:30, оттуда приходит лесник на первом ганке', 'Вард в речной куст')
+            else:
+                add('early_ward', 'Первый вард держи до 2:30 и ставь в реку: тогда увидишь первый ганк', 'Первый вард держи до ганка')
 
         # --- крабы (только для лесника): появляются в 3:30, сторону подсказываем по силе своих линий
         if g.role == 'JUNGLE' and OBJ['crab'] - 25 <= t < OBJ['crab'] - 20 and self._once('crab'):

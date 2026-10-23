@@ -103,7 +103,9 @@ def app_home():
 
 
 DEFAULTS = {
-    'hints': {h[0]: h[3] for h in core.HINTS},
+    'hints': {h[0]: h[3] for h in core.HINTS if h[0] not in core.HINT_ROLES},
+    'hints_role': {r: {h[0]: h[3] for h in core.HINTS if h[0] in core.HINT_ROLES and r in core.HINT_ROLES[h[0]]} for r in core.ROLES},
+    'hint_preset': 'TOP',
     'widgets': {k: True for k in WIDGETS},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_row': 46, 'tab_gap': 40, 'tab_swap': False,
@@ -116,7 +118,7 @@ DEFAULTS = {
     'obj': dict(core.OBJ), 'who': '', 'auto_update': True,
 }
 SECTIONS = {   # что сбрасывает кнопка «По умолчанию» в каждом разделе
-    'hints': ['hints'], 'voice': ['voice', 'volume', 'rate', 'master', 'beep_volume', 'sound'],
+    'hints': ['hints', 'hints_role'], 'voice': ['voice', 'volume', 'rate', 'master', 'beep_volume', 'sound'],
     'look': ['theme', 'accent', 'font', 'scale', 'icon', 'alpha', 'widget_bg', 'show'],
     'windows': ['widgets', 'perf', 'tab_row', 'tab_gap', 'tab_swap', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
 }
@@ -849,8 +851,18 @@ class App:
         self.engine = None
 
     def new_engine(self):
-        en = {h: self.s['hints'].get(h, 'off') != 'off' for h in core.HINT_IDS}
-        self.engine = core.Engine(self.data, self.player, enabled=en)
+        self.engine = core.Engine(self.data, self.player, enabled=self.hint_flags(''))
+
+    def hint_mode(self, hid, role=None):
+        """Режим подсказки: общие — один на все роли, ролевые — свой у каждой роли."""
+        if hid not in core.HINT_ROLES: return self.s['hints'].get(hid, 'off')
+        role = role or self.s['hint_preset']
+        if role not in core.HINT_ROLES[hid]: return 'off'
+        dflt = next(h[3] for h in core.HINTS if h[0] == hid)
+        return self.s['hints_role'].get(role, {}).get(hid, dflt)
+
+    def hint_flags(self, role):
+        return {h: self.hint_mode(h, role) != 'off' for h in core.HINT_IDS}
 
     def apply_visibility(self):
         for k, w in self.ov.items():
@@ -874,6 +886,7 @@ class App:
                     in_game = True
                     g = core.Game(raw, self.data)
                     if self.engine is None: self.new_engine()
+                    self.engine.enabled = self.hint_flags(g.role)
                     hints = self.engine.tick(g)
                     res = next((e.get('Result') for e in g.events if e.get('EventName') == 'GameEnd'), None)
                     if now - last_scout > 90:
@@ -975,7 +988,7 @@ class App:
             self.apply_visibility()
             if self.dash: self.dash.reset()
         for h in hints:
-            mode = self.s['hints'].get(h.id, 'off')
+            mode = self.hint_mode(h.id, g.role)
             if mode == 'off': continue
             self.ov['hints'].push(h.text)
             if self.dash: self.dash.add_log(g.t, h.text)
@@ -993,7 +1006,7 @@ class App:
 
     def on_end(self):
         g = self.last_game
-        if g and self.engine and self.s['postgame'] and g.t > 300 and self.s['hints'].get('postgame') != 'off':
+        if g and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
             res = core.postgame(self.engine, g, self.player)
             if res: show_postgame(self, res, self.result)
         self.last_game, self.result, self.engine, self.scout = None, None, None, {}
@@ -1226,7 +1239,6 @@ class App:
             self.s.reset(SECTIONS[section])
             if section == 'voice': self.sync_voice()
             if section == 'obj': core.OBJ.update(self.s['obj'])
-            if section == 'hints' and self.engine: self.engine.enabled = {h: self.s['hints'][h] != 'off' for h in core.HINT_IDS}
             self.rebuild()
             self.status.configure(text='Настройки раздела сброшены')
         ttk.Button(parent, text=label, command=go).pack(anchor='w', pady=(12, 0))
@@ -1309,12 +1321,28 @@ class App:
         row = tk.Frame(inner, bg=C['bg']); row.pack(fill='x', pady=(0, 4))
         ttk.Button(row, text='Режимы по умолчанию', command=lambda: (self.s.reset(SECTIONS['hints']), self.rebuild())).pack(side='left')
         ttk.Label(row, text='  ▶ — проверить, как прозвучит подсказка с текущим режимом', style='M.TLabel').pack(side='left')
+        pr = self.s['hint_preset']
+        row = tk.Frame(inner, bg=C['bg']); row.pack(fill='x', pady=(8, 0))
+        ttk.Label(row, text='Роль: ', style='H.TLabel').pack(side='left')
+        for rr in core.ROLES:
+            ttk.Button(row, text=core.ROLE_RU[rr], width=8, style='A.TButton' if rr == pr else 'TButton',
+                       command=lambda rr=rr: self.set_preset(rr)).pack(side='left', padx=1)
+        self.note(inner, 'Общие подсказки одинаковы для всех ролей. Подсказки роли настраиваются отдельно для каждой, '
+                         'в игре включается набор той роли, на которой ты стоишь.')
+        groups = [(f'Только для роли «{core.ROLE_RU[pr]}»', [h for h in core.HINTS if h[0] in core.HINT_ROLES and pr in core.HINT_ROLES[h[0]]])]
         sec = None
-        for hid, s, name, _, _ in core.HINTS:
-            if s != sec:
-                sec = s; ttk.Label(inner, text=s, style='H.TLabel').pack(anchor='w', pady=(8, 2))
+        for h in core.HINTS:
+            if h[0] in core.HINT_ROLES: continue
+            if h[1] != sec: sec = h[1]; groups.append((f'Общие: {sec.lower()}', []))
+            groups[-1][1].append(h)
+        for title, hs in groups:
+            ttk.Label(inner, text=title, style='H.TLabel').pack(anchor='w', pady=(8, 2))
+            for hid, _, name, _, _ in hs: self.hint_row(inner, hid, name)
+
+    def hint_row(self, inner, hid, name):
+        if True:
             r = tk.Frame(inner, bg=C['bg']); r.pack(fill='x', pady=1)
-            v = tk.StringVar(value=MODES[self.s['hints'].get(hid, 'off')]); self.hint_vars[hid] = v
+            v = tk.StringVar(value=MODES[self.hint_mode(hid)]); self.hint_vars[hid] = v
             cb = ttk.Combobox(r, state='readonly', width=8, values=list(MODES.values()), textvariable=v); cb.pack(side='left')
             cb.bind('<<ComboboxSelected>>', lambda e, hid=hid: self.set_hint(hid))
             ttk.Button(r, text='▶', width=3, command=lambda hid=hid, name=name: self.test_hint(hid, name)).pack(side='left', padx=(4, 0))
@@ -1322,7 +1350,7 @@ class App:
 
     def test_hint(self, hid, name):
         """Проверка подсказки: звучит так, как настроено (сигнал, голос или только текст)."""
-        mode = self.s['hints'].get(hid, 'off')
+        mode = self.hint_mode(hid)
         if mode == 'off': self.status.configure(text='Эта подсказка выключена'); return
         self.toast(name); self.status.configure(text=f'Проверка: {MODES[mode].lower()}')
         if mode == 'beep': self.voice.beep(force=True)
@@ -1330,8 +1358,12 @@ class App:
 
     def set_hint(self, hid):
         m = next(k for k, v in MODES.items() if v == self.hint_vars[hid].get())
-        self.s['hints'][hid] = m; self.s.save()
-        if self.engine: self.engine.enabled[hid] = m != 'off'
+        if hid in core.HINT_ROLES: self.s['hints_role'].setdefault(self.s['hint_preset'], {})[hid] = m
+        else: self.s['hints'][hid] = m
+        self.s.save()
+
+    def set_preset(self, role):
+        self.s['hint_preset'] = role; self.s.save(); self.rebuild()
 
     def set_all_hints(self, m):
         for hid, v in self.hint_vars.items(): v.set(MODES[m]); self.set_hint(hid)
