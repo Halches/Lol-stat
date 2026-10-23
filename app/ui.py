@@ -905,6 +905,11 @@ class App:
         tk.Label(top, text='LoL Helper', bg=C['bg'], fg=C['gold'], font=(F['font'], self.fs(16), 'bold')).pack(side='left')
         self.status = tk.Label(top, text='Ищу клиент League of Legends…', bg=C['bg'], fg=C['mute'], font=(F['font'], self.fs(10)))
         self.status.pack(side='right')
+        self.banner = tk.Frame(r, bg=C['gold'], padx=12, pady=6)
+        self.banner_lbl = tk.Label(self.banner, bg=C['gold'], fg=C['bg'], font=(F['font'], self.fs(11), 'bold'), anchor='w')
+        self.banner_lbl.pack(side='left', fill='x', expand=True)
+        self.banner_btn = tk.Button(self.banner, bg=C['bg'], fg=C['gold'], activebackground=C['panel'], activeforeground=C['gold'],
+                                    relief='flat', font=(F['font'], self.fs(10), 'bold'), padx=12, cursor='hand2')
         self.nb = ttk.Notebook(r); self.nb.pack(fill='both', expand=True, padx=8, pady=8)
         self.tab_status = self.page('Статус'); self.tab_draft = self.page('Драфт')
         self.tab_hints = self.page('Подсказки'); self.tab_win = self.page('Окна'); self.tab_look = self.page('Вид')
@@ -912,6 +917,7 @@ class App:
         self.tab_time = self.page('Таймеры'); self.tab_upd = self.page('Обновления')
         self.build_status(); self.build_draft(); self.build_hints(); self.build_windows(); self.build_look()
         self.build_voice(); self.build_keys(); self.build_timers(); self.build_updates()
+        if getattr(self, 'upd', None): self.update_state(*self.upd)
 
     def page(self, name):
         f = tk.Frame(self.nb, bg=C['bg'], padx=14, pady=10); self.nb.add(f, text=name); return f
@@ -1257,6 +1263,22 @@ class App:
             self.sync_voice(); core.OBJ.update(self.s['obj']); self.rebuild()
             self.status.configure(text='Все настройки сброшены')
         ttk.Button(f, text='Сбросить все настройки', command=reset_all).pack(anchor='w', pady=6)
+
+    def offer_update(self, tag, start):
+        self.update_state(f'Доступна новая версия {tag} (у тебя {self.version})', start, 'Обновить')
+
+    def update_state(self, text, action=None, label=None):
+        """Плашка обновления над вкладками: текст и кнопка (Обновить / Перезапустить / Повторить)."""
+        self.upd = (text, action, label)
+        self.banner.pack(fill='x', padx=8, pady=(0, 4), before=self.nb)
+        self.banner_lbl.configure(text=text)
+        if action:
+            self.banner_btn.configure(text=label or ('Перезапустить' if 'скачана' in text else 'Повторить'), command=action)
+            self.banner_btn.pack(side='right')
+        else: self.banner_btn.pack_forget()
+        if hasattr(self, 'upd_msg'):
+            try: self.upd_msg.configure(text=text)
+            except Exception: pass
 
     def check_updates(self, manual=False):
         if not self.updater: return

@@ -61,38 +61,65 @@ def latest_release():
         return tag, f'https://github.com/{REPO}/releases/download/{tag}/LoLHelper.exe'
 
 
+def log(msg):
+    try:
+        with open(os.path.join(home(), 'update.log'), 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + msg + '\n')
+    except Exception:
+        pass
+
+
 def update_app(app):
+    """Проверка новой версии. Если есть — в окне программы появляется плашка с кнопкой «Обновить»."""
     try:
         tag, url = latest_release()
     except Exception as e:
+        log(f'check failed: {e!r}')
         return f'Не удалось проверить обновления: {e}'
+    log(f'latest {tag}, mine {VERSION}')
     if tag == VERSION or not url: return f'Последняя версия: {tag}. У тебя актуальная.'
+    app.root.after(0, lambda: app.offer_update(tag, lambda: start_download(app, tag, url)))
     if not FROZEN: return f'Есть версия {tag} (запущено из исходников, обновление не ставлю)'
-    new = os.path.join(home(), 'LoLHelper.new.exe')
-    try:
-        with get(url, 120) as r, open(new + '.part', 'wb') as f:
-            while True:
-                b = r.read(1 << 20)
-                if not b: break
-                f.write(b)
-        os.replace(new + '.part', new)
-    except Exception as e:
-        return f'Версия {tag} не скачалась: {e}'
-    app.root.after(0, lambda: ask_restart(app, tag, new))
-    return f'Скачана версия {tag}'
+    return f'Есть новая версия {tag}: нажми «Обновить» вверху окна'
 
 
-def ask_restart(app, tag, new):
-    from tkinter import messagebox
-    if not messagebox.askyesno('LoL Helper', f'Скачана новая версия {tag}. Перезапустить и обновить сейчас?'): return
+def start_download(app, tag, url):
+    if not FROZEN:
+        app.update_state('Запущено из исходников: обновление ставится только в exe'); return
+    def job():
+        new = os.path.join(home(), 'LoLHelper.new.exe')
+        try:
+            with get(url, 60) as r, open(new + '.part', 'wb') as f:
+                total, got, last = int(r.headers.get('Content-Length') or 0), 0, 0
+                while True:
+                    b = r.read(1 << 18)
+                    if not b: break
+                    f.write(b); got += len(b)
+                    if time.time() - last > .3:
+                        last = time.time()
+                        txt = f'Скачиваю {tag}: {got * 100 // total}% ({got >> 20} из {total >> 20} МБ)' if total else f'Скачиваю {tag}: {got >> 20} МБ'
+                        app.root.after(0, lambda t=txt: app.update_state(t))
+            if total and got < total: raise IOError(f'скачано {got} из {total} байт')
+            os.replace(new + '.part', new)
+            log(f'downloaded {tag} {got} bytes')
+            app.root.after(0, lambda: app.update_state(f'Версия {tag} скачана', lambda: restart_into(app, new)))
+        except Exception as e:
+            log(f'download failed: {e!r}')
+            app.root.after(0, lambda: app.update_state(f'Не скачалось: {e}. Попробуй ещё раз или скачай вручную с GitHub', lambda: start_download(app, tag, url)))
+    app.update_state(f'Скачиваю {tag}…')
+    threading.Thread(target=job, daemon=True).start()
+
+
+def restart_into(app, new):
+    """Заменить exe новым и перезапустить: bat ждёт, пока старый процесс закроется."""
     exe = sys.executable
     bat = os.path.join(tempfile.gettempdir(), 'lolhelper_update.bat')
     open(bat, 'w', encoding='cp866', errors='replace').write(
         '@echo off\r\n'
-        f'for /l %%i in (1,1,20) do (move /y "{new}" "{exe}" >nul 2>&1 && goto ok & timeout /t 1 >nul)\r\n'
+        f'for /l %%i in (1,1,30) do (move /y "{new}" "{exe}" >nul 2>&1 && goto ok & timeout /t 1 >nul)\r\n'
         ':ok\r\n'
         f'start "" "{exe}"\r\n'
         'del "%~f0"\r\n')
+    log(f'restart via {bat}')
     subprocess.Popen(['cmd', '/c', bat], creationflags=0x08000000)
     app.root.destroy()
     os._exit(0)
@@ -137,6 +164,12 @@ def selftest():
         n = len(app.icons.a.get('champ', {}))
         out.append(f'ui ok, portraits {n}, pillow {ui.Image is not None}')
         if FROZEN and (n < 150 or ui.Image is None): ok = False
+        try:
+            tag, url = latest_release()
+            with get(url, 30) as r: chunk = r.read(1 << 20)
+            out.append(f'release {tag} reachable, {len(chunk)} bytes')
+        except Exception as e:
+            out.append(f'release check failed: {e!r}')
         from voice import Voice
         v = Voice(home())
         out.append(f'piper {v.piper()} model {v.model("dmitri")}')
