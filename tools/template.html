@@ -166,6 +166,18 @@ button:disabled{opacity:.5;cursor:default}
 .creview{display:flex;flex-direction:column;gap:10px}
 .creview .row{display:flex;gap:6px;flex-wrap:wrap}
 .creview input{font:inherit;flex:1 1 220px;min-width:0;padding:6px 10px;border-radius:16px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.contrib{display:flex;height:30px;border-radius:5px;overflow:hidden;font-size:11px;font-weight:600}
+.contrib div{display:flex;align-items:center;justify-content:center;gap:4px;color:#fff;min-width:0;overflow:hidden;white-space:nowrap;border-right:1px solid var(--panel)}
+.contrib img{width:18px;height:18px;border-radius:3px}
+.imprank{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:12px}
+@media (max-width:720px){.imprank{grid-template-columns:minmax(0,1fr)}}
+.irow{display:grid;grid-template-columns:auto minmax(0,1fr) 7em;gap:8px;align-items:center;font-size:12px;padding:2px 0}
+.irow .tr{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden}
+.irow .tr u{display:block;height:100%}
+.irow.me{font-weight:600}
+.irow em{font-style:normal;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+.badge{font-family:var(--f-disp);font-weight:700;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--gold);color:var(--bg);letter-spacing:.04em}
+.wl td.better{color:var(--good)} .wl td.worse{color:var(--bad)}
 .legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .games{display:flex;flex-direction:column;gap:6px}
@@ -222,6 +234,11 @@ button:disabled{opacity:.5;cursor:default}
       <button data-v="440" aria-pressed="false">Флекс</button>
       <button data-v="norm" aria-pressed="false">Обычные</button>
     </div>
+    <div class="seg" id="res" role="group" aria-label="Результат">
+      <button data-r="all" aria-pressed="true">Все игры</button>
+      <button data-r="win" aria-pressed="false">Победы</button>
+      <button data-r="loss" aria-pressed="false">Поражения</button>
+    </div>
     <div class="range">
       <label for="ngames">Учитывать</label>
       <input type="range" id="ngames" min="10" max="100" step="10" value="100">
@@ -276,6 +293,16 @@ button:disabled{opacity:.5;cursor:default}
     <div class="chart" id="lanes"></div>
   </section>
 
+  <section id="impsec">
+    <h2>Вклад в игру</h2>
+    <div class="chart" id="impact"></div>
+  </section>
+
+  <section id="wlsec">
+    <h2>Победы и поражения: в чём разница</h2>
+    <div class="tbl" id="winloss"></div>
+  </section>
+
   <section id="deathsec">
     <div class="ctitle"><h2>Где и от кого ты умираешь</h2><div class="seg sm" id="dfilt" role="group" aria-label="Время"><button data-d="all" aria-pressed="true">Все</button><button data-d="early" aria-pressed="false">До 14 мин</button><button data-d="late" aria-pressed="false">После 14 мин</button></div></div>
     <div class="deaths" id="deaths"></div>
@@ -318,7 +345,7 @@ const IC=/*ICONS*/;
 const META=/*META*/;
 const ROLE={TOP:'Топ',JUNGLE:'Лес',MIDDLE:'Мид',BOTTOM:'Бот',UTILITY:'Саппорт','':'—',Invalid:'—'};
 const NAME={halch:'Halch',drv:'DrVoldemar'};
-const st={who:'halch',queue:'all',n:0,view:'stats'};
+const st={who:'halch',queue:'all',n:0,view:'stats',res:'all'};
 try{const s=JSON.parse(localStorage.getItem('lolsite')||'{}');Object.assign(st,s)}catch(e){}
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -326,7 +353,7 @@ const cn=c=>IC.names[c]||c;
 const cimg=(c,cls='')=>IC.c[c]?`<img class="ic ${cls}" src="${IC.c[c]}" alt="${esc(cn(c))}" title="${esc(cn(c))}">`:`<span class="ic ${cls}"></span>`;
 const iimg=i=>i&&IC.i[i]?`<img class="ic it" src="${IC.i[i]}" alt="" title="${esc(IC.inames[i]||'')}">`:`<span class="ic it"></span>`;
 const fmt=(n,d=0)=>n==null||isNaN(n)?'—':Number(n).toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d});
-const sgn=(n,d=0)=>n==null||isNaN(n)?'—':(n>0?'+':n<0?'−':'')+fmt(Math.abs(n),d);
+const sgn=(n,d=0)=>n==null||isNaN(n)?'—':(+Math.abs(n).toFixed(d)===0?'':n>0?'+':'−')+fmt(Math.abs(n),d);
 const cls=n=>n>0?'pos':n<0?'neg':'';
 const avg=a=>{a=a.filter(x=>x!=null&&!isNaN(x));return a.length?a.reduce((s,x)=>s+x,0)/a.length:null};
 const kda=(k,d,a)=>(k+a)/Math.max(1,d);
@@ -334,9 +361,10 @@ const date=t=>new Date(t).toLocaleString('ru-RU',{day:'numeric',month:'short',ho
 const qok=g=>st.queue==='all'||(st.queue==='norm'?![420,440].includes(g.q):g.q==+st.queue);
 const laner=p=>['TOP','MIDDLE','BOTTOM'].includes(p);
 
-function allRows(){
-  if(st.who==='duo') return GAMES.filter(g=>qok(g)&&g.me.length===2).map(g=>({g,m:g.me.find(m=>m.who==='halch'),o:g.me.find(m=>m.who==='drv')}));
-  return GAMES.filter(qok).map(g=>({g,m:g.me.find(m=>m.who===st.who)})).filter(r=>r.m);
+function allRows(ignoreRes){
+  const rk=r=>ignoreRes||st.res==='all'||(st.res==='win')===r.m.win;
+  if(st.who==='duo') return GAMES.filter(g=>qok(g)&&g.me.length===2).map(g=>({g,m:g.me.find(m=>m.who==='halch'),o:g.me.find(m=>m.who==='drv')})).filter(rk);
+  return GAMES.filter(qok).map(g=>({g,m:g.me.find(m=>m.who===st.who)})).filter(r=>r.m&&rk(r));
 }
 let TOTAL=0;
 function rows(){
@@ -786,11 +814,63 @@ async function reviewGame(id){
   catch(e){if(HIDE.includes(e.code)){SAMPLE_STATE='off'}CR[id]={q,text:e.text?e.text+'\n\n*(ответ прерван)*':errText(e),err:!e.text}}
   renderCR(document.querySelector(`.creview[data-id="${id}"]`)||el);if(SAMPLE_STATE==='off')coachAvail();
 }
+
+const C_ME='#d8a94a',C_FR='#9b5cf6',C_AL='#5b7fb0',C_EN='#c0504a';
+function contribBar(g,m){
+  const T=g.parts.filter(p=>p.team===m.team).sort((a,b)=>b.share-a.share);
+  return `<div class="contrib">${T.map(p=>{const c=p.me==='halch'?C_ME:p.me==='drv'?C_FR:C_AL;return `<div style="width:${p.share}%;background:${c}" title="${esc(cn(p.c))}${p.me?' ('+NAME[p.me]+')':''}: ${fmt(p.share,0)}% вклада команды">${IC.c[p.c]?`<img src="${IC.c[p.c]}" alt="">`:''}${p.share>=12?fmt(p.share,0)+'%':''}</div>`}).join('')}</div>`;
+}
+function impactBlock(g,m){
+  const col=p=>p.me==='halch'?C_ME:p.me==='drv'?C_FR:p.team===m.team?C_AL:C_EN;
+  const side=team=>g.parts.filter(p=>p.team===team).sort((a,b)=>a.tr-b.tr).map(p=>`<div class="irow ${p.me?'me':''}"><span class="ch">${cimg(p.c,'xs')}${esc(cn(p.c))}${p.me?` <span class="few">${NAME[p.me]}</span>`:''}${p.ar===1?' <span class="badge">MVP</span>':''}</span><div class="tr"><u style="width:${p.imp*10}%;background:${col(p)}"></u></div><em>${fmt(p.imp,1)} · ${fmt(p.share,0)}%</em></div>`).join('');
+  const meP=g.parts.filter(p=>p.me&&p.team===m.team);
+  const al=g.parts.filter(p=>p.team===m.team&&!p.me).reduce((s,p)=>s+p.share,0);
+  const line=meP.map(p=>`${NAME[p.me]} ${fmt(p.share,0)}% (#${p.tr} в команде)`).join(', ')+`, остальные союзники ${fmt(al,0)}% на ${5-meP.length}`;
+  return `<div class="chart"><div class="ctitle"><h3>Вклад в игру</h3><div class="legend"><span><i style="background:${C_ME}"></i>Halch</span><span><i style="background:${C_FR}"></i>DrVoldemar</span><span><i style="background:${C_AL}"></i>союзники</span><span><i style="background:${C_EN}"></i>враги</span></div></div>
+  ${contribBar(g,m)}<div class="legend"><span>Доля вклада в команду: ${line}. Ровный вклад — 20% на игрока.</span></div>
+  <div class="imprank"><div><h4 style="margin:0 0 4px;font-family:var(--f-disp)">Ваша команда</h4>${side(m.team)}</div><div><h4 style="margin:0 0 4px;font-family:var(--f-disp)">Враги</h4>${side(300-m.team)}</div></div>
+  <div class="legend"><span>Оценка 1–10 внутри игры (10 — лучший из 10) и доля в своей команде. Считается из долей в команде: урон по чемпионам 28%, участие в убийствах 20%, золото 15%, полученный и поглощённый урон 10%, обзор 8%, урон по башням и объектам 7%, контроль 5%, лечение и щиты 4%, минус смерти 10%. Это приближение: оно не видит решений и позиционирования.</span></div></div>`;
+}
+function impact(list){
+  const el=$('impact');if(!list.length){el.innerHTML='<div class="empty">Нет игр.</div>';return}
+  const stat=(arr,f)=>{const x=arr.map(r=>f(r)).filter(v=>v);return x};
+  const box=(label,ms)=>{if(!ms.length)return '';const sh=avg(ms.map(m=>m.share)),best=ms.filter(m=>m.tr===1).length,worst=ms.filter(m=>m.tr===5).length,rk=avg(ms.map(m=>m.tr));
+    return `<div class="tile"><span>${label}</span><b>${fmt(sh,1)}%</b><i>лучший в команде в ${fmt(best/ms.length*100,0)}% игр, худший в ${fmt(worst/ms.length*100,0)}% · средн. место ${fmt(rk,1)} из 5</i></div>`};
+  let html='';
+  if(st.who==='duo'){
+    const same=list.filter(r=>r.m.team===r.o.team);
+    const h=same.map(r=>r.m),d=same.map(r=>r.o);
+    const al=same.map(r=>r.g.parts.filter(p=>p.team===r.m.team&&!p.me).reduce((s,p)=>s+p.share,0)/3);
+    const carry={h:0,d:0,a:0};same.forEach(r=>{const b=r.g.parts.filter(p=>p.team===r.m.team).sort((a,b)=>a.tr-b.tr)[0];if(b.me==='halch')carry.h++;else if(b.me==='drv')carry.d++;else carry.a++});
+    const n=Math.max(1,same.length);
+    html=`<div class="tiles">${box('Halch: средняя доля вклада',h)}${box('DrVoldemar: средняя доля вклада',d)}<div class="tile"><span>Союзники (на одного)</span><b>${fmt(avg(al),1)}%</b><i>ровный вклад — 20%</i></div><div class="tile"><span>Кто чаще лучший в команде</span><b>${carry.h>carry.d?'Halch':carry.d>carry.h?'DrVoldemar':'поровну'}</b><i>Halch ${fmt(carry.h/n*100,0)}%, DrVoldemar ${fmt(carry.d/n*100,0)}%, союзник ${fmt(carry.a/n*100,0)}%</i></div></div>`;
+    const w=same.filter(r=>r.m.win),l=same.filter(r=>!r.m.win);
+    html+=`<div class="legend"><span>В победах: Halch ${fmt(avg(w.map(r=>r.m.share)),1)}%, DrVoldemar ${fmt(avg(w.map(r=>r.o.share)),1)}%. В поражениях: Halch ${fmt(avg(l.map(r=>r.m.share)),1)}%, DrVoldemar ${fmt(avg(l.map(r=>r.o.share)),1)}%. Только игры в одной команде (${same.length}).</span></div>`;
+  }else{
+    const ms=list.map(r=>r.m),w=ms.filter(m=>m.win),l=ms.filter(m=>!m.win);
+    html=`<div class="tiles">${box('Средняя доля вклада в команду',ms)}${box('В победах',w)}${box('В поражениях',l)}<div class="tile"><span>MVP игры (лучший из 10)</span><b>${fmt(ms.filter(m=>m.ar===1).length/ms.length*100,0)}%</b><i>${ms.filter(m=>m.ar===1).length} из ${ms.length} игр</i></div></div>`;
+    const lowL=l.filter(m=>m.tr<=2).length;
+    html+=`<div class="legend"><span>Ровный вклад — 20%. В ${lowL} из ${l.length} поражений ты был в топ-2 своей команды по вкладу. Начинать разбор лучше с остальных поражений: там твой вклад был ниже среднего.</span></div>`;
+  }
+  el.innerHTML=html;
+}
+function winloss(){
+  const all=allRows(true),base=st.n&&st.n<all.length?all.slice(0,st.n):all;
+  const W=base.filter(r=>r.m.win).map(r=>r.m),L=base.filter(r=>!r.m.win).map(r=>r.m);
+  if(W.length<3||L.length<3){$('winloss').innerHTML='<div class="empty">Нужно хотя бы по 3 победы и поражения.</div>';return}
+  const lane=x=>x.filter(m=>laneRes(m)==='w').length/Math.max(1,x.filter(m=>laneRes(m)).length)*100;
+  const M=[['KDA',x=>kda(x.reduce((s,m)=>s+m.k,0),x.reduce((s,m)=>s+m.d,0),x.reduce((s,m)=>s+m.a,0)),2,1],['Смерти за игру',x=>avg(x.map(m=>m.d)),1,-1],['Смертей до 14 мин',x=>avg(x.map(m=>m.early_d)),1,-1],
+    ['CS/мин (без саппорта)',x=>avg(x.filter(m=>m.pos!=='UTILITY').map(m=>m.csm)),1,1],['Золото vs опп. на 15 мин',x=>avg(x.map(m=>m.diffs[15]?.gold)),0,1,true],['Линия выиграна, %',lane,0,1],
+    ['Доля урона команды, %',x=>avg(x.map(m=>m.dshare)),0,1],['Участие в убийствах, %',x=>avg(x.map(m=>m.kp)),0,1],['Обзор/мин',x=>avg(x.map(m=>m.vsm)),2,1],['Контрольные варды',x=>avg(x.map(m=>m.cw)),1,1],['Доля вклада, %',x=>avg(x.map(m=>m.share)),1,1]];
+  const rows=M.map(([l,f,d,dir,signed])=>{const a=f(W),b=f(L),diff=a-b;const big=Math.abs(diff)>=Math.abs(b||1)*0.15;
+    return `<tr><td>${l}</td><td class="${big?(diff*dir>0?'better':'worse'):''}">${signed?sgn(a):fmt(a,d)}</td><td>${signed?sgn(b):fmt(b,d)}</td><td>${sgn(diff,d)}</td></tr>`}).join('');
+  $('winloss').innerHTML=`<table class="wl"><thead><tr><th>Показатель</th><th>Победы (${W.length})</th><th>Поражения (${L.length})</th><th>Разница</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 const DETAIL={};
 function detailHTML({g,m,o}){
   const rv=review(g,m);
   const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
-  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}<div class="chart creview" data-id="${g.id}"></div>${bench({g,m})}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none"><div class="map sm">${mapSVG(m.dpos||[],false)}</div><div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
+  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${impactBlock(g,m)}<div class="chart creview" data-id="${g.id}"></div>${bench({g,m})}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none"><div class="map sm">${mapSVG(m.dpos||[],false)}</div><div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
 }
 function gameRow(r){
   DETAIL[r.g.id]=r;
@@ -798,6 +878,7 @@ function gameRow(r){
   const d15=m.diffs[15];
   const chips=[];
   const lr=laneRes(m);if(lr)chips.push(`<span class="chip ${lr==='w'?'g':lr==='l'?'b':''}">линия ${LANE[lr]} ${sgn(d15.gold)}</span>`);
+  if(m.tr)chips.push(`<span class="chip ${m.tr===1?'g':m.tr===5?'b':''}">${m.ar===1?'MVP · ':''}вклад #${m.tr} в команде</span>`);
   if(m.early_d>=2)chips.push(`<span class="chip b">${m.early_d} ран. смерти</span>`);
   if(m.dshare>=28)chips.push(`<span class="chip g">${fmt(m.dshare,0)}% урона</span>`);
   const duo=o?`<div class="vs">${cimg(o.c,'sm')} DrVoldemar: ${o.k}/${o.d}/${o.a}, ${ROLE[o.pos]||''}${o.team!==m.team?' (против тебя)':''}</div>`:'';
@@ -840,12 +921,14 @@ function render(){
   try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(e){}
   document.querySelectorAll('#who button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.who));
   document.querySelectorAll('#queue button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.queue));
+  document.querySelectorAll('#res button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===st.res));
   const list=rows();
   const sl=$('ngames');sl.max=Math.max(10,Math.ceil(TOTAL/10)*10);sl.value=st.n&&st.n<TOTAL?st.n:sl.max;nlab();
-  $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} игр в выборке · обновлено ${META.updated} · патч ${META.patch}`;
+  $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} ${({all:'игр',win:'побед',loss:'поражений'})[st.res]} в выборке · обновлено ${META.updated} · патч ${META.patch}`;
   $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=st.who==='duo';
   if(st.who==='duo'){duoNotes(list);trend(list);champs(list);lanes(list);activity(list)}
   else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list)}
+  impact(list);winloss();
   CUR=list;showGames();showView();
 }
 $('games').addEventListener('toggle',e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){d.innerHTML=detailHTML(DETAIL[d.dataset.id]);d.querySelectorAll('.creview').forEach(renderCR)}},true);
@@ -886,6 +969,7 @@ $('askclear').onclick=()=>{if(chatCtl)return;chatTurns=[];renderChat()};
 if(window.claude&&claude.use){claude.use('sample').then(s=>{SAMPLE=s;SAMPLE_STATE=s?'on':'off';coachAvail()}).catch(()=>{SAMPLE_STATE='off';coachAvail()})}else SAMPLE_STATE='off';
 document.querySelectorAll('#who button').forEach(b=>b.onclick=()=>{st.who=b.dataset.v;render()});
 document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.dataset.v;render()});
+document.querySelectorAll('#res button').forEach(b=>b.onclick=()=>{st.res=b.dataset.r;render()});
 $('plates').innerHTML=META.ranks.map(r=>`<div class="plate"><div class="who">${esc(r.name)}</div>${r.q.map(q=>`<div class="rk">${q.t}: <b>${q.r}</b> · ${q.wl}</div>`).join('')}</div>`).join('');
 $('foot').textContent=`Данные: Riot API (все игры сезона с 8 января, рейтинговые и обычные, только Ущелье призывателей, игры короче 10 минут не считаются). Разница с оппонентом считается против игрока той же роли во вражеской команде. «Мало» в таблицах: меньше 5 игр, винрейт ненадёжен. Иконки и названия: Data Dragon ${META.dd}.`;
 render();

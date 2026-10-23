@@ -53,6 +53,8 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
     plist.append(dict(c=p['championName'],n=p['riotIdGameName'],t=p['riotIdTagline'],team=p['teamId'],pos=p['teamPosition'],
       k=p['kills'],d=p['deaths'],a=p['assists'],cs=p['totalMinionsKilled']+p['neutralMinionsKilled'],dmg=p['totalDamageDealtToChampions'],
       g=p['goldEarned'],items=[p[f'item{j}'] for j in range(7)],me=P.get(p['puuid']),
+      taken=p['totalDamageTaken']+p['damageSelfMitigated'],vs=p['visionScore'],obj=p['damageDealtToBuildings']+0.3*p['damageDealtToEpicMonsters'],
+      cc=p['timeCCingOthers'],heal=p['totalHealsOnTeammates']+p['totalDamageShieldedOnTeammates'],pid=p['participantId'],
       sg=ser[p['participantId']]['gold'],sx=ser[p['participantId']]['xp'],sc=ser[p['participantId']]['cs'],buys=buys[p['participantId']]))
   me_list=[]
   for p in parts:
@@ -108,6 +110,28 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
       firstblood=p['firstBloodKill'] or p['firstBloodAssist'],
       dpos=dpos,skills=skills,first=[i for i,t in buys[pid] if 'Boots' not in ITEMS[str(i)].get('tags',[])][:2],
       perks=[sel['perk'] for st_ in perks for sel in st_['selections']]))
+  W=dict(dmg=.28,kp=.20,g=.15,taken=.10,obj=.07,vs=.08,cc=.05,heal=.04)
+  for tm in (100,200):
+    T=[q for q in plist if q['team']==tm]
+    tk=sum(q['k'] for q in T) or 1
+    tot={k:sum(q[k] for q in T) for k in ('dmg','g','taken','vs','obj','cc','heal','d')}
+    for q in T:
+      rel=lambda k:min(2.5,q[k]*len(T)/tot[k]) if tot[k] else 1
+      kp=(q['k']+q['a'])/tk
+      raw=W['kp']*min(2.5,kp/0.5)+sum(W[k]*rel(k) for k in ('dmg','g','taken','vs','obj','cc','heal'))-0.10*rel('d')
+      q['raw']=raw
+  mx=max(q['raw'] for q in plist) or 1
+  for tm in (100,200):
+    T=sorted([q for q in plist if q['team']==tm],key=lambda q:-q['raw'])
+    st_=sum(q['raw'] for q in T) or 1
+    for j_,q in enumerate(T): q['tr']=j_+1; q['share']=round(q['raw']/st_*100,1)
+  for j_,q in enumerate(sorted(plist,key=lambda q:-q['raw'])): q['ar']=j_+1
+  mn=min(q['raw'] for q in plist)
+  for q in plist: q['imp']=round(1+9*(q['raw']-mn)/((mx-mn) or 1),1); del q['raw']
+  for m_ in me_list:
+    q=next(q for q in plist if q['pid']==m_['pid']); m_['imp']=q['imp']; m_['tr']=q['tr']; m_['ar']=q['ar']; m_['share']=q['share']
+  for q in plist:
+    for k in ('taken','obj','cc','heal','pid'): q.pop(k,None)
   games.append(dict(id=x['metadata']['matchId'],q=i['queueId'],qn=Q[i['queueId']],start=i['gameStartTimestamp'],dur=round(dur,1),
     ver='.'.join(i['gameVersion'].split('.')[:2]),win100=teams[100]['win'],
     obj={t:{k:v['kills'] for k,v in teams[t]['objectives'].items()} for t in teams},
