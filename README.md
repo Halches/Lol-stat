@@ -18,3 +18,9 @@ Workflow `.github/workflows/update.yml` раз в 30 минут спрашива
 - `analyze.py` — считает статистику и добавляет новые игры в `games.json`.
 - `icons.py` — иконки и названия из Data Dragon (докачивает только новые в `icons.json`).
 - `build.py` — собирает страницу из `template.html`.
+
+## Обновление версии в Claude (с тренером)
+
+Если заданы секреты `CLAUDE_FIRE_URL` и `CLAUDE_FIRE_TOKEN`, после каждой публикации новых игр workflow запускает
+задачу Claude «Обновить сайт LoL в Claude», которая перекладывает свежий `index.html` в артефакт.
+URL и токен берутся на claude.ai/code/routines → задача → Edit → Trigger → API.

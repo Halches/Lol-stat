@@ -68,7 +68,24 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html tools/games.json tools/icons.json tools/seen.json
+          git add index.html tools/games.json tools/icons.json tools/seen.json tools/ranks.json
           git commit -m "Новые игры: ${{ steps.fetch.outputs.new }}" || exit 0
           git push
           gh api -X POST "repos/${{ github.repository }}/pages/builds" || true
+
+      - name: Обновить версию в Claude
+        if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
+        env:
+          FIRE_URL: ${{ secrets.CLAUDE_FIRE_URL }}
+          FIRE_TOKEN: ${{ secrets.CLAUDE_FIRE_TOKEN }}
+        run: |
+          if [ -z "$FIRE_URL" ] || [ -z "$FIRE_TOKEN" ]; then
+            echo "::notice::CLAUDE_FIRE_URL/CLAUDE_FIRE_TOKEN не заданы, версию в Claude не трогаю."
+            exit 0
+          fi
+          curl -sS -X POST "$FIRE_URL" \
+            -H "Authorization: Bearer $FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d '{}' || echo "::warning::Не удалось запустить обновление в Claude"
