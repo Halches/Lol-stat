@@ -1,0 +1,43 @@
+name: Текущая игра
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-game
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+    steps:
+      - name: Проверить ключ
+        id: key
+        run: |
+          if [ -z "$RIOT_API_KEY" ]; then echo "ok=0" >> "$GITHUB_OUTPUT"; else echo "ok=1" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == '1'
+      - name: Спросить Riot о текущей игре
+        if: steps.key.outputs.ok == '1'
+        working-directory: tools
+        run: python3 live.py
+      - name: Опубликовать
+        if: steps.key.outputs.ok == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git diff --quiet data/live.json tools/champ_ids.json 2>/dev/null && [ -z "$(git status --porcelain tools/champ_ids.json)" ] && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/live.json tools/champ_ids.json
+          git commit -m "Текущая игра"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push && break; sleep 5; done
+          gh api -X POST "repos/${{ github.repository }}/pages/builds" || true

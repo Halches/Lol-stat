@@ -1,5 +1,5 @@
 import json,os,urllib.request,datetime,collections
-K=os.environ['RIOT_API_KEY']
+K=os.environ.get('RIOT_API_KEY','').strip().strip('"')
 P=[('Halch#9200','rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA'),
    ('DrVoldemar#EUW','8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ')]
 T={'IRON':'Железо','BRONZE':'Бронза','SILVER':'Серебро','GOLD':'Золото','PLATINUM':'Платина','EMERALD':'Изумруд','DIAMOND':'Алмаз','MASTER':'Мастер','GRANDMASTER':'Грандмастер','CHALLENGER':'Претендент'}
@@ -19,6 +19,17 @@ except Exception as e:
  print('ranks: не удалось обновить, беру сохранённые', e)
  ranks=json.load(open('ranks.json')) if os.path.exists('ranks.json') else []
 games=json.load(open('games.json'))
+# мастерство чемпионов
+mastery={}
+try:
+  idmap={int(v['key']):v['id'] for v in json.load(open('dd/champion.json'))['data'].values()}
+  for n,p in P:
+    r=json.load(urllib.request.urlopen(urllib.request.Request(f'https://euw1.api.riotgames.com/lol/champion-mastery/v4/champion-masteries/by-puuid/{p}',headers={'X-Riot-Token':K,'User-Agent':'curl/8'})))
+    mastery['halch' if n.startswith('Halch') else 'drv']=[[idmap.get(x['championId'],str(x['championId'])),x['championLevel'],x['championPoints'],x['lastPlayTime']] for x in r]
+  json.dump(mastery,open('mastery.json','w'),separators=(',',':'))
+except Exception as e:
+  print('mastery: не удалось обновить, беру сохранённое', e)
+  mastery=json.load(open('mastery.json')) if os.path.exists('mastery.json') else {}
 patch=games[0]['ver']
 msk=datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=3)
 lp=json.load(open('lp_history.json')) if os.path.exists('lp_history.json') else []
@@ -26,7 +37,7 @@ for x in snap:
   last=next((h for h in reversed(lp) if h['who']==x['who'] and h['q']==x['q']),None)
   if not last or any(last[k]!=x[k] for k in ('tier','div','lp','w','l')): lp.append({'t':int(datetime.datetime.now().timestamp()*1000),**x})
 json.dump(lp,open('lp_history.json','w'),ensure_ascii=False,separators=(',',':'))
-meta=dict(ranks=ranks,updated=msk.strftime('%d.%m %H:%M')+' МСК',patch=patch,dd=open('dd/ver').read().strip(),lp=lp,lola=json.load(open('lola.json')) if os.path.exists('lola.json') else {})
+meta=dict(ranks=ranks,updated=msk.strftime('%d.%m %H:%M')+' МСК',patch=patch,dd=open('dd/ver').read().strip(),lp=lp,mastery=mastery,lola=json.load(open('lola.json')) if os.path.exists('lola.json') else {})
 OUT=os.environ.get('OUT','..')
 os.makedirs(f'{OUT}/data',exist_ok=True)
 for f in os.listdir(f'{OUT}/data'):

@@ -1,5 +1,5 @@
 import os,json,time,urllib.request,urllib.error,sys
-K=os.environ['RIOT_API_KEY']; D='data'
+K=os.environ.get('RIOT_API_KEY','').strip().strip('"'); D='data'
 P={'Halch#9200':'rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA',
    'DrVoldemar#EUW':'8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ'}
 def get(url):
