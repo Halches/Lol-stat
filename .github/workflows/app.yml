@@ -49,6 +49,21 @@ jobs:
           mv tools/dd/runesReforged.json tools/dd/runes.json
           python app/make_assets.py
 
+      - name: Голоса для скачивания из программы (релиз voices, один раз)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view voices *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "voices уже есть"; exit 0 }
+          New-Item -ItemType Directory vdl | Out-Null
+          foreach ($v in "denis","dmitri","irina","ruslan") {
+            $hf = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/$v/medium/ru_RU-$v-medium.onnx"
+            Invoke-WebRequest $hf -OutFile "vdl/ru_RU-$v-medium.onnx"
+            Invoke-WebRequest "$hf.json" -OutFile "vdl/ru_RU-$v-medium.onnx.json"
+          }
+          gh release create voices (Get-ChildItem vdl).FullName --title "Голоса Piper для LoL Helper" --notes "Русские голоса Piper (rhasspy/piper-voices v1.0.0), скачиваются программой по выбору." --latest=false
+
       - name: Собрать exe
         shell: pwsh
         run: |

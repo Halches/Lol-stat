@@ -2,6 +2,7 @@
 import array, io, math, os, queue, subprocess, sys, tempfile, threading, urllib.request, wave
 
 VOICES = {'dmitri': 'Дмитрий', 'denis': 'Денис', 'ruslan': 'Руслан', 'irina': 'Ирина'}
+GH = 'https://github.com/Halches/Lol-stat/releases/download/voices/ru_RU-{v}-medium.onnx'
 HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/{v}/medium/ru_RU-{v}-medium.onnx'
 NOWIN = 0x08000000
 BEEP = object()   # метка сигнала в очереди звука
@@ -34,20 +35,28 @@ class Voice:
         return None
 
     def download(self, v, progress=None):
-        """Скачать голос с huggingface в %APPDATA%. Возвращает путь или бросает ошибку."""
+        """Скачать голос в %APPDATA%: сначала с GitHub (открывается без VPN), потом с huggingface."""
         d = os.path.join(self.home, 'voices'); os.makedirs(d, exist_ok=True)
         dst = os.path.join(d, f'ru_RU-{v}-medium.onnx')
-        for url, out in ((HF.format(v=v) + '.json', dst + '.json'), (HF.format(v=v), dst)):
-            tmp = out + '.part'
-            with urllib.request.urlopen(url, timeout=30) as r, open(tmp, 'wb') as f:
-                total, got = int(r.headers.get('Content-Length') or 0), 0
-                while True:
-                    b = r.read(1 << 16)
-                    if not b: break
-                    f.write(b); got += len(b)
-                    if progress and total: progress(got / total)
-            os.replace(tmp, out)
-        return dst
+        errors = []
+        for base in (GH, HF):
+            try:
+                for url, out, min_size in ((base.format(v=v) + '.json', dst + '.json', 1000), (base.format(v=v), dst, 10 << 20)):
+                    tmp = out + '.part'
+                    req = urllib.request.Request(url, headers={'User-Agent': 'LoLHelper'})
+                    with urllib.request.urlopen(req, timeout=30) as r, open(tmp, 'wb') as f:
+                        total, got = int(r.headers.get('Content-Length') or 0), 0
+                        while True:
+                            b = r.read(1 << 18)
+                            if not b: break
+                            f.write(b); got += len(b)
+                            if progress and total and min_size > 1000: progress(got / total)
+                    if got < min_size or (total and got != total): raise IOError(f'скачано {got} байт')
+                    os.replace(tmp, out)
+                return dst
+            except Exception as e:
+                errors.append(f"{'GitHub' if base is GH else 'huggingface'}: {e}")
+        raise IOError('; '.join(errors))
 
     # ---- синтез и воспроизведение
     def synth(self, text):
