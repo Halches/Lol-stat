@@ -194,6 +194,9 @@ def selftest():
         except Exception as e:
             out.append(f'edge failed: {e!r}')
         import edge_tts  # noqa: F401  (должен быть внутри exe)
+        import webview, sitewin  # noqa: F401  (окно сайта)
+        p = sitewin.page(home())
+        out.append(f'site page {p and os.path.getsize(p)}')
     except Exception:
         out.append(traceback.format_exc()); ok = False
     out.append('OK' if ok else 'FAIL')
@@ -203,6 +206,13 @@ def selftest():
 
 def main():
     if '--selftest' in sys.argv: selftest()
+    if '--site' in sys.argv:
+        try:
+            import sitewin; sitewin.run(home())
+        except Exception:
+            open(os.path.join(home(), 'site_error.txt'), 'w', encoding='utf-8').write(traceback.format_exc())
+            import webbrowser; webbrowser.open('https://halches.github.io/Lol-stat/')
+        return
     try:
         import ui
         app = ui.App(load_data(), VERSION, updater)

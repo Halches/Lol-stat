@@ -180,10 +180,6 @@ def draft_suggest(player, role, enemies=(), unavailable=(), top=3):
     return {'opp': opp, 'roles': roles, 'picks': out[:top]}
 
 
-def ban_suggest(player, unavailable=(), top=3):
-    return [(c, n, w) for c, n, w in player.bad_enemies() if c not in unavailable][:top]
-
-
 def parse_champ_select(sess, data):
     """Сессия выбора чемпионов из LCU -> удобный вид."""
     me_cell = sess.get('localPlayerCellId')
@@ -583,8 +579,9 @@ def postgame(engine, g, player):
     return {'goals': res, 'main': worst[0] if worst else None, 'hints': list(engine.fired), 'me': me, 'min': mins}
 
 
-def summarize_history(hist, champ_id):
-    """Короткая характеристика игрока по последним играм: серия, винрейт, игры на текущем чемпионе, KDA."""
+def summarize_history(hist, champ_id, pos=None):
+    """Характеристика игрока по последним играм: серия, винрейт, игры на чемпионе, KDA и паттерны —
+    тильт, в чём силён, в чём слаб (фарм, смерти, урон, обзор)."""
     if not hist: return None
     w = sum(h['win'] for h in hist)
     st = 0
@@ -600,7 +597,50 @@ def summarize_history(hist, champ_id):
     if st >= 3: tags.append(f'серия побед {st}')
     if st <= -3: tags.append(f'серия поражений {-st}')
     out['tags'] = tags
+    out['tilt'], out['good'], out['bad'] = history_patterns(hist, pos)
     return out
+
+
+def history_patterns(hist, pos=None):
+    """Тильт, сильные и слабые стороны по последним играм клиента. Пороги — для Изумруда, у саппорта и леса свои."""
+    tilt, good, bad = [], [], []
+    st = 0
+    for h in hist:
+        if st == 0 or (st > 0) == h['win']: st += 1 if h['win'] else -1
+        else: break
+    if st <= -3: tilt.append(f'{plural(-st, "поражение", "поражения", "поражений")} подряд')
+    last5 = hist[:5]
+    if len(last5) == 5 and sum(not h['win'] for h in last5) >= 4 and st > -3: tilt.append(f'{sum(not h["win"] for h in last5)} из 5 последних проиграны')
+    ds = [h['d'] for h in hist]
+    if len(ds) >= 6:
+        recent, before = sum(ds[:3]) / 3, sum(ds[3:]) / len(ds[3:])
+        if recent >= before + 2 and recent >= 6: tilt.append(f'смертей всё больше: {recent:.0f} за игру против {before:.0f} раньше')
+    if st >= 3: good.append(f'в форме, {plural(st, "победа", "победы", "побед")} подряд')
+    games = [h for h in hist if h.get('dur', 0) >= 600]
+    if len(games) < 3: return tilt, good, bad
+    mins = sum(h['dur'] for h in games) / 60
+    n = len(games)
+    avg_d = sum(h['d'] for h in games) / n
+    kda = sum(h['k'] + h['a'] for h in games) / max(1, sum(h['d'] for h in games))
+    if avg_d <= 4: good.append(f'редко умирает ({avg_d:.1f} за игру)')
+    elif avg_d >= 7: bad.append(f'часто умирает ({avg_d:.1f} за игру)')
+    if kda >= 4: good.append(f'KDA {kda:.1f}')
+    elif kda <= 2: bad.append(f'KDA {kda:.1f}')
+    if 'cs' in games[0]:
+        sup = pos == 'UTILITY'
+        csm = sum(h['cs'] for h in games) / mins
+        if not sup:
+            hi, lo = (6.5, 4.8) if pos == 'JUNGLE' else (7.5, 5.8)
+            if csm >= hi: good.append(f'хорошо фармит ({csm:.1f} CS/мин)')
+            elif csm <= lo: bad.append(f'слабый фарм ({csm:.1f} CS/мин)')
+        dmg = sum(h['dmg'] for h in games) / mins
+        if dmg >= (700 if sup else 900): good.append(f'много урона ({dmg:.0f}/мин)')
+        elif not sup and dmg <= 450: bad.append(f'мало урона ({dmg:.0f}/мин)')
+        vis = sum(h['vis'] for h in games) / mins
+        hi, lo = (2.2, 1.3) if sup else (1.2, .45)
+        if vis >= hi: good.append(f'сильный обзор ({vis:.1f}/мин)')
+        elif vis <= lo: bad.append(f'мало обзора ({vis:.1f}/мин)')
+    return tilt, good, bad
 
 
 def item_remaining(data, it, owned):
@@ -704,4 +744,165 @@ def lola_build_items(b):
     for opts in (b['i4'], b['i5'], b['i6']):
         it = next((x for x in opts if x not in out), None)
         if it: out.append(it)
+    return out
+
+
+# ---------------- Контрпики, синергия и баны (lolalytics, Изумруд+) ----------------
+
+def lola_api(ep, champ, role):
+    """JSON lolalytics: ep='counter' — винрейт champ против каждого на линии, ep='build-team' — с каждым союзником."""
+    return (f"https://a1.lolalytics.com/mega/?ep={ep}&v=1&patch=30&c={LOLA_FIX.get(champ, champ.lower())}"
+            f"&lane={LOLA_LANE.get(role, 'top')}&tier=emerald_plus&queue=ranked&region=all")
+
+
+def lola_counters(j, data, min_n=150):
+    """Ответ ep=counter -> {враг: (винрейт champ против него, Δ2, игр)}. Δ2 < 0 — champ проигрывает ему сверх ожидаемого.
+    Редкие на линии чемпионы (меньше 0,4% матчапов) отбрасываем: высокий винрейт на 200 играх — шум, а не контрпик."""
+    rows = (j or {}).get('counters') or []
+    floor = max(min_n, sum(x.get('n', 0) for x in rows) * .004)
+    out = {}
+    for x in rows:
+        c = data.ids.get(str(x.get('cid')))
+        if c and x.get('n', 0) >= floor: out[c] = (x['vsWr'], x['d2'], x['n'])
+    return out
+
+
+def lola_team(j, data, min_n=150):
+    """Ответ ep=build-team -> {(линия LCU, союзник): (винрейт вместе, Δ2, игр)}."""
+    back = {v: k for k, v in LOLA_LANE.items()}
+    out = {}
+    for lane, rows in ((j or {}).get('team') or {}).items():
+        for cid, wr, d1, d2, pr, n in rows:
+            c = data.ids.get(str(cid))
+            if c and n >= min_n: out[(back.get(lane, lane), c)] = (wr, d2, n)
+    return out
+
+
+def counter_picks(cnt, top=3, pool=()):
+    """Кто контрит врага: у кого он сильнее всего проигрывает (Δ2). Чемпионы из пула идут отдельно."""
+    worst = sorted(cnt.items(), key=lambda kv: kv[1][1])
+    return ([(c, -d2, 100 - wr) for c, (wr, d2, n) in worst if d2 <= -1][:top],
+            [(c, -cnt[c][1], 100 - cnt[c][0]) for c in pool if c in cnt])
+
+
+def ban_suggest(player, unavailable=(), top=3, role=None, cnt=None):
+    """Кого банить на твоей линии: твои игры против него на этой линии + насколько он контрит твой пул (lolalytics Δ2).
+    cnt — {твой чемпион: lola_counters(...)} для чемпионов пула на этой линии."""
+    data = player.data
+    score, why = {}, {}
+    by = {}
+    for g in player.games:
+        if g['opp'] and (role is None or g['pos'] == role):
+            o = by.setdefault(g['opp'], [0, 0]); o[0] += 1; o[1] += g['w']
+    for c, (n, w) in by.items():
+        if n >= 2 and w / n < .5:
+            score[c] = score.get(c, 0) + (n - 2 * w) * 1.5
+            why.setdefault(c, []).append(f'ты {w}–{n - w}')
+    mine = cnt or {}
+    for c in {e for v in mine.values() for e in v}:
+        hurt = [(m, -v[c][1]) for m, v in mine.items() if c in v and v[c][1] < 0]
+        if not hurt: continue
+        s = sum(h for _, h in hurt) / max(1, len(mine))
+        if s < .8: continue
+        score[c] = score.get(c, 0) + s
+        hurt.sort(key=lambda x: -x[1])
+        why.setdefault(c, []).append('контрит ' + ', '.join(f'{data.cn(m)} −{h:.1f}%' for m, h in hurt[:2]))
+    out = [(c, s, ' · '.join(why[c])) for c, s in score.items() if c not in unavailable]
+    out.sort(key=lambda x: -x[1])
+    return out[:top]
+
+
+def ban_pool(player, role, top=3):
+    """Чемпионы, на которых ты скорее всего сыграешь на линии: пул, иначе самые частые."""
+    pool = list(player.pool.get(role, []))
+    if len(pool) < top:
+        cnt = {}
+        for g in player.on(pos=role): cnt[g['c']] = cnt.get(g['c'], 0) + 1
+        pool += [c for c, _ in sorted(cnt.items(), key=lambda kv: -kv[1]) if c not in pool]
+    return pool[:max(top, len(player.pool.get(role, [])))][:5]
+
+
+# ---------------- История матчей из клиента ----------------
+
+QUEUE_RU = {420: 'Одиночная', 440: 'Гибкая', 400: 'Обычная', 430: 'Обычная', 490: 'Быстрая', 450: 'ARAM', 1700: 'Арена', 1900: 'URF'}
+TIER_ORDER = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER']
+DIV_ORDER = {'IV': 0, 'III': 1, 'II': 2, 'I': 3}
+
+
+def ladder(r):
+    """Звание одним числом, чтобы считать разницу LP через повышения: 100 LP на дивизион."""
+    if not r or r.get('tier') not in TIER_ORDER: return None
+    t = TIER_ORDER.index(r['tier'])
+    if t >= 7: return 2800 + r.get('lp', 0)
+    return t * 400 + DIV_ORDER.get(r.get('div'), 0) * 100 + r.get('lp', 0)
+
+
+def lp_changes(hist, snaps):
+    """LP за каждую одиночную игру по снимкам звания [время мс, ladder]: снимок до игры и первый после,
+    если между ними не было других одиночных игр. {gid: +/-LP}."""
+    out = {}
+    solo = sorted((h for h in hist if h.get('q') == 420), key=lambda h: h['t'])
+    for i, h in enumerate(solo):
+        end = h['t'] + h.get('dur', 0) * 1000
+        nxt = solo[i + 1]['t'] if i + 1 < len(solo) else float('inf')
+        before = [v for t, v in snaps if t <= h['t']]
+        after = [v for t, v in snaps if end <= t < nxt]
+        if before and after: out[h['gid']] = after[0] - before[-1]
+    return out
+
+
+def lcu_pos(p):
+    tl = p.get('timeline') or {}
+    lane, role = (tl.get('lane') or '').upper(), (tl.get('role') or '').upper()
+    if lane in ('MID', 'MIDDLE'): return 'MIDDLE'
+    if lane in ('BOT', 'BOTTOM'): return 'UTILITY' if 'SUPPORT' in role else 'BOTTOM'
+    return lane if lane in ('TOP', 'JUNGLE') else ''
+
+
+def review_game(g, puuid, data):
+    """Разбор игры из /lol-match-history/v1/games/{id}: обе команды и короткий разбор твоей игры против оппонента по линии."""
+    if not g: return None
+    who = {x.get('participantId'): x.get('player') or {} for x in g.get('participantIdentities') or []}
+    mins = max(1, (g.get('gameDuration') or 0) / 60)
+    rows = []
+    for p in g.get('participants') or []:
+        st, pl = p.get('stats') or {}, who.get(p.get('participantId'), {})
+        rows.append({'team': p.get('teamId'), 'c': data.ids.get(str(p.get('championId'))), 'pos': lcu_pos(p),
+                     'name': pl.get('gameName') or pl.get('summonerName') or '', 'me': pl.get('puuid') == puuid,
+                     'win': bool(st.get('win')), 'k': st.get('kills', 0), 'd': st.get('deaths', 0), 'a': st.get('assists', 0),
+                     'cs': st.get('totalMinionsKilled', 0) + st.get('neutralMinionsKilled', 0), 'gold': st.get('goldEarned', 0),
+                     'dmg': st.get('totalDamageDealtToChampions', 0), 'vis': st.get('visionScore', 0), 'lvl': st.get('champLevel', 0),
+                     'items': [st.get(f'item{i}', 0) for i in range(7)]})
+    me = next((r for r in rows if r['me']), None)
+    out = {'rows': rows, 'min': mins, 'me': me, 'q': g.get('queueId'), 'lines': []}
+    if not me: return out
+    team = [r for r in rows if r['team'] == me['team']]
+    opp = next((r for r in rows if r['team'] != me['team'] and r['pos'] and r['pos'] == me['pos']), None)
+    out['opp'] = opp
+    tk_ = sum(r['k'] for r in team) or 1
+    kp = (me['k'] + me['a']) / tk_ * 100
+    share = me['dmg'] / max(1, sum(r['dmg'] for r in team)) * 100
+    csm, vsm = me['cs'] / mins, me['vis'] / mins
+    good, bad = [], []
+    sup, jg = me['pos'] == 'UTILITY', me['pos'] == 'JUNGLE'
+    if not sup:
+        lo, hi = (5, 6.5) if jg else (6, 7.5)
+        (good if csm >= hi else bad if csm < lo else []).append(f'фарм {csm:.1f} CS/мин')
+    (good if me['d'] <= 3 else bad if me['d'] >= 7 else []).append(f'{plural(me["d"], "смерть", "смерти", "смертей")}')
+    (good if kp >= 60 else bad if kp < 40 else []).append(f'участие в убийствах {kp:.0f}%')
+    vg, vb = (2.0, 1.2) if sup else (1.0, .5)
+    (good if vsm >= vg else bad if vsm < vb else []).append(f'обзор {vsm:.1f}/мин')
+    if not sup: (good if share >= 28 else bad if share < 16 else []).append(f'{share:.0f}% урона команды')
+    if opp:
+        dg, dc = me['gold'] - opp['gold'], me['cs'] - opp['cs']
+        t = f"против {data.cn(opp['c'])}: золото {dg:+d}, CS {dc:+d}, {me['k']}/{me['d']}/{me['a']} против {opp['k']}/{opp['d']}/{opp['a']}"
+        out['lines'].append((t[0].upper() + t[1:], 'good' if dg > 500 else 'bad' if dg < -500 else 'fg'))
+    if good: out['lines'].append(('Хорошо: ' + ', '.join(good), 'good'))
+    if bad: out['lines'].append(('Плохо: ' + ', '.join(bad), 'bad'))
+    tip = None
+    if me['d'] >= 7: tip = 'меньше смертей: каждую смерть разбирай — где не было варда и куда пропал лесник врага'
+    elif not sup and csm < (5 if jg else 6): tip = 'фарм: доигрывай волны между драками, не уходи с линии с полной волной'
+    elif kp < 40: tip = 'чаще присоединяйся к драке за объекты, держи телепорт или ротацию к дракону'
+    elif vsm < vb: tip = 'больше вардов: покупай контрольный вард при каждом возвращении'
+    if tip: out['lines'].append(('Главное на следующую игру: ' + tip, 'gold'))
     return out

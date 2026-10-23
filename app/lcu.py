@@ -125,9 +125,19 @@ class LCU:
             st = p.get('stats') or {}
             out.append({'win': bool(st.get('win')), 'champ': p.get('championId'), 'k': st.get('kills', 0), 'd': st.get('deaths', 0),
                         'a': st.get('assists', 0), 'q': g.get('queueId'), 't': g.get('gameCreation', 0),
-                        'lane': ((p.get('timeline') or {}).get('lane') or '')})
+                        'lane': ((p.get('timeline') or {}).get('lane') or ''), 'role': ((p.get('timeline') or {}).get('role') or ''),
+                        'gid': g.get('gameId'), 'dur': g.get('gameDuration') or 0,
+                        'cs': st.get('totalMinionsKilled', 0) + st.get('neutralMinionsKilled', 0),
+                        'dmg': st.get('totalDamageDealtToChampions', 0), 'vis': st.get('visionScore', 0), 'gold': st.get('goldEarned', 0),
+                        'items': [st.get(f'item{i}', 0) for i in range(7)], 'spells': [p.get('spell1Id'), p.get('spell2Id')],
+                        'lvl': st.get('champLevel', 0), 'perk': st.get('perk0')})
         out.sort(key=lambda x: -x['t'])
         return out
+
+    def game(self, gid):
+        """Подробности одной игры: все десять участников."""
+        try: return self.call(f'/lol-match-history/v1/games/{gid}')
+        except Exception: return None
 
     def phase(self):
         return self.call('/lol-gameflow/v1/gameflow-phase') or 'None'

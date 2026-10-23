@@ -1,8 +1,8 @@
 # Окна LoL Helper: панель управления, виджеты поверх игры, дашборд на втором мониторе, таблица по Tab, итог игры.
 # Внешний вид (тема, акцент, шрифт, иконки) настраивается на вкладке «Вид» и применяется сразу: окна пересобираются.
-import base64, io, json, os, queue, threading, time, urllib.request
+import base64, io, json, os, queue, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 import core, lcu
 from voice import Voice, VOICES, SOUNDS
@@ -120,7 +120,7 @@ DEFAULTS = {
     'hint_preset': 'TOP',
     'widgets': {k: True for k in WIDGETS},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
-    'tab_row': 70, 'tab_rel': {},
+    'tab_step': 76, 'tab_pos': {},
     'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False,
     'theme': 'hextech', 'accent': 'theme', 'font': 'Segoe UI', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
@@ -132,7 +132,7 @@ DEFAULTS = {
 SECTIONS = {   # что сбрасывает кнопка «По умолчанию» в каждом разделе
     'hints': ['hints', 'hints_role'], 'voice': ['voice', 'volume', 'rate', 'master', 'beep_volume', 'sound'],
     'look': ['theme', 'accent', 'font', 'scale', 'icon', 'alpha', 'widget_bg', 'show'],
-    'windows': ['widgets', 'perf', 'tab_row', 'tab_rel', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
+    'windows': ['widgets', 'perf', 'tab_step', 'tab_pos', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
 }
 
 
@@ -443,52 +443,68 @@ class TimersOverlay(Overlay):
 
 
 class TabOverlay(Overlay):
-    """Окно поверх игровой таблицы Tab: позиция хранится относительно окна игры и идёт за ним."""
-    def __init__(self, app, key, rel):
-        rect = game_rect()
-        r = app.s['tab_rel'].get(key, rel)
-        super().__init__(app, key, (rect[0] + r[0] * rect[2], rect[1] + r[1] * rect[3]))
-        self.rel = r
+    """Окно поверх игровой таблицы Tab. Таблица стоит по центру окна игры и масштабируется по его высоте,
+    поэтому позиция хранится как [смещение от центра по X, Y] в долях высоты окна игры и идёт за игрой.
+    anchor: 'ne' — точка задаёт правый верхний угол (числа слева от таблицы), 's' — середину нижнего края (над рамкой)."""
+    anchor, default = 'ne', [-.553, .288]
+
+    def __init__(self, app, key):
+        super().__init__(app, key, (0, 0))
         self.withdraw()
+
+    def pos(self):
+        return self.app.s['tab_pos'].get(self.key, self.default)
+
+    def size(self):
+        return (self._ph.width(), self._ph.height()) if self._ph else (0, 0)
 
     def follow(self):
         gx, gy, gw, gh = game_rect()
-        self.rel = self.app.s['tab_rel'].get(self.key, self.rel)
-        self.geometry(f'+{int(gx + self.rel[0] * gw)}+{int(gy + self.rel[1] * gh)}')
+        dx, y = self.pos()
+        w, h = self.size()
+        x = gx + gw / 2 + dx * gh
+        x, y = (x - w, gy + y * gh) if self.anchor == 'ne' else (x - w / 2, gy + y * gh - h)
+        self.geometry(f'+{int(x)}+{int(y)}')
 
     def _end(self, e):
         if self._drag:
             self._drag = None
             gx, gy, gw, gh = game_rect()
-            self.app.s['tab_rel'][self.key] = [(self.winfo_x() - gx) / gw, (self.winfo_y() - gy) / gh]
+            w, h = self.size()
+            x, y = self.winfo_x(), self.winfo_y()
+            x, y = (x + w, y) if self.anchor == 'ne' else (x + w / 2, y + h)
+            self.app.s['tab_pos'][self.key] = [(x - gx - gw / 2) / gh, (y - gy) / gh]
             self.app.s.save()
 
+    def put(self, card):
+        super().put(card); self.follow()
+
     def row_h(self):
-        """Высота строки таблицы: настройка задана для окна высотой 1080, дальше масштабируем по окну игры."""
-        return self.app.s['tab_row'] * game_rect()[3] / 1080
+        """Шаг строк таблицы: настройка задана для окна высотой 1080 (при 1440 это 101 px), дальше масштабируем по окну игры."""
+        return self.app.s['tab_step'] * game_rect()[3] / 1080
 
 
 class TabGold(TabOverlay):
-    """Поверх игровой таблицы по Tab: в каждой из 5 строк союзник стоит напротив своего оппонента — одно число на пару."""
+    """Слева от игровой таблицы по Tab, напротив каждой из 5 строк (союзник против своего оппонента) — одно число на пару."""
     def __init__(self, app, xy=None):
-        super().__init__(app, 'tabgold', [.5, .32])
+        super().__init__(app, 'tabgold')
 
     def _draw(self, vals):
         k = game_rect()[3] / 1080 * self.app.s['scale'] / 100
         rh = self.row_h()
-        W, H = int(110 * k), int(rh * 5)
+        W, H = int(96 * k), int(rh * 5)
         im = Image.new('RGBA', (max(W, 10), max(H, 10)), (0, 0, 0, 0))
         dr = render.ImageDraw.Draw(im)
-        f = render.font(F['font'], max(11, int(17 * k)), True)
+        f = render.font(F['font'], max(11, int(18 * k)), True)
         for i, (text, col, box) in enumerate(vals):
             y = int(i * rh + rh / 2)
             if box: dr.rectangle((0, int(i * rh) + 1, W - 1, int((i + 1) * rh) - 1), outline=render.rgb(C['gold']) + (255,))
-            if text: dr.text((W // 2, y), text, font=f, fill=render.rgb(col) + (255,), anchor='mm', stroke_width=2, stroke_fill=(0, 0, 0, 255))
+            if text: dr.text((W - 4, y), text, font=f, fill=render.rgb(col) + (255,), anchor='rm', stroke_width=2, stroke_fill=(0, 0, 0, 255))
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
+        self.follow()
 
     def show(self, g):
-        self.follow()
         vals = []
         for r in core.ROLES:
             a = next((p for p in g.allies if p['pos'] == r), None)
@@ -500,20 +516,17 @@ class TabGold(TabOverlay):
         self._draw(vals)
 
     def demo(self):
-        self.follow()
         self._draw([(f'{v:+d}', C['fg'], True) for v in (850, -320, 0, 1240, -90)])
 
 
 class TabTop(TabOverlay):
-    """Над игровой таблицей по Tab: общий перевес команды по золоту."""
-    def __init__(self, app, xy=None):
-        super().__init__(app, 'tabtop', [.42, .22])
+    """Над рамкой игровой таблицы по Tab, по центру: общий перевес команды по золоту."""
+    anchor, default = 's', [0, .212]
 
-    def demo(self):
-        self.follow(); super().demo()
+    def __init__(self, app, xy=None):
+        super().__init__(app, 'tabtop')
 
     def show(self, g):
-        self.follow()
         ours, theirs = g.team_gold(g.my_team), sum(p['igold'] for p in g.enemies)
         diff = ours - theirs
         c = self.card(accent='good' if diff > 0 else 'bad' if diff < 0 else None)
@@ -525,19 +538,20 @@ class TabTop(TabOverlay):
 # ---------------- Дашборд на втором мониторе ----------------
 # Во время выбора чемпионов показывает драфт в реальном времени, в игре — карточки всех десяти.
 
-def hist_lines(h, rank=None):
-    """Строки характеристики игрока под портретом."""
-    out = []
-    if rank:
-        out.append((rank_short(rank), 'gold'))
-    if h:
-        st = h['streak']
-        out.append((f"{h['w']}–{h['n'] - h['w']} за {h['n']}", 'fg'))
-        if abs(st) >= 2: out.append((f"серия {'+' if st > 0 else '−'}{abs(st)}", 'good' if st > 0 else 'bad'))
-        if h['on']: out.append((f"на чемп. {h['on']} · {round(h['on_w'] / h['on'] * 100)}%", 'fg'))
-        elif h['tags'] and 'не играл' in h['tags'][-1]: out.append(('новый чемп.', 'bad'))
-        out.append((f"KDA {h['kda']}", 'mute'))
-        if any('почти только' in t for t in h['tags']): out.append(('мейн чемпиона', 'gold'))
+def hist_lines(h):
+    """Характеристика игрока на всю ширину карточки: итог последних игр и паттерны (тильт, сильные и слабые стороны)."""
+    if not h: return []
+    st = h['streak']
+    top = [f"{h['w']}–{h['n'] - h['w']} за {h['n']}"]
+    if abs(st) >= 2: top.append(f"серия {'+' if st > 0 else '−'}{abs(st)}")
+    if h['on']: top.append(f"на чемпионе {h['on']} игр, {round(h['on_w'] / h['on'] * 100)}%")
+    elif h['tags'] and 'не играл' in h['tags'][-1]: top.append('новый чемпион')
+    if any('почти только' in t for t in h['tags']): top.append('мейн чемпиона')
+    top.append(f"KDA {h['kda']}")
+    out = [(' · '.join(top), 'fg')]
+    if h.get('tilt'): out.append(('Тильт: ' + ', '.join(h['tilt']), 'bad'))
+    if h.get('good'): out.append(('Силён: ' + ', '.join(h['good']), 'good'))
+    if h.get('bad'): out.append(('Слаб: ' + ', '.join(h['bad']), 'gold'))
     return out
 
 
@@ -611,7 +625,7 @@ class Dashboard(tk.Toplevel):
         app, d = self.app, self.app.data
         me = cs.get('me')
         eu = app.lola_build(me, r.get('role')) if me else None
-        sig = json.dumps([cs['role'], r.get('role'), me, cs['enemies'], sorted(cs['unavailable']), bool(eu),
+        sig = json.dumps([cs['role'], r.get('role'), me, cs['enemies'], sorted(cs['unavailable']), bool(eu), len(app.lola), bans,
                           [(a['c'], a.get('pos'), bool(a.get('rank')), bool(a.get('hist'))) for a in cs.get('allies', [])], [x['c'] for x in r['picks']]], default=str)
         self.clear('draft')
         if sig == self.draft_sig: return
@@ -626,7 +640,7 @@ class Dashboard(tk.Toplevel):
         allies = sorted(cs.get('allies') or [], key=lambda a: order.get(a.get('pos'), 9))
         enemies = sorted(({'c': c, 'pos': r['roles'].get(c, '')} for c in cs['enemies']), key=lambda a: order.get(a['pos'], 9))
         for col, team in enumerate((allies, enemies + [{}] * (5 - len(enemies)))):
-            for p in team: self.draft_card(col, p, r, eu if p.get('me') else None)
+            for p in team: self.draft_card(col, p, r, eu if p.get('me') else None, app.matchup_lines(p, col, allies, r))
         self.bottom = tk.Frame(self.cols[1], bg=C['bg']); self.bottom.pack(fill='x', pady=(12, 0))
         # снизу: кого взять, кого банить
         b = self.bottom
@@ -637,23 +651,24 @@ class Dashboard(tk.Toplevel):
                          font=(fn, fs(11), 'bold')).grid(row=i + 1, column=0, sticky='w', pady=1)
                 tk.Label(b, text='  ' + x['why'], bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).grid(row=i + 1, column=1, sticky='w')
         if bans:
-            tk.Label(b, text='Кого банить (твои худшие оппоненты)', bg=C['bg'], fg=C['gold'], font=(fn, fs(12), 'bold')).grid(row=5, column=0, columnspan=2, sticky='w', pady=(12, 0))
-            row = tk.Frame(b, bg=C['bg']); row.grid(row=6, column=0, columnspan=2, sticky='w')
-            for c, n, w in bans:
-                tk.Label(row, text=f'{d.cn(c)}\n{w}–{n - w}', image=app.img('champ', c, 1.0) or '', compound='top', bg=C['bg'], fg=C['bad'],
-                         font=(fn, fs(9))).pack(side='left', padx=4)
+            tk.Label(b, text=f'Кого банить на линии {role}', bg=C['bg'], fg=C['gold'], font=(fn, fs(12), 'bold')).grid(row=5, column=0, columnspan=2, sticky='w', pady=(12, 0))
+            for i, (c, sc, why) in enumerate(bans):
+                tk.Label(b, text='  ' + d.cn(c), image=app.img('champ', c, 1.0) or '', compound='left', bg=C['bg'], fg=C['bad'],
+                         font=(fn, fs(11), 'bold')).grid(row=6 + i, column=0, sticky='w', pady=1)
+                tk.Label(b, text='  ' + why, bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).grid(row=6 + i, column=1, sticky='w')
 
-    def draft_card(self, col, p, r, eu):
+    def draft_card(self, col, p, r, eu, extra=None):
         """Карточка игрока в драфте: портрет и характеристика слева, как в игре; у тебя — руны и сборка по Европе."""
         app, d, fn, fs = self.app, self.app.data, F['font'], self.app.fs
         bg = C['panel']
         f = tk.Frame(self.cols[col], bg=bg, padx=8, pady=6, highlightthickness=1, highlightbackground=C['gold'] if p.get('me') else C['line'])
         f.pack(fill='x', pady=3)
-        left = tk.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=4, padx=(0, 8), sticky='n')
+        left = tk.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=3, padx=(0, 8), sticky='n')
         im = app.img('champ', p['c'], 1.6) if p.get('c') else None
         tk.Label(left, image=im or '', text='' if im else '?', bg=bg, fg=C['mute'], font=(fn, fs(22)), width=0 if im else 3).pack()
-        for text, c in hist_lines(p.get('hist'), p.get('rank') if app.s['show']['ranks'] else None):
-            tk.Label(left, text=text, bg=bg, fg=C[c], font=(fn, fs(9))).pack()
+        chars = tk.Frame(f, bg=bg); chars.grid(row=3, column=0, columnspan=4, sticky='we', pady=(4, 0))
+        for text, c in hist_lines(p.get('hist')) + (extra or []):
+            tk.Label(chars, text=text, bg=bg, fg=C[c], font=(fn, fs(10)), anchor='w', justify='left', wraplength=fs(620)).pack(anchor='w')
         sp = tk.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
         if eu:
             for s in eu['spells'][:2]:
@@ -705,7 +720,7 @@ class Dashboard(tk.Toplevel):
         w = {'f': f}
         left = tk.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=4, padx=(0, 8), sticky='n')
         w['por'] = tk.Label(left, bg=bg, fg=C['fg'], font=(fn, fs(10), 'bold'), compound='top'); w['por'].pack()
-        w['chars'] = tk.Frame(left, bg=bg); w['chars'].pack()
+        w['chars'] = tk.Frame(f, bg=bg); w['chars'].grid(row=4, column=0, columnspan=4, sticky='we', pady=(4, 0))
         sp = tk.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
         w['sp'] = [tk.Label(sp, bg=bg) for _ in range(3)]
         for l in w['sp']: l.pack(pady=1)
@@ -741,8 +756,9 @@ class Dashboard(tk.Toplevel):
                 if w['csig'] != csig:   # характеристика под портретом
                     w['csig'] = csig
                     for c in w['chars'].winfo_children(): c.destroy()
-                    for text, c in hist_lines(h, rk if sh['ranks'] else None):
-                        tk.Label(w['chars'], text=text, bg=C['panel'], fg=C[c], font=(F['font'], app.fs(9))).pack()
+                    for text, c in hist_lines(h):
+                        tk.Label(w['chars'], text=text, bg=C['panel'], fg=C[c], font=(F['font'], app.fs(10)), anchor='w', justify='left',
+                                 wraplength=app.fs(620)).pack(anchor='w')
                 sps = (p['spells'] if sh['spells'] else [])[:2]
                 imgs = [app.img('spell', s, .6) for s in sps] + ([app.img('rune', p['keystone'], .6)] if sh['runes'] else [])
                 for l, im in zip(w['sp'], imgs + [None] * 3): l.configure(image=im or '')
@@ -998,7 +1014,7 @@ class App:
             if p['riot'] in self.ranks: continue
             pu = self.client.puuid(p['riot'])
             self.ranks[p['riot']] = self.client.rank(pu) if pu else None
-            self.hists[p['riot']] = core.summarize_history(self.client.history(pu), self.cid(p['c'])) if pu else None
+            self.hists[p['riot']] = core.summarize_history(self.client.history(pu), self.cid(p['c']), p['pos']) if pu else None
             return
 
     def draft_allies(self, sess):
@@ -1012,7 +1028,8 @@ class App:
                 self.hraw[pu] = self.client.history(pu)
             champ_id = p.get('championId') or p.get('championPickIntent') or 0
             out.append({'c': self.data.ids.get(str(champ_id)), 'pos': core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''),
-                        'rank': self.ranks.get(pu), 'hist': core.summarize_history(self.hraw.get(pu), champ_id) if pu else None,
+                        'rank': self.ranks.get(pu), 'hist': core.summarize_history(self.hraw.get(pu), champ_id,
+                                                                   core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), '')) if pu else None,
                         'me': p.get('cellId') == sess.get('localPlayerCellId')})
         return out
 
@@ -1086,6 +1103,7 @@ class App:
         for w in self.tab.values(): w.withdraw()
         if self.dash: self.dash.idle()
         self.status.configure(text='Игра закончилась')
+        self.root.after(30000, self.hist_refresh)   # LP и игра появляются в клиенте не сразу
 
     # ---------------- Драфт ----------------
     def on_draft(self, cs):
@@ -1101,7 +1119,7 @@ class App:
             self.imported = None; return
         if not getattr(self, '_draft_shown', False):
             self.nb.select(self.tab_draft.outer); self._draft_shown = True
-        sig = json.dumps([cs['role'], self.role_override, cs['me'], cs['enemies'], sorted(cs['unavailable']), [(a['c'], bool(a['rank']), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
+        sig = json.dumps([cs['role'], self.role_override, cs['me'], cs['enemies'], sorted(cs['unavailable']), len(self.lola), [(a['c'], bool(a['rank']), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
         if sig == self.draft_sig: return
         self.draft_sig = sig
         for w in box.winfo_children(): w.destroy()
@@ -1113,7 +1131,9 @@ class App:
         r['role'] = role
         for a in cs.get('allies') or []:
             if a.get('me') and (not a.get('pos') or a.get('auto')): a['pos'], a['auto'] = role, True
-        bans = core.ban_suggest(p, cs['unavailable'])
+        pool = core.ban_pool(p, role)
+        cnt = {m: core.lola_counters(self.lola_fetch('counter', m, role), d) for m in pool}
+        bans = core.ban_suggest(p, cs['unavailable'], 3, role, {m: v for m, v in cnt.items() if v})
         if self.dash:
             try: self.dash.show_draft(cs, r, bans)
             except Exception as e: print('dash draft', e)
@@ -1129,10 +1149,11 @@ class App:
             self.dl(row, '  ' + x['name'], 'fg', 11, True, img=self.img('champ', x['c'])).pack(side='left')
             self.dl(row, '  ' + x['why'], 'mute', 10).pack(side='left')
         if bans:
-            self.section(box, 'Кого банить (твои худшие оппоненты на линии)')
-            row = tk.Frame(box, bg=C['bg']); row.pack(anchor='w')
-            for c, n, w in bans:
-                self.dl(row, f'{d.cn(c)}\n{w}–{n - w}', 'bad', 9, img=self.img('champ', c), compound='top').pack(side='left', padx=6)
+            self.section(box, f'Кого банить на линии {core.ROLE_RU[role]} (твои игры + контрпики твоего пула, lolalytics)')
+            for c, sc, why in bans:
+                row = tk.Frame(box, bg=C['bg']); row.pack(anchor='w', fill='x', pady=1)
+                self.dl(row, '  ' + d.cn(c), 'bad', 11, True, img=self.img('champ', c)).pack(side='left')
+                self.dl(row, '  ' + why, 'mute', 10).pack(side='left')
         allies = cs.get('allies') or []
         if allies or cs['enemies']:
             self.section(box, 'Команды')
@@ -1188,26 +1209,37 @@ class App:
 
     def lola_build(self, champ, role):
         """Руны и сборка по Европе (lolalytics, EUW Изумруд+). Нет в памяти — грузим в фоне и перерисовываем драфт."""
+        return self.lola_fetch('build', champ, role)
+
+    def lola_fetch(self, kind, champ, role):
+        """Данные lolalytics в фоне с кешем на 12 часов: kind='build' — руны и сборка, 'counter' — матчапы, 'build-team' — синергия.
+        Пока грузится — None; по готовности драфт перерисуется."""
         if not champ or not role: return None
-        k = (champ, role)
+        k = (champ, role) if kind == 'build' else (kind, champ, role)
         if k in self.lola: return self.lola[k]
         if self.lola_state.get(k): return None
         self.lola_state[k] = 'loading'
-        path = os.path.join(self.home, 'lola', f'{champ}_{role}.json')
+        name = f'{champ}_{role}.json' if kind == 'build' else f'{kind}_{champ}_{role}.json'
+        path = os.path.join(self.home, 'lola', name)
         def job():
             b = None
             try:
                 if os.path.exists(path) and time.time() - os.path.getmtime(path) < 12 * 3600:
                     b = json.load(open(path, encoding='utf-8'))
                 else:
-                    req = urllib.request.Request(core.lola_url(champ, role), headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=20) as r: b = core.parse_lola_build(r.read().decode('utf-8', 'ignore'))
+                    url = core.lola_url(champ, role) if kind == 'build' else core.lola_api(kind, champ, role)
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=20) as r: raw = r.read().decode('utf-8', 'ignore')
+                    b = core.parse_lola_build(raw) if kind == 'build' else json.loads(raw)
+                    if kind == 'build-team': b = {'team': b.get('team')} if b.get('team') else None
+                    if kind == 'counter': b = {'counters': b.get('counters')} if b.get('counters') else None
                     if b:
                         os.makedirs(os.path.dirname(path), exist_ok=True)
                         json.dump(b, open(path, 'w', encoding='utf-8'))
             except Exception as e:
-                print('lolalytics', champ, role, e)
-                if os.path.exists(path): b = json.load(open(path, encoding='utf-8'))   # старый кеш лучше, чем ничего
+                print('lolalytics', kind, champ, role, e)
+                try: b = json.load(open(path, encoding='utf-8'))   # старый кеш лучше, чем ничего
+                except Exception: b = None
             def done():
                 if b: self.lola[k] = b
                 self.lola_state[k] = 'ok' if b else 'fail'
@@ -1217,6 +1249,41 @@ class App:
             self.root.after(0, done)
         threading.Thread(target=job, daemon=True).start()
         return None
+
+    def matchup_lines(self, p, col, allies, r):
+        """Строки под чемпионом в драфте: у врага — кто его контрит (и кто из твоего пула), у союзника — синергия с командой."""
+        d, pl = self.data, self.player
+        c, pos = p.get('c'), p.get('pos')
+        if not c or not pos: return []
+        myrole = r.get('role')
+        if col == 1:
+            cnt = core.lola_counters(self.lola_fetch('counter', c, pos), d)
+            if not cnt: return [('Контрпики: загружаю lolalytics…', 'mute')] if self.lola_state.get(('counter', c, pos)) == 'loading' else []
+            pool = pl.pool.get(myrole, []) if pl and pos == myrole else []
+            best, mine = core.counter_picks(cnt, 3, pool)
+            out = []
+            if best: out.append(('Контрпики: ' + ', '.join(f'{d.cn(x)} {wr:.0f}% (+{dd:.1f})' for x, dd, wr in best), 'blue'))
+            if mine:
+                mine.sort(key=lambda x: -x[1])
+                out.append(('Из твоего пула: ' + ', '.join(f'{d.cn(x)} {wr:.0f}% ({dd:+.1f})' for x, dd, wr in mine), 'good' if mine[0][1] > 0 else 'mute'))
+            return out
+        team = core.lola_team(self.lola_fetch('build-team', c, pos), d)
+        if not team: return []
+        out, parts = [], []
+        for a in allies:
+            if a is p or not a.get('c') or not a.get('pos'): continue
+            v = team.get((a['pos'], a['c']))
+            if v: parts.append((v[1], f"{d.cn(a['c'])} {v[0]:.0f}% ({v[1]:+.1f})"))
+        if parts:
+            parts.sort(key=lambda x: -x[0])
+            out.append(('Синергия: ' + ', '.join(t for _, t in parts), 'good' if parts[0][0] > .5 else 'bad' if parts[0][0] < -.5 else 'fg'))
+        me = next((a for a in allies if a.get('me')), None)
+        if pl and me and not me.get('c') and not p.get('me') and myrole:
+            pool = [(team[(myrole, x)][1], x) for x in pl.pool.get(myrole, []) if (myrole, x) in team]
+            if pool:
+                pool.sort(reverse=True)
+                out.append(('Тебе с ним из пула: ' + ', '.join(f'{d.cn(x)} ({v:+.1f})' for v, x in pool[:3]), 'mute'))
+        return out
 
     def set_draft_role(self, role):
         self.role_override = role
@@ -1331,11 +1398,11 @@ class App:
         self.banner_btn = tk.Button(self.banner, bg=C['bg'], fg=C['gold'], activebackground=C['panel'], activeforeground=C['gold'],
                                     relief='flat', font=(F['font'], self.fs(10), 'bold'), padx=12, cursor='hand2')
         self.nb = ttk.Notebook(r); self.nb.pack(fill='both', expand=True, padx=8, pady=8)
-        self.tab_status = self.page('Статус'); self.tab_draft = self.page('Драфт')
+        self.tab_status = self.page('Статус'); self.tab_draft = self.page('Драфт'); self.tab_hist = self.page('История матчей')
         self.tab_hints = self.page('Подсказки'); self.tab_win = self.page('Окна'); self.tab_look = self.page('Вид')
         self.tab_voice = self.page('Звук'); self.tab_keys = self.page('Клавиши')
         self.tab_time = self.page('Таймеры'); self.tab_upd = self.page('Обновления')
-        self.build_status(); self.build_draft(); self.build_hints(); self.build_windows(); self.build_look()
+        self.build_status(); self.build_draft(); self.build_history(); self.build_hints(); self.build_windows(); self.build_look()
         self.build_voice(); self.build_keys(); self.build_timers(); self.build_updates()
         if getattr(self, 'upd', None): self.update_state(*self.upd)
 
@@ -1374,6 +1441,129 @@ class App:
             self.status.configure(text='Настройки раздела сброшены')
         ttk.Button(parent, text=label, command=go).pack(anchor='w', pady=(12, 0))
 
+    # ---------------- История матчей ----------------
+    def build_history(self):
+        f = self.tab_hist
+        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', fill='x')
+        ttk.Button(row, text='Обновить', command=self.hist_refresh).pack(side='left')
+        ttk.Button(row, text='Сайт со статистикой', command=self.open_site).pack(side='left', padx=8)
+        self.hist_msg = self.dl(row, '', 'mute', 10); self.hist_msg.pack(side='left', padx=8)
+        self.note(f, 'Последние игры из клиента. Нажми на игру — откроются обе команды и короткий разбор. '
+                     'LP за игру программа видит, только если была запущена до и после неё.')
+        self.hist_box = tk.Frame(f, bg=C['bg']); self.hist_box.pack(anchor='w', fill='x', pady=(6, 0))
+        self.hist_data = []
+        self.root.after(4000, self.hist_refresh)
+
+    def lp_snaps(self, rank=None):
+        """Снимки звания [время мс, ladder] в %APPDATA%/LoLHelper/lp.json; с rank — дописать новый, если LP изменились."""
+        path = os.path.join(self.home, 'lp.json')
+        try: snaps = json.load(open(path, encoding='utf-8'))
+        except Exception: snaps = []
+        v = core.ladder(rank)
+        if v is not None and (not snaps or snaps[-1][1] != v or time.time() * 1000 - snaps[-1][0] > 6 * 3600 * 1000):
+            snaps.append([int(time.time() * 1000), v]); snaps = snaps[-400:]
+            try: json.dump(snaps, open(path, 'w', encoding='utf-8'))
+            except Exception: pass
+        return snaps
+
+    def hist_refresh(self):
+        if getattr(self, '_hist_busy', False): return
+        self._hist_busy = True
+        self.hist_msg.configure(text='загружаю из клиента…')
+        def job():
+            me = self.account or self.client.me() or {}
+            pu = me.get('puuid')
+            hist = self.client.history(pu, 30) if pu else None
+            snaps = self.lp_snaps(self.client.rank(pu) if pu else None)
+            def done():
+                self._hist_busy = False
+                if hist is None:
+                    self.hist_msg.configure(text='клиент LoL не запущен' if not pu else 'клиент не отдал историю'); return
+                self.hist_msg.configure(text=f'{len(hist)} игр · обновлено {time.strftime("%H:%M")}')
+                self.hist_show(hist, core.lp_changes(hist, snaps), pu)
+            self.root.after(0, done)
+        threading.Thread(target=job, daemon=True).start()
+
+    def hist_show(self, hist, lp, puuid):
+        box, d, fn, fs = self.hist_box, self.data, F['font'], self.fs
+        for w in box.winfo_children(): w.destroy()
+        if not hist:
+            self.dl(box, 'Игр пока нет', 'mute').pack(anchor='w'); return
+        for h in hist:
+            c = d.ids.get(str(h['champ']))
+            bg = C['panel']
+            row = tk.Frame(box, bg=bg, padx=8, pady=4, highlightthickness=1, highlightbackground=C['good'] if h['win'] else C['bad'], cursor='hand2')
+            row.pack(fill='x', pady=2)
+            mins = max(1, h.get('dur', 0) / 60)
+            pos = core.lcu_pos({'timeline': {'lane': h.get('lane'), 'role': h.get('role')}})
+            cells = [
+                (tk.Label(row, image=self.img('champ', c, 1.0) or '', text='' if c else '?', bg=bg), 0),
+                (tk.Label(row, text=('Победа' if h['win'] else 'Поражение'), bg=bg, fg=C['good' if h['win'] else 'bad'], font=(fn, fs(11), 'bold'), width=10, anchor='w'), 1),
+                (tk.Label(row, text=f"{d.cn(c) if c else '?'}" + (f" · {core.ROLE_RU[pos]}" if pos else '') + '\n' + core.QUEUE_RU.get(h.get('q'), str(h.get('q')))
+                          + (time.strftime(' · %d.%m %H:%M', time.localtime(h['t'] / 1000)) if h.get('t') else ''), bg=bg, fg=C['fg'],
+                          font=(fn, fs(10)), width=24, anchor='w', justify='left'), 2),
+                (tk.Label(row, text=f"{h['k']}/{h['d']}/{h['a']}", bg=bg, fg=C['fg'], font=(fn, fs(11), 'bold'), width=8, anchor='w'), 3),
+                (tk.Label(row, text=f"{h.get('cs', 0)} CS ({h.get('cs', 0) / mins:.1f})\n{core.mmss(h.get('dur', 0))}", bg=bg, fg=C['mute'], font=(fn, fs(10)),
+                          width=12, anchor='w', justify='left'), 4),
+            ]
+            v = lp.get(h.get('gid'))
+            cells.append((tk.Label(row, text=f'{v:+d} LP' if v is not None else '', bg=bg, fg=C['good' if (v or 0) > 0 else 'bad'], font=(fn, fs(11), 'bold'), width=7, anchor='e'), 5))
+            for w, i in cells: w.grid(row=0, column=i, sticky='w', padx=3)
+            row.columnconfigure(5, weight=1)
+            for w in [row] + [w for w, _ in cells]: w.bind('<Button-1>', lambda e, h=h, v=v: self.hist_open(h, v, puuid))
+        self.hist_data = hist
+
+    def hist_open(self, h, lp, puuid):
+        """Окно с подробностями игры: обе команды и разбор."""
+        def job():
+            g = self.client.game(h['gid']) if h.get('gid') else None
+            res = core.review_game(g, puuid, self.data)
+            self.root.after(0, lambda: self.hist_window(h, lp, res))
+        threading.Thread(target=job, daemon=True).start()
+
+    def hist_window(self, h, lp, res):
+        d, fn, fs = self.data, F['font'], self.fs
+        w = tk.Toplevel(self.root); w.title('LoL Helper — разбор игры'); w.configure(bg=C['bg'], padx=16, pady=12)
+        c = d.ids.get(str(h['champ']))
+        head = f"{'Победа' if h['win'] else 'Поражение'} · {d.cn(c) if c else '?'} · {h['k']}/{h['d']}/{h['a']} · {core.mmss(h.get('dur', 0))}"
+        if lp is not None: head += f' · {lp:+d} LP'
+        tk.Label(w, text='  ' + head, image=self.img('champ', c, 1.4) or '', compound='left', bg=C['bg'], fg=C['good' if h['win'] else 'bad'],
+                 font=(fn, fs(15), 'bold')).pack(anchor='w', pady=(0, 8))
+        if not res:
+            self.dl(w, 'Клиент не отдал подробности этой игры', 'mute').pack(anchor='w'); return
+        for text, col in res['lines']:
+            tk.Label(w, text=text, bg=C['bg'], fg=C[col], font=(fn, fs(11)), wraplength=fs(860), justify='left', anchor='w').pack(anchor='w', fill='x')
+        mins = res['min']
+        for team in sorted({r['team'] for r in res['rows']}):
+            rows = [r for r in res['rows'] if r['team'] == team]
+            win = rows and rows[0]['win']
+            ours = res['me'] and res['me']['team'] == team
+            tk.Label(w, text=('Твоя команда' if ours else 'Противники') + (' · победа' if win else ' · поражение'), bg=C['bg'],
+                     fg=C['blue' if ours else 'red'], font=(fn, fs(12), 'bold')).pack(anchor='w', pady=(10, 2))
+            order = {x: i for i, x in enumerate(core.ROLES)}
+            for r in sorted(rows, key=lambda r: order.get(r['pos'], 9)):
+                bg = C['panel']
+                f = tk.Frame(w, bg=bg, padx=6, pady=2, highlightthickness=1, highlightbackground=C['gold'] if r['me'] else C['line']); f.pack(fill='x', pady=1)
+                tk.Label(f, image=self.img('champ', r['c'], .9) or '', bg=bg).grid(row=0, column=0, padx=(0, 6))
+                tk.Label(f, text=f"{d.cn(r['c']) if r['c'] else '?'}\n{r['name']}", bg=bg, fg=C['fg'], font=(fn, fs(10)), width=18, anchor='w', justify='left').grid(row=0, column=1, sticky='w')
+                tk.Label(f, text=f"{r['k']}/{r['d']}/{r['a']}", bg=bg, fg=C['fg'], font=(fn, fs(11), 'bold'), width=9, anchor='w').grid(row=0, column=2)
+                tk.Label(f, text=f"{r['cs']} CS ({r['cs'] / mins:.1f})\n{r['dmg'] / 1000:.1f}k урона · обзор {r['vis']}", bg=bg, fg=C['mute'],
+                         font=(fn, fs(9)), width=24, anchor='w', justify='left').grid(row=0, column=3)
+                its = tk.Frame(f, bg=bg); its.grid(row=0, column=4, sticky='w')
+                for it in r['items']:
+                    im = self.img('item', it, .6) if it else None
+                    if im: tk.Label(its, image=im, bg=bg).pack(side='left', padx=1)
+        ttk.Button(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(10, 0))
+
+    def open_site(self):
+        """Сайт со статистикой в отдельном окне (WebView2). Отдельный процесс: окно браузера не уживается с Tk в одном потоке."""
+        exe = sys.executable
+        args = [exe, '--site'] if getattr(sys, 'frozen', False) else [exe, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lolhelper.py'), '--site']
+        env = {k: v for k, v in os.environ.items() if not k.startswith(('_PYI', '_MEI'))}
+        env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+        try: subprocess.Popen(args, env=env)
+        except Exception as e: messagebox.showerror('LoL Helper', f'Не удалось открыть сайт: {e}')
+
     def build_status(self):
         f = self.tab_status
         self.h(f, 'Аккаунт')
@@ -1400,6 +1590,7 @@ class App:
         self.h(f, 'Окна')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
         ttk.Button(row, text='Открыть дашборд', command=self.open_dash).pack(side='left', padx=(0, 8))
+        ttk.Button(row, text='Сайт со статистикой', command=self.open_site).pack(side='left', padx=(0, 8))
         ttk.Button(row, text='Скрыть / показать виджеты', command=lambda: (setattr(self, 'hidden', not self.hidden), self.apply_visibility())).pack(side='left')
         self.panel_sync()
 
@@ -1527,10 +1718,10 @@ class App:
             for val, t in opts:
                 ttk.Radiobutton(row, text=t, value=val, variable=v, command=lambda key=key, v=v: self.set_perf(key, None, v.get())).pack(side='left', padx=(0, 10))
         self.h(f, 'Золото поверх таблицы Tab')
-        self.note(f, 'По числу на каждую строку таблицы: твой союзник против своего оппонента. Цифры привязаны к окну игры и двигаются вместе с ним. '
-                     'Один раз подгони: в игре зажми Tab и Alt, перетащи столбик на таблицу, ползунком подбери высоту строки.')
-        self.slider(f, 'Высота строки', 'tab_row', 40, 110, lambda x: self.set_tab('tab_row', int(x)), fmt=lambda x: f'{x:.0f} px')
-        ttk.Button(f, text='Вернуть на место по умолчанию', command=lambda: self.set_tab('tab_rel', {})).pack(anchor='w', pady=(4, 0))
+        self.note(f, 'Слева от таблицы, напротив каждой из 5 строк: твой союзник против своего оппонента. Перевес команды — над рамкой таблицы по центру. '
+                     'Всё привязано к окну игры и масштабируется по его высоте. Если не совпало: в игре зажми Tab и Alt и перетащи, шаг строк — ползунком.')
+        self.slider(f, 'Шаг строк (для 1080p)', 'tab_step', 50, 110, lambda x: self.set_tab('tab_step', int(x)), fmt=lambda x: f'{x:.0f} px')
+        ttk.Button(f, text='Вернуть на место по умолчанию', command=lambda: self.set_tab('tab_pos', {})).pack(anchor='w', pady=(4, 0))
         self.h(f, 'Второй монитор')
         ttk.Button(f, text='Открыть дашборд со всеми чемпионами', command=self.open_dash).pack(anchor='w')
         ttk.Button(f, text='Сбросить позиции окон', command=self.reset_layout).pack(anchor='w', pady=6)
