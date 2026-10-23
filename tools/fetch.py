@@ -1,7 +1,11 @@
 import os,json,time,urllib.request,urllib.error,sys
 K=os.environ.get('RIOT_API_KEY','').strip().strip('"'); D='data'
-P={'Halch#9200':'rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA',
-   'DrVoldemar#EUW':'8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ'}
+from players import puuids,NAMES
+try:
+  _pu=puuids(K)
+except Exception as e:
+  print('Riot API не отдал аккаунты:',e);_pu={}
+P={NAMES[w]:p for w,p in _pu.items()}
 def get(url):
   for i in range(6):
     try:

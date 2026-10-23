@@ -10,6 +10,8 @@ def lane_of(x,y):
 D='data'
 P={'rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA':'halch',
    '8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ':'drv'}
+RID={'halch#9200':'halch','drvoldemar#euw':'drv'}
+who_of=lambda p:RID.get(f"{p.get('riotIdGameName','')}#{p.get('riotIdTagline','')}".lower()) or P.get(p['puuid'])
 Q={420:'Соло/дуо',440:'Флекс',400:'Обычная (драфт)',430:'Обычная (вслепую)',490:'Быстрая игра',480:'Быстрая игра'}
 champ=json.load(open('dd/champion.json'))['data']
 ITEMS=json.load(open('dd/item.json'))['data']
@@ -60,13 +62,13 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
   for p in parts:
     plist.append(dict(c=p['championName'],n=p['riotIdGameName'],t=p['riotIdTagline'],team=p['teamId'],pos=p['teamPosition'],
       k=p['kills'],d=p['deaths'],a=p['assists'],cs=p['totalMinionsKilled']+p['neutralMinionsKilled'],dmg=p['totalDamageDealtToChampions'],
-      g=p['goldEarned'],items=[p[f'item{j}'] for j in range(7)],me=P.get(p['puuid']),
+      g=p['goldEarned'],items=[p[f'item{j}'] for j in range(7)],me=who_of(p),
       taken=p['totalDamageTaken']+p['damageSelfMitigated'],vs=p['visionScore'],obj=p['damageDealtToBuildings']+0.3*p['damageDealtToEpicMonsters'],
       cc=p['timeCCingOthers'],heal=p['totalHealsOnTeammates']+p['totalDamageShieldedOnTeammates'],pid=p['participantId'],
       sg=ser[p['participantId']]['gold'],sx=ser[p['participantId']]['xp'],sc=ser[p['participantId']]['cs'],buys=buys[p['participantId']]))
   me_list=[]
   for p in parts:
-    who=P.get(p['puuid'])
+    who=who_of(p)
     if not who: continue
     pid=p['participantId']; team=p['teamId']; pos=p['teamPosition']
     opp=next((o for o in parts if o['teamId']!=team and o['teamPosition']==pos and pos),None)

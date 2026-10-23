@@ -1,7 +1,8 @@
 import json,os,urllib.request,datetime,collections
 K=os.environ.get('RIOT_API_KEY','').strip().strip('"')
-P=[('Halch#9200','rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA'),
-   ('DrVoldemar#EUW','8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ')]
+from players import puuids,NAMES
+try: P=[(NAMES[w],p) for w,p in puuids(K).items()]
+except Exception as e: print('аккаунты не получены',e);P=[]
 T={'IRON':'Железо','BRONZE':'Бронза','SILVER':'Серебро','GOLD':'Золото','PLATINUM':'Платина','EMERALD':'Изумруд','DIAMOND':'Алмаз','MASTER':'Мастер','GRANDMASTER':'Грандмастер','CHALLENGER':'Претендент'}
 ranks=[];snap=[]
 try:

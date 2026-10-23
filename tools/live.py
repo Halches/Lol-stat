@@ -1,8 +1,8 @@
 # Текущая игра (spectator-v5) для обоих игроков -> ../data/live.json. Пишет файл, только если что-то поменялось.
 import json,os,time,urllib.request,urllib.error
 K=os.environ.get('RIOT_API_KEY','').strip().strip('"')
-P={'halch':'rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcFeA',
-   'drv':'8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ'}
+from players import puuids
+P=puuids(K)
 T={'IRON':'Железо','BRONZE':'Бронза','SILVER':'Серебро','GOLD':'Золото','PLATINUM':'Платина','EMERALD':'Изумруд','DIAMOND':'Алмаз','MASTER':'Мастер','GRANDMASTER':'Грандмастер','CHALLENGER':'Претендент'}
 def get(u):
   try: return json.load(urllib.request.urlopen(urllib.request.Request(u,headers={'X-Riot-Token':K,'User-Agent':'curl/8'}),timeout=20))
