@@ -35,6 +35,13 @@ header{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-
 .plate .who{font-family:var(--f-disp);font-weight:600;font-size:15px}
 .plate .rk{font-size:12px;color:var(--muted)}
 .plate .rk b{color:var(--gold);font-weight:600}
+.plate{display:flex;align-items:center;gap:12px;padding:10px 14px 10px 8px}
+.plate .emb{width:76px;height:76px;flex:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
+.plate .emb-s{width:20px;height:20px;vertical-align:-5px;margin-right:4px}
+.plate .pl-body{min-width:0}
+.plate .tier{font-family:var(--f-disp);font-weight:700;font-size:20px;line-height:1.15}
+.plate .tier span{font-size:14px;color:var(--ink);font-weight:600;margin-left:8px}
+.plate .rk.sub{margin-top:3px}
 .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:8px;border-bottom:1px solid var(--line)}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px;gap:2px;flex-wrap:wrap}
@@ -1196,7 +1203,16 @@ if(window.claude&&claude.use){claude.use('sample').then(s=>{SAMPLE=s;SAMPLE_STAT
 document.querySelectorAll('#who button').forEach(b=>b.onclick=()=>{st.who=b.dataset.v;render()});
 document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.dataset.v;render()});
 document.querySelectorAll('#res button').forEach(b=>b.onclick=()=>{st.res=b.dataset.r;render()});
-$('plates').innerHTML=META.ranks.map(r=>`<div class="plate"><div class="who">${esc(r.name)}</div>${r.q.map(q=>`<div class="rk">${q.t}: <b>${q.r}</b> · ${q.wl}</div>`).join('')}</div>`).join('');
+const TCOL={'Железо':'#8a7f7a','Бронза':'#a86f4c','Серебро':'#9fb0bd','Золото':'#d4a84a','Платина':'#3fb6a8','Изумруд':'#2fbf71','Алмаз':'#7b8cf0','Мастер':'#b05cd6','Грандмастер':'#e2504a','Претендент':'#f0c45a'};
+const tc=q=>TCOL[q.r.split(' ')[0]]?`color-mix(in srgb,${TCOL[q.r.split(' ')[0]]} 78%,var(--ink))`:'var(--gold)';
+$('plates').innerHTML=META.ranks.map(r=>{
+  const [solo,...rest]=r.q,tier=q=>q.r.split(' ')[0],em=(q,c)=>IC.emb&&IC.emb[tier(q)]?`<img class="${c}" src="${IC.emb[tier(q)]}" alt="${esc(tier(q))}">`:'';
+  if(!solo)return `<div class="plate"><div class="who">${esc(r.name)}</div><div class="rk">без ранга</div></div>`;
+  const [rk,lp]=solo.r.split(' · '),m=solo.wl.match(/(\d+)–(\d+) \((\d+)%\)/);
+  return `<div class="plate">${em(solo,'emb')}<div class="pl-body"><div class="who">${esc(r.name)}</div>
+    <div class="tier" style="color:${tc(solo)}">${esc(rk)}<span>${esc(lp||'')}</span></div>
+    <div class="rk">${solo.t} · ${m?`${m[1]}–${m[2]} · ${m[3]}% побед`:esc(solo.wl)}</div>
+    ${rest.map(q=>`<div class="rk sub">${em(q,'emb-s')}${q.t}: <b style="color:${tc(q)}">${esc(q.r)}</b> · ${esc(q.wl)}</div>`).join('')}</div></div>`}).join('');
 $('foot').textContent=`Данные: Riot API (все игры сезона с 8 января, рейтинговые и обычные, только Ущелье призывателей, игры короче 10 минут не считаются). Разница с оппонентом считается против игрока той же роли во вражеской команде. «Мало» в таблицах: меньше 5 игр, винрейт ненадёжен. Иконки и названия: Data Dragon ${META.dd}.`;
 /* ---------- Цели ---------- */
 const GOALS=[

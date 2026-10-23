@@ -60,5 +60,17 @@ for r in {x for g in games for m in g['me'] for x in m.get('perks',[])[:1]}:
   if r in perk and r not in out['r']:
     p=fetch('https://ddragon.leagueoflegends.com/cdn/img/'+perk[r]['icon'],f'img/r_{r}.png')
     if p: out['r'][r]=enc(p,28); out['rnames'][r]=perk[r]['name']
+# эмблемы рангов как в клиенте (CommunityDragon), обрезаны по непрозрачной части
+TIER={'IRON':'Железо','BRONZE':'Бронза','SILVER':'Серебро','GOLD':'Золото','PLATINUM':'Платина','EMERALD':'Изумруд','DIAMOND':'Алмаз','MASTER':'Мастер','GRANDMASTER':'Грандмастер','CHALLENGER':'Претендент'}
+out.setdefault('emb',{})
+for t,ru in TIER.items():
+  if ru in out['emb']: continue
+  p=f'img/emb_{t}.png'
+  try:
+    if not os.path.exists(p): open(p,'wb').write(urllib.request.urlopen(urllib.request.Request(f'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{t.lower()}.png',headers={'User-Agent':'curl/8'}),timeout=30).read())
+  except Exception as e: print('miss emblem',t,e); continue
+  im=Image.open(p).convert('RGBA');im=im.crop(im.getbbox());w,h=im.size;S=max(w,h)
+  sq=Image.new('RGBA',(S,S));sq.paste(im,((S-w)//2,(S-h)//2));sq=sq.resize((112,112),Image.LANCZOS)
+  b=io.BytesIO();sq.save(b,'WEBP',quality=85);out['emb'][ru]='data:image/webp;base64,'+base64.b64encode(b.getvalue()).decode()
 json.dump(out,open('icons.json','w'),ensure_ascii=False,separators=(',',':'))
 print(len(out['c']),len(out['i']),os.path.getsize('icons.json'))
