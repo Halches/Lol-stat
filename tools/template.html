@@ -1,0 +1,398 @@
+<title>Halch и DrVoldemar: разбор игр</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column "scouting report" — header with rank plates, player tabs, summary strip, coach notes, tables, then expandable match log */
+:root{
+  --bg:#eef1f6; --panel:#ffffff; --panel2:#f5f7fb; --ink:#141b2b; --muted:#5d6779; --line:#d9dee8;
+  --gold:#a8771c; --blue:#2d6cdf; --red:#d0443e; --win:#2d6cdf; --loss:#d0443e; --good:#1f8a5b; --bad:#c2410c;
+  --winbg:rgba(45,108,223,.08); --lossbg:rgba(208,68,62,.08);
+  --f-disp:"Fira Sans Condensed","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b1120; --panel:#121a2c; --panel2:#18223a; --ink:#e6eaf2; --muted:#94a0b8; --line:#26314a;
+  --gold:#d8a94a; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
+  --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b1120; --panel:#121a2c; --panel2:#18223a; --ink:#e6eaf2; --muted:#94a0b8; --line:#26314a;
+  --gold:#d8a94a; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
+  --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-block:20px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
+h1,h2,h3{font-family:var(--f-disp);font-weight:700;margin:0;text-wrap:balance;letter-spacing:.01em}
+h1{font-size:30px;line-height:1.1}
+h2{font-size:20px}
+h3{font-size:16px}
+.num,td,.tile b{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.eyebrow{font-family:var(--f-disp);text-transform:uppercase;letter-spacing:.08em;font-size:12px;color:var(--gold);font-weight:600}
+header{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
+.plates{display:flex;gap:10px;flex-wrap:wrap}
+.plate{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 12px;min-width:0}
+.plate .who{font-family:var(--f-disp);font-weight:600;font-size:15px}
+.plate .rk{font-size:12px;color:var(--muted)}
+.plate .rk b{color:var(--gold);font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:8px;border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{font:inherit;font-family:var(--f-disp);font-weight:600;font-size:14px;border:0;background:transparent;color:var(--muted);padding:6px 12px;border-radius:4px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.seg button:focus-visible,.game summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tile{background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.tile>span{font-size:12px;color:var(--muted)}
+@media (max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile b{font-family:var(--f-disp);font-size:24px;font-weight:600;line-height:1.1}
+.tile i{font-style:normal;font-size:12px;color:var(--muted)}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+@media (max-width:820px){.grid2{grid-template-columns:1fr}}
+section{display:flex;flex-direction:column;gap:10px;min-width:0}
+.notes{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:720px){.notes{grid-template-columns:1fr}}
+.notes ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:62ch}
+.notes h3{margin-bottom:8px}
+.tbl{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-family:var(--f-disp);font-weight:600;text-align:right;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{text-align:right;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+th:first-child,td:first-child{text-align:left}
+.ch{display:inline-flex;align-items:center;gap:8px}
+.ic{width:28px;height:28px;border-radius:4px;vertical-align:middle;background:var(--panel2);flex:none}
+.ic.sm{width:22px;height:22px}
+.ic.it{width:24px;height:24px;border-radius:3px}
+.few{color:var(--muted);font-size:11px}
+.bar{display:inline-block;height:6px;border-radius:3px;background:var(--win);vertical-align:middle}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+.chart svg{display:block;width:100%;height:auto}
+.legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.games{display:flex;flex-direction:column;gap:6px}
+.game{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.game.w{border-left:4px solid var(--win)} .game.l{border-left:4px solid var(--loss)}
+.game summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:92px minmax(150px,1.3fr) 110px 1fr 120px;gap:12px;align-items:center;padding:10px 12px}
+.game summary::-webkit-details-marker{display:none}
+.game summary:hover{background:var(--panel2)}
+@media (max-width:720px){.game summary{grid-template-columns:1fr 1fr;row-gap:6px}.game summary .vs{grid-column:1/-1}}
+.res{font-family:var(--f-disp);font-weight:700;font-size:15px}
+.w .res{color:var(--win)} .l .res{color:var(--loss)}
+.res small{display:block;font-family:var(--f-body);font-weight:400;font-size:11px;color:var(--muted)}
+.kda{font-family:var(--f-disp);font-size:16px;font-weight:600}
+.kda small{display:block;font-family:var(--f-body);font-weight:400;font-size:11px;color:var(--muted)}
+.vs{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chips{display:flex;gap:4px;flex-wrap:wrap}
+.chip{font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid var(--line);white-space:nowrap}
+.chip.g{color:var(--good);border-color:currentColor} .chip.b{color:var(--bad);border-color:currentColor}
+.detail{border-top:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:14px;background:var(--panel2)}
+.review{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:720px){.review{grid-template-columns:1fr}}
+.review ul{margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.review h4{margin:0;font-family:var(--f-disp);font-size:14px}
+.review .gd h4{color:var(--good)} .review .bd h4{color:var(--bad)}
+.verdict{font-size:14px;max-width:80ch}
+.build{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.sb td,.sb th{padding:4px 8px}
+.sb tr.me td{background:var(--winbg);font-weight:600}
+.sb .t100 td:first-child{box-shadow:inset 3px 0 var(--blue)} .sb .t200 td:first-child{box-shadow:inset 3px 0 var(--red)}
+.sb .sep td{border-bottom:2px solid var(--line)}
+.foot{font-size:12px;color:var(--muted);max-width:90ch}
+.empty{padding:20px;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Разбор игр · EUW</div>
+      <h1>Halch и DrVoldemar</h1>
+      <div class="muted" id="meta"></div>
+    </div>
+    <div class="plates" id="plates"></div>
+  </header>
+
+  <div class="controls">
+    <div class="seg" id="who" role="group" aria-label="Игрок">
+      <button data-v="halch" aria-pressed="true">Halch</button>
+      <button data-v="drv" aria-pressed="false">DrVoldemar</button>
+      <button data-v="duo" aria-pressed="false">Вместе</button>
+    </div>
+    <div class="seg" id="queue" role="group" aria-label="Очередь">
+      <button data-v="all" aria-pressed="true">Все</button>
+      <button data-v="420" aria-pressed="false">Соло</button>
+      <button data-v="440" aria-pressed="false">Флекс</button>
+      <button data-v="norm" aria-pressed="false">Обычные</button>
+    </div>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section>
+    <h2>Что видно по играм</h2>
+    <div class="notes" id="notes"></div>
+  </section>
+
+  <section>
+    <h2>Линия: разница с оппонентом на 15 минуте</h2>
+    <div class="chart" id="trend"></div>
+  </section>
+
+  <div class="grid2">
+    <section><h2>Чемпионы</h2><div class="tbl" id="champs"></div></section>
+    <section><h2>Роли</h2><div class="tbl" id="roles"></div><div class="tbl" id="opps"></div></section>
+  </div>
+
+  <section>
+    <h2>Игры</h2>
+    <div class="muted" style="font-size:12px">Нажми на игру, чтобы открыть разбор: ход игры по золоту, плюсы и минусы, состав и предметы.</div>
+    <div class="games" id="games"></div>
+  </section>
+
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+const GAMES=/*DATA*/;
+const IC=/*ICONS*/;
+const META=/*META*/;
+const ROLE={TOP:'Топ',JUNGLE:'Лес',MIDDLE:'Мид',BOTTOM:'Бот',UTILITY:'Саппорт','':'—',Invalid:'—'};
+const NAME={halch:'Halch',drv:'DrVoldemar'};
+const st={who:'halch',queue:'all'};
+try{const s=JSON.parse(localStorage.getItem('lolsite')||'{}');Object.assign(st,s)}catch(e){}
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cn=c=>IC.names[c]||c;
+const cimg=(c,cls='')=>IC.c[c]?`<img class="ic ${cls}" src="${IC.c[c]}" alt="${esc(cn(c))}" title="${esc(cn(c))}">`:`<span class="ic ${cls}"></span>`;
+const iimg=i=>i&&IC.i[i]?`<img class="ic it" src="${IC.i[i]}" alt="" title="${esc(IC.inames[i]||'')}">`:`<span class="ic it"></span>`;
+const fmt=(n,d=0)=>n==null||isNaN(n)?'—':Number(n).toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d});
+const sgn=(n,d=0)=>n==null||isNaN(n)?'—':(n>0?'+':n<0?'−':'')+fmt(Math.abs(n),d);
+const cls=n=>n>0?'pos':n<0?'neg':'';
+const avg=a=>{a=a.filter(x=>x!=null&&!isNaN(x));return a.length?a.reduce((s,x)=>s+x,0)/a.length:null};
+const kda=(k,d,a)=>(k+a)/Math.max(1,d);
+const date=t=>new Date(t).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const qok=g=>st.queue==='all'||(st.queue==='norm'?![420,440].includes(g.q):g.q==+st.queue);
+const laner=p=>['TOP','MIDDLE','BOTTOM'].includes(p);
+
+function rows(){
+  if(st.who==='duo') return GAMES.filter(g=>qok(g)&&g.me.length===2).map(g=>({g,m:g.me.find(m=>m.who==='halch'),o:g.me.find(m=>m.who==='drv')}));
+  return GAMES.filter(qok).map(g=>({g,m:g.me.find(m=>m.who===st.who)})).filter(r=>r.m);
+}
+
+function agg(list){
+  const ms=list.map(r=>r.m);
+  const n=ms.length, w=ms.filter(m=>m.win).length;
+  const K=ms.reduce((s,m)=>s+m.k,0),D=ms.reduce((s,m)=>s+m.d,0),A=ms.reduce((s,m)=>s+m.a,0);
+  return {n,w,wr:n?w/n*100:null,kda:kda(K,D,A),k:n?K/n:0,d:n?D/n:0,a:n?A/n:0,
+    csm:avg(ms.filter(m=>m.pos!=='UTILITY').map(m=>m.csm)),dpm:avg(ms.map(m=>m.dpm)),kp:avg(ms.map(m=>m.kp)),
+    g10:avg(ms.map(m=>m.diffs[10]?.gold)),g15:avg(ms.map(m=>m.diffs[15]?.gold)),cs10:avg(ms.map(m=>m.diffs[10]?.cs)),
+    vsm:avg(ms.map(m=>m.vsm)),early:avg(ms.map(m=>m.early_d)),dshare:avg(ms.map(m=>m.dshare))};
+}
+
+function tiles(list){
+  const a=agg(list);
+  if(!a.n){$('tiles').innerHTML='<div class="tile empty">Нет игр в этом фильтре</div>';return}
+  const t=[
+    ['Игры',a.n,`${a.w}–${a.n-a.w}`],
+    ['Винрейт',fmt(a.wr,0)+'%',a.n<20?'мало игр для выводов':''],
+    ['KDA',fmt(a.kda,2),`${fmt(a.k,1)} / ${fmt(a.d,1)} / ${fmt(a.a,1)}`],
+    ['CS/мин',fmt(a.csm,1),'без игр на саппорте'],
+    ['Золото vs опп. на 15 мин',`<span class="${cls(a.g15)}">${sgn(a.g15)}</span>`,`на 10 мин ${sgn(a.g10)}, CS ${sgn(a.cs10)}`],
+    ['Урон/мин',fmt(a.dpm),`${fmt(a.dshare,0)}% урона команды`],
+    ['Смертей до 14 мин',fmt(a.early,1),'в среднем за игру'],
+    ['Обзор/мин',fmt(a.vsm,2),`участие в убийствах ${fmt(a.kp,0)}%`]
+  ];
+  $('tiles').innerHTML=t.map(([l,v,s])=>`<div class="tile"><span>${l}</span><b>${v}</b><i>${s||'&nbsp;'}</i></div>`).join('');
+}
+
+function notes(list){
+  const el=$('notes');
+  if(list.length<3){el.innerHTML='<div class="empty">Слишком мало игр для выводов.</div>';return}
+  const good=[],bad=[];
+  const ms=list.map(r=>r.m);
+  const a=agg(list);
+  // lane phase
+  const l15=ms.filter(m=>m.diffs[15]);
+  const ahead=l15.filter(m=>m.diffs[15].gold>=500),behind=l15.filter(m=>m.diffs[15].gold<=-500);
+  const wr=x=>x.length?Math.round(x.filter(m=>m.win).length/x.length*100):null;
+  if(l15.length){
+    const p=Math.round(ahead.length/l15.length*100),q=Math.round(behind.length/l15.length*100);
+    const s=`Впереди оппонента по линии к 15 мин (≥500 золота) в ${p}% игр, позади в ${q}%.`;
+    (p>=q?good:bad).push(s+(ahead.length>=3?` Когда впереди, винрейт ${wr(ahead)}% (${ahead.length} игр)`:'')+(behind.length>=3?`, когда позади — ${wr(behind)}% (${behind.length} игр).`:'.'));
+  }
+  // early deaths
+  const many=ms.filter(m=>m.early_d>=2),few=ms.filter(m=>m.early_d<2);
+  if(many.length>=3){
+    const s=`В ${many.length} из ${ms.length} игр 2+ смерти до 14 минуты. Винрейт в них ${wr(many)}%, без них ${wr(few)}%.`;
+    (many.length/ms.length>0.35?bad:good).push(s+(many.length/ms.length>0.35?' Ранние смерти сейчас главный слив игр.':''));
+  } else good.push(`Ранних смертей мало: 2+ смерти до 14 минуты только в ${many.length} из ${ms.length} игр.`);
+  // farm
+  const lan=ms.filter(m=>laner(m.pos));
+  if(lan.length>=3){
+    const c=avg(lan.map(m=>m.csm));
+    if(c<6.5) bad.push(`Фарм на линии ${fmt(c,1)} CS/мин. Для Emerald ориентир 7–8: каждые 15 CS это примерно одно убийство по золоту.`);
+    else if(c>=7.5) good.push(`Хороший фарм на линии: ${fmt(c,1)} CS/мин.`);
+    else bad.push(`Фарм на линии ${fmt(c,1)} CS/мин: средний уровень, до 7,5+ есть куда расти.`);
+    const c10=avg(lan.map(m=>m.diffs[10]?.cs));
+    if(c10!=null&&Math.abs(c10)>=5)(c10>0?good:bad).push(`К 10 минуте в среднем ${sgn(c10,1)} CS к оппоненту по линии.`);
+  }
+  // deaths overall
+  if(a.d>=7) bad.push(`В среднем ${fmt(a.d,1)} смертей за игру. Это много: стоит смотреть, сколько из них в поздних боях без обзора.`);
+  else if(a.d<=4.5) good.push(`Мало смертей: ${fmt(a.d,1)} за игру.`);
+  // damage
+  const car=ms.filter(m=>['MIDDLE','BOTTOM'].includes(m.pos));
+  if(car.length>=3){const s=avg(car.map(m=>m.dshare));(s>=26?good:bad).push(`На миде/боте ${fmt(s,0)}% урона команды${s<22?': для керри-роли маловато':''}.`)}
+  // vision
+  const sup=ms.filter(m=>m.pos==='UTILITY'),oth=ms.filter(m=>m.pos!=='UTILITY');
+  if(oth.length>=3){const v=avg(oth.map(m=>m.vsm)),cw=avg(oth.map(m=>m.cw));
+    if(v<0.7||cw<1) bad.push(`Обзор вне саппорта ${fmt(v,2)}/мин, контрольных вардов ${fmt(cw,1)} за игру. Один-два контрольных варда за игру почти бесплатно дают безопасность на линии.`);
+    else good.push(`Нормальный обзор: ${fmt(v,2)}/мин, ${fmt(cw,1)} контрольных варда за игру.`)}
+  if(sup.length>=3){const v=avg(sup.map(m=>m.vsm));(v>=1.8?good:bad).push(`На саппорте обзор ${fmt(v,2)}/мин${v<1.8?': для саппорта ориентир 2+':''}.`)}
+  // champs
+  const by={};ms.forEach(m=>(by[m.c]=by[m.c]||[]).push(m));
+  const cs=Object.entries(by).filter(([c,x])=>x.length>=4).map(([c,x])=>[c,x.length,wr(x)]).sort((p,q)=>q[2]-p[2]);
+  if(cs.length){const [c,n,w]=cs[0];if(w>=55)good.push(`Лучший чемпион по результату: ${cn(c)}, ${w}% в ${n} играх.`);
+    const [c2,n2,w2]=cs[cs.length-1];if(cs.length>1&&w2<=45)bad.push(`Хуже всего идёт ${cn(c2)}: ${w2}% в ${n2} играх.`)}
+  const roles=new Set(ms.map(m=>m.pos));if(roles.size>=4)bad.push(`Игры разбросаны по ${roles.size} ролям. Для роста ранга проще держаться 1–2 ролей.`);
+  el.innerHTML=`<div><h3 class="pos">Сильные стороны</h3><ul>${good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">Пока ничего не выделяется.</li>'}</ul></div>
+  <div><h3 class="neg">Над чем работать</h3><ul>${bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">Явных проблем по цифрам нет.</li>'}</ul></div>`;
+}
+
+function trend(list){
+  const pts=list.filter(r=>r.m.diffs[15]).slice(0,40).reverse();
+  if(!pts.length){$('trend').innerHTML='<div class="empty">Нет данных по линии.</div>';return}
+  const W=1000,H=200,pl=48,pr=8,pt=10,pb=22;
+  const mx=Math.max(1000,...pts.map(r=>Math.abs(r.m.diffs[15].gold)));
+  const step=Math.ceil(mx/1000)*1000;
+  const y=v=>pt+(H-pt-pb)/2*(1-v/step);
+  const bw=(W-pl-pr)/pts.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Разница в золоте на 15 минуте по играм">`;
+  for(const v of [-step,-step/2,0,step/2,step]){s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="${v?1:1.5}"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${sgn(v)}</text>`}
+  pts.forEach((r,i)=>{const v=r.m.diffs[15].gold,x=pl+i*bw+bw*.15,w=bw*.7;
+    s+=`<rect x="${x}" y="${Math.min(y(v),y(0))}" width="${w}" height="${Math.max(1,Math.abs(y(v)-y(0)))}" rx="2" fill="${r.m.win?'var(--win)':'var(--loss)'}" opacity=".85"><title>${cn(r.m.c)} vs ${r.m.opp?cn(r.m.opp.c):'?'}: ${sgn(v)} золота, ${r.m.win?'победа':'поражение'}</title></rect>`});
+  s+=`<text x="${pl}" y="${H-4}" font-size="11" fill="var(--muted)">старые</text><text x="${W-pr}" y="${H-4}" font-size="11" fill="var(--muted)" text-anchor="end">новые</text></svg>`;
+  $('trend').innerHTML=s+`<div class="legend"><span><i style="background:var(--win)"></i>победа</span><span><i style="background:var(--loss)"></i>поражение</span><span>Столбец выше нуля: на 15 минуте у тебя больше золота, чем у оппонента по линии. Последние ${pts.length} игр.</span></div>`;
+}
+
+function table(el,head,body){$(el).innerHTML=`<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${body.join('')||`<tr><td colspan="${head.length}" class="muted">нет данных</td></tr>`}</tbody></table>`}
+function group(list,key){const by={};list.forEach(r=>{const k=key(r);if(k)(by[k]=by[k]||[]).push(r)});return Object.entries(by).map(([k,x])=>[k,agg(x)]).sort((a,b)=>b[1].n-a[1].n||b[1].wr-a[1].wr)}
+const wrc=a=>`${fmt(a.wr,0)}%${a.n<5?' <span class="few">мало</span>':''}`;
+function champs(list){
+  table('champs',['Чемпион','Игры','Вин','KDA','CS/м','@15'],group(list,r=>r.m.c).map(([c,a])=>`<tr><td><span class="ch">${cimg(c,'sm')}${esc(cn(c))}</span></td><td>${a.n}</td><td>${wrc(a)}</td><td>${fmt(a.kda,2)}</td><td>${fmt(a.csm,1)}</td><td class="${cls(a.g15)}">${sgn(a.g15)}</td></tr>`));
+  table('roles',['Роль','Игры','Вин','KDA','CS/м','@15'],group(list,r=>r.m.pos).map(([p,a])=>`<tr><td>${ROLE[p]||p}</td><td>${a.n}</td><td>${wrc(a)}</td><td>${fmt(a.kda,2)}</td><td>${fmt(a.csm,1)}</td><td class="${cls(a.g15)}">${sgn(a.g15)}</td></tr>`));
+  const os=group(list,r=>r.m.opp&&r.m.opp.c).filter(([c,a])=>a.n>=2).slice(0,8);
+  table('opps',['Оппонент по линии (2+ игры)','Игры','Вин','@15'],os.map(([c,a])=>`<tr><td><span class="ch">${cimg(c,'sm')}${esc(cn(c))}</span></td><td>${a.n}</td><td>${wrc(a)}</td><td class="${cls(a.g15)}">${sgn(a.g15)}</td></tr>`));
+}
+
+function review(g,m){
+  const good=[],bad=[],d15=m.diffs[15],d10=m.diffs[10];
+  if(d15){if(d15.gold>=500)good.push(`Выиграл линию: ${sgn(d15.gold)} золота и ${sgn(d15.xp)} опыта к 15 минуте.`);
+    else if(d15.gold<=-500)bad.push(`Проиграл линию: ${sgn(d15.gold)} золота и ${sgn(d15.xp)} опыта к 15 минуте${m.lane_d?`, ${m.lane_d} смерт${m.lane_d>1?'и':'ь'} от оппонента по линии`:''}.`);
+    else good.push(`Ровная линия: ${sgn(d15.gold)} золота к 15 минуте.`)}
+  if(d10&&m.pos!=='UTILITY'){if(d10.cs<=-12)bad.push(`К 10 минуте ${sgn(d10.cs)} CS к оппоненту (${d10.mycs} всего).`);else if(d10.cs>=12)good.push(`Перефармил оппонента: ${sgn(d10.cs)} CS к 10 минуте.`)}
+  if(m.early_d>=2)bad.push(`${m.early_d} смерт${m.early_d<5?'и':'ей'} до 14 минуты (${m.deaths.filter(t=>t<14).map(t=>fmt(t,1)+' мин').join(', ')})${m.ganked>=2?', в основном с помощью других врагов: следи за лесником и картой':''}.`);
+  else if(m.early_d===0&&g.dur>20)good.push('Ни одной смерти до 14 минуты.');
+  if(m.d>=8)bad.push(`${m.d} смертей за игру.`);
+  if(laner(m.pos)){if(m.csm>=8)good.push(`Фарм ${fmt(m.csm,1)} CS/мин.`);else if(m.csm<6)bad.push(`Фарм ${fmt(m.csm,1)} CS/мин.`)}
+  if(m.pos==='JUNGLE'&&m.csm<5)bad.push(`Мало фарма для лесника: ${fmt(m.csm,1)} CS/мин.`);
+  if(m.dshare>=28)good.push(`${fmt(m.dshare,0)}% урона команды по чемпионам.`);else if(['MIDDLE','BOTTOM'].includes(m.pos)&&m.dshare<18)bad.push(`Всего ${fmt(m.dshare,0)}% урона команды для керри-роли.`);
+  if(m.kp>=65)good.push(`Участие в ${m.kp}% убийств команды.`);else if(m.kp<35&&m.pos!=='TOP')bad.push(`Участие только в ${m.kp}% убийств команды.`);
+  if(m.solo>=2)good.push(`${m.solo} соло-убийств.`);
+  const vt=m.pos==='UTILITY'?1.8:m.pos==='JUNGLE'?1:0.6;
+  if(m.vsm<vt)bad.push(`Обзор ${fmt(m.vsm,2)}/мин, контрольных вардов: ${m.cw}.`);else if(m.vsm>=vt*1.5)good.push(`Хороший обзор: ${fmt(m.vsm,2)}/мин.`);
+  if(m.plates>=3)good.push(`Снял ${m.plates} пластин с башен.`);
+  // game flow
+  const me100=m.team===100,gd=g.gd.map(v=>me100?v:-v);
+  const max=Math.max(0,...gd),min=Math.min(0,...gd);
+  let flow;
+  if(m.win&&min<=-3000)flow=`Камбэк: команда отставала до ${sgn(min)} золота и всё равно выиграла.`;
+  else if(!m.win&&max>=3000)flow=`Упущенная игра: команда вела до ${sgn(max)} золота, но проиграла. Стоит пересмотреть бои после ${fmt(gd.indexOf(max))} минуты.`;
+  else if(m.win)flow=max>=5000?`Уверенная победа, преимущество до ${sgn(max)} золота.`:`Победа в ровной игре (максимум ${sgn(max)} золота).`;
+  else flow=min<=-5000?`Проигрыш с большим отставанием (до ${sgn(min)} золота).`:`Поражение в близкой игре (до ${sgn(min)} золота).`;
+  return {good,bad,flow};
+}
+
+function goldChart(g,m){
+  const me100=m.team===100,gd=g.gd.map(v=>me100?v:-v);
+  if(gd.length<2)return '';
+  const W=1000,H=180,pl=48,pr=10,pt=10,pb=24;
+  const mx=Math.max(2000,...gd.map(Math.abs));const step=Math.ceil(mx/2000)*2000;
+  const x=i=>pl+(W-pl-pr)*i/(gd.length-1),y=v=>pt+(H-pt-pb)/2*(1-v/step);
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Разница в золоте команд по минутам">`;
+  for(const v of [-step,0,step])s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${sgn(v)}</text>`;
+  for(let t=5;t<gd.length;t+=5)s+=`<text x="${x(t)}" y="${H-6}" text-anchor="middle" font-size="11" fill="var(--muted)">${t}′</text>`;
+  const line=gd.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+  s+=`<defs><clipPath id="up${g.id}"><rect x="0" y="0" width="${W}" height="${y(0)}"/></clipPath><clipPath id="dn${g.id}"><rect x="0" y="${y(0)}" width="${W}" height="${H}"/></clipPath></defs>`;
+  const area=`${x(0)},${y(0)} ${line} ${x(gd.length-1)},${y(0)}`;
+  s+=`<polygon points="${area}" fill="var(--win)" opacity=".18" clip-path="url(#up${g.id})"/><polygon points="${area}" fill="var(--loss)" opacity=".18" clip-path="url(#dn${g.id})"/>`;
+  s+=`<polyline points="${line}" fill="none" stroke="var(--ink)" stroke-width="1.6"/>`;
+  m.deaths.forEach(t=>{const i=Math.min(gd.length-1,t);const v=gd[Math.floor(i)];s+=`<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="var(--loss)" stroke="var(--panel)" stroke-width="1.5"><title>Твоя смерть, ${fmt(t,1)} мин</title></circle>`});
+  const mark={DRAGON:'Д',BARON_NASHOR:'Б',RIFTHERALD:'Г',HORDE:'Л',ATAKHAN:'А',ELDER_DRAGON:'Э'};
+  (g.obev||[]).filter(e=>mark[e.type]).forEach(e=>{const mine=e.team===m.team;s+=`<text x="${x(Math.min(gd.length-1,e.t))}" y="${mine?pt+10:H-pb-2}" font-size="11" font-weight="600" text-anchor="middle" fill="${mine?'var(--win)':'var(--loss)'}">${mark[e.type]}<title>${mine?'Ваша':'Вражеская'} команда: ${e.type}, ${fmt(e.t,1)} мин</title></text>`});
+  return s+`</svg><div class="legend"><span>Выше нуля: ваша команда впереди по золоту.</span><span><i style="background:var(--loss);border-radius:50%"></i>твои смерти</span><span>Буквы: Д дракон, Б барон, Г герольд, Л личинки, А атакан. Сверху ваши, снизу вражеские.</span></div>`;
+}
+
+function scoreboard(g){
+  const ps=[...g.parts].sort((a,b)=>a.team-b.team);
+  const ord=['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'];
+  ps.sort((a,b)=>a.team-b.team||ord.indexOf(a.pos)-ord.indexOf(b.pos));
+  return `<div class="tbl sb"><table><thead><tr><th>Игрок</th><th>KDA</th><th>CS</th><th>Урон</th><th>Золото</th><th style="text-align:left">Предметы</th></tr></thead><tbody>${ps.map((p,i)=>`<tr class="t${p.team} ${p.me?'me':''} ${i===4?'sep':''}"><td><span class="ch">${cimg(p.c,'sm')}<span>${esc(p.n)}<br><span class="few">${ROLE[p.pos]||''} · ${esc(cn(p.c))}</span></span></span></td><td>${p.k}/${p.d}/${p.a}</td><td>${p.cs}</td><td>${fmt(p.dmg)}</td><td>${fmt(p.g)}</td><td style="text-align:left"><span class="build">${p.items.map(iimg).join('')}</span></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function gameRow({g,m,o}){
+  const rv=review(g,m),d15=m.diffs[15];
+  const chips=[];
+  if(d15)chips.push(`<span class="chip ${d15.gold>=500?'g':d15.gold<=-500?'b':''}">@15 ${sgn(d15.gold)}</span>`);
+  if(m.early_d>=2)chips.push(`<span class="chip b">${m.early_d} ран. смерти</span>`);
+  if(m.dshare>=28)chips.push(`<span class="chip g">${fmt(m.dshare,0)}% урона</span>`);
+  const duo=o?`<div class="vs">${cimg(o.c,'sm')} DrVoldemar: ${o.k}/${o.d}/${o.a}, ${ROLE[o.pos]||''}${o.team!==m.team?' (против тебя)':''}</div>`:'';
+  const sums=m.sums.map(s=>IC.s[s]?`<img class="ic sm" src="${IC.s[s]}" alt="" title="${esc(IC.snames[s]||'')}">`:'').join('');
+  const rune=[m.keystone,m.sec].map(r=>IC.r[r]?`<img class="ic sm" src="${IC.r[r]}" alt="" title="${esc(IC.rnames[r]||'')}">`:'').join('');
+  const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
+  return `<details class="game ${m.win?'w':'l'}"><summary>
+    <div class="res">${m.win?'Победа':'Поражение'}<small>${g.qn} · ${fmt(g.dur,0)} мин<br>${date(g.start)}</small></div>
+    <div class="ch">${cimg(m.c)}<div><b>${esc(cn(m.c))}</b><div class="few">${ROLE[m.pos]||''}</div><div class="build">${sums}${rune}</div></div></div>
+    <div class="kda">${m.k}/${m.d}/${m.a}<small>KDA ${fmt(kda(m.k,m.d,m.a),2)} · ${m.cs} CS (${fmt(m.csm,1)})</small></div>
+    <div class="vs">${m.opp?`против ${cimg(m.opp.c,'sm')} ${esc(cn(m.opp.c))} ${m.opp.k}/${m.opp.d}/${m.opp.a}`:''}<div class="chips">${chips.join('')}</div>${duo}</div>
+    <div class="build">${m.items.map(iimg).join('')}</div>
+  </summary><div class="detail">
+    <div class="verdict"><b>Итог.</b> ${rv.flow}</div>
+    ${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}
+    <div class="chart">${goldChart(g,m)}</div>
+    ${scoreboard(g)}
+  </div></details>`;
+}
+
+function duoNotes(list){
+  const same=list.filter(r=>r.m.team===r.o.team),vs=list.filter(r=>r.m.team!==r.o.team);
+  const w=same.filter(r=>r.m.win).length;
+  const pairs={};same.forEach(r=>{const k=`${ROLE[r.m.pos]||'?'} + ${ROLE[r.o.pos]||'?'}`;(pairs[k]=pairs[k]||[]).push(r)});
+  const pr=Object.entries(pairs).sort((a,b)=>b[1].length-a[1].length).map(([k,x])=>`<li>${k}: ${x.filter(r=>r.m.win).length}–${x.filter(r=>!r.m.win).length}</li>`).join('');
+  const ah=agg(same),ad=agg(same.map(r=>({g:r.g,m:r.o})));
+  $('tiles').innerHTML=[['Вместе в команде',same.length,`${w}–${same.length-w}`],['Винрейт дуо',same.length?fmt(w/same.length*100,0)+'%':'—',same.length<20?'мало игр для выводов':''],
+    ['Halch KDA',fmt(ah.kda,2),`@15 ${sgn(ah.g15)}`],['DrVoldemar KDA',fmt(ad.kda,2),`@15 ${sgn(ad.g15)}`],
+    ['Halch смертей до 14',fmt(ah.early,1),''],['DrVoldemar смертей до 14',fmt(ad.early,1),''],['Друг против друга',vs.length,''],['Последние 10 вместе',(()=>{const l=same.slice(0,10);return `${l.filter(r=>r.m.win).length}–${l.filter(r=>!r.m.win).length}`})(),'']]
+    .map(([l,v,s])=>`<div class="tile"><span>${l}</span><b>${v}</b><i>${s||'&nbsp;'}</i></div>`).join('');
+  const lb=ah.g15!=null&&ad.g15!=null?(ah.g15<ad.g15?'Halch':'DrVoldemar'):null;
+  $('notes').innerHTML=`<div><h3>Связки ролей</h3><ul>${pr||'<li class="muted">нет игр</li>'}</ul></div><div><h3>Наблюдения</h3><ul>
+    ${lb?`<li>В совместных играх слабее на линии ${lb}: ${sgn(Math.min(ah.g15,ad.g15))} золота к 15 мин в среднем.</li>`:''}
+    <li>Halch: ${fmt(ah.dshare,0)}% урона команды, DrVoldemar: ${fmt(ad.dshare,0)}%.</li>
+    <li>Смертей за игру: Halch ${fmt(ah.d,1)}, DrVoldemar ${fmt(ad.d,1)}.</li></ul></div>`;
+}
+
+function render(){
+  try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(e){}
+  document.querySelectorAll('#who button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.who));
+  document.querySelectorAll('#queue button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.queue));
+  const list=rows();
+  if(st.who==='duo'){duoNotes(list);trend(list);champs(list)}
+  else{tiles(list);notes(list);trend(list);champs(list)}
+  $('games').innerHTML=list.length?list.map(gameRow).join(''):'<div class="empty">Нет игр в этом фильтре.</div>';
+}
+document.querySelectorAll('#who button').forEach(b=>b.onclick=()=>{st.who=b.dataset.v;render()});
+document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.dataset.v;render()});
+$('meta').textContent=`${GAMES.length} игр на Ущелье · обновлено ${META.updated} · патч ${META.patch}`;
+$('plates').innerHTML=META.ranks.map(r=>`<div class="plate"><div class="who">${esc(r.name)}</div>${r.q.map(q=>`<div class="rk">${q.t}: <b>${q.r}</b> · ${q.wl}</div>`).join('')}</div>`).join('');
+$('foot').textContent=`Данные: Riot API (последние 60 матчей каждого, только Ущелье призывателей, игры короче 10 минут не считаются). Разница с оппонентом считается против игрока той же роли во вражеской команде. «Мало» в таблицах: меньше 5 игр, винрейт ненадёжен. Иконки и названия: Data Dragon ${META.dd}.`;
+render();
+</script>
