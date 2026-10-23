@@ -312,7 +312,7 @@ button:disabled{opacity:.5;cursor:default}
       <div class="presets" id="npre"><button data-n="20">20</button><button data-n="50">50</button><button data-n="100">100</button><button data-n="0">все</button></div>
     </div>
     <nav class="jump" id="jump" aria-label="Перейти к разделу">
-      <button data-to="gamesec" class="main">↓ Матчи</button><button data-to="top">Наверх</button><button data-to="livesec">В игре</button><button data-to="weeksec">Отчёт</button><button data-to="goalsec">Цели</button><button data-to="lpsec">Рейтинг</button><button data-to="notesec">Выводы</button><button data-to="trendsec">Линия</button><button data-to="impsec">Вклад</button><button data-to="wlsec">Победы/поражения</button><button data-to="deathsec">Смерти</button><button data-to="tiltsec">Серии</button><button data-to="ganksec">Ганки</button><button data-to="buildsec">Билды</button><button data-to="recsec">Рекорды</button><button data-to="actsec">Активность</button><button data-to="mupsec">Матчапы</button><button data-to="emsec">Изумруд+</button><button data-to="mastsec">Мастерство</button><button data-to="champsec">Чемпионы</button>
+      <button data-to="gamesec" class="main">↓ Матчи</button><button data-to="top">Наверх</button><button data-to="livesec">В игре</button><button data-to="weeksec">Отчёт</button><button data-to="goalsec">Цели</button><button data-to="lpsec">Рейтинг</button><button data-to="notesec">Выводы</button><button data-to="trendsec">Линия</button><button data-to="impsec">Вклад</button><button data-to="wlsec">Победы/поражения</button><button data-to="deathsec">Смерти</button><button data-to="duosec">Дуо</button><button data-to="tiltsec">Серии</button><button data-to="patchsec">Патчи</button><button data-to="ganksec">Ганки</button><button data-to="buildsec">Билды</button><button data-to="recsec">Рекорды</button><button data-to="actsec">Активность</button><button data-to="mupsec">Матчапы</button><button data-to="badsec">Неудобные враги</button><button data-to="emsec">Изумруд+</button><button data-to="mastsec">Мастерство</button><button data-to="champsec">Чемпионы</button>
     </nav>
   </div>
 
@@ -412,6 +412,16 @@ button:disabled{opacity:.5;cursor:default}
     <div class="deaths" id="deaths"></div>
   </section>
 
+  <section id="duosec">
+    <h2>Дуо-синергия</h2>
+    <div class="chart" id="duo"></div>
+  </section>
+
+  <section id="patchsec">
+    <h2>Тренды по патчам</h2>
+    <div class="chart" id="patch"></div>
+  </section>
+
   <section id="tiltsec">
     <h2>Серии и тильт</h2>
     <div class="chart" id="tilt"></div>
@@ -440,6 +450,11 @@ button:disabled{opacity:.5;cursor:default}
   <section id="mupsec">
     <h2>Матчапы на линии</h2>
     <div class="chart" id="mup"></div>
+  </section>
+
+  <section id="badsec">
+    <h2>Неудобные враги</h2>
+    <div class="chart" id="bad"></div>
   </section>
 
   <section id="mastsec">
@@ -1112,11 +1127,11 @@ function render(){
   const list=rows();
   const sl=$('ngames');sl.max=Math.max(10,Math.ceil(TOTAL/10)*10);sl.value=st.n&&st.n<TOTAL?st.n:sl.max;nlab();
   $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} ${({all:'игр',win:'побед',loss:'поражений'})[st.res]} в выборке · обновлено ${META.updated} · патч ${META.patch}`;
-  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=$('goalsec').hidden=$('lpsec').hidden=$('ganksec').hidden=$('emsec').hidden=$('tiltsec').hidden=$('mupsec').hidden=$('mastsec').hidden=st.who==='duo';
+  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=$('goalsec').hidden=$('lpsec').hidden=$('ganksec').hidden=$('emsec').hidden=$('tiltsec').hidden=$('mupsec').hidden=$('mastsec').hidden=$('badsec').hidden=st.who==='duo';$('duosec').hidden=st.who!=='duo';
   if(st.who==='duo')$('weeksec').hidden=true;
-  if(st.who==='duo'){duoNotes(list);trend(list);champs(list);lanes(list);activity(list)}
-  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);weekly();mastery()}
-  impact(list);winloss();
+  if(st.who==='duo'){duoNotes(list);duo(list);trend(list);champs(list);lanes(list);activity(list)}
+  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);badEnemies(list);weekly();mastery()}
+  impact(list);winloss();patches(list);
   CUR=list;showGames();showView();
   $('jump').querySelectorAll('[data-to]').forEach(b=>{const el=$(b.dataset.to);b.hidden=!!(el&&el.hidden)});
 }
@@ -1371,6 +1386,90 @@ function matchups(list){
     ${hid?`<button class="more" data-mupall style="margin-top:8px;padding:8px">Показать ещё ${hid} оппонентов с 1 игрой</button>`:''}<div class="legend"><span>Только игры, где у тебя был оппонент на той же роли. «Тяжёлый»: в среднем −400 золота и больше к 15 минуте и винрейт ниже 50% (от 2 игр).</span></div>`;
 }
 $('mup').addEventListener('click',e=>{if(e.target.closest('[data-mupall]')){mupAll=true;matchups(rows());return}const b=e.target.closest('[data-mup]');if(b){mupC=b.dataset.mup;mupAll=false;matchups(rows())}});
+
+/* ---------- Дуо-синергия ---------- */
+const sm=(o,k=5)=>(o.w+k/2)/(o.n+k);
+function duo(list){
+  const same=list.filter(r=>r.m.team===r.o.team);
+  if(!same.length){$('duo').innerHTML='<div class="empty">Нет совместных игр в одной команде в этой выборке.</div>';return}
+  const z=()=>({n:0,w:0,gh:[],gd:[]}),add=(o,r)=>{o.n++;o.w+=r.m.win;if(r.m.diffs[15])o.gh.push(r.m.diffs[15].gold);if(r.o.diffs[15])o.gd.push(r.o.diffs[15].gold)};
+  const pc={},rp={};same.forEach(r=>{add(pc[r.m.c+'|'+r.o.c]=pc[r.m.c+'|'+r.o.c]||z(),r);add(rp[r.m.pos+'|'+r.o.pos]=rp[r.m.pos+'|'+r.o.pos]||z(),r)});
+  // винрейт каждого вместе и без друга (та же очередь)
+  const solo=who=>{const o={n:0,w:0};GAMES.filter(qok).forEach(g=>{if(g.me.length!==1||g.me[0].who!==who)return;o.n++;o.w+=g.me[0].win});return o};
+  const sh=solo('halch'),sd=solo('drv'),tw={n:same.length,w:same.filter(r=>r.m.win).length};
+  const wr=o=>o.n?fmt(o.w/o.n*100,0)+'%':'—';
+  const pairs=Object.entries(pc).sort((a,b)=>b[1].n-a[1].n||sm(b[1])-sm(a[1]));
+  const rated=pairs.filter(([,o])=>o.n>=3).sort((a,b)=>sm(b[1])-sm(a[1]));
+  const pn=k=>{const [a,b]=k.split('|');return `<span class="ch">${cimg(a,'xs')}${esc(cn(a))}</span> + <span class="ch">${cimg(b,'xs')}${esc(cn(b))}</span>`};
+  const rn=k=>{const [a,b]=k.split('|');return `${ROLE[a]||'?'} + ${ROLE[b]||'?'}`};
+  let tip=`Вместе ${tw.w}–${tw.n-tw.w} (${wr(tw)}). Без друга: Halch ${wr(sh)} из ${sh.n}, DrVoldemar ${wr(sd)} из ${sd.n}.`;
+  if(rated.length>1){const b=rated[0],w=rated[rated.length-1];tip+=` Лучшая связка из сыгранных 3+ раз: ${b[0].split('|').map(cn).join(' + ')} (${b[1].w}–${b[1].n-b[1].w}), худшая: ${w[0].split('|').map(cn).join(' + ')} (${w[1].w}–${w[1].n-w[1].w}).`}
+  const tbl=(rowsT,name,fn)=>`<div class="xs-scroll"><table><thead><tr><th>${name}</th><th>Игр</th><th>Винрейт</th><th>Halch на 15</th><th>DrV на 15</th></tr></thead><tbody>${rowsT.map(([k,o])=>`<tr><td>${fn(k)}</td><td>${o.n}</td><td>${wr(o)}${o.n<5?' <span class="few">мало</span>':''}</td><td class="${cls(avg(o.gh))}">${sgn(avg(o.gh))}</td><td class="${cls(avg(o.gd))}">${sgn(avg(o.gd))}</td></tr>`).join('')}</tbody></table></div>`;
+  const rest=pairs.length-Math.min(pairs.length,15);
+  $('duo').innerHTML=`<div class="legend" style="margin:0 0 10px"><span>${tip}</span></div>
+    <div class="gk2"><div style="min-width:0"><h3 style="margin-bottom:6px">Связки ролей</h3>${tbl(Object.entries(rp).sort((a,b)=>b[1].n-a[1].n),'Halch + DrVoldemar',rn)}
+      <h3 style="margin:14px 0 6px">Вместе или по отдельности</h3>${wrBars([['Вместе в команде',tw],['Halch без друга',sh],['DrVoldemar без друга',sd]])}</div>
+    <div style="min-width:0"><h3 style="margin-bottom:6px">Пары чемпионов</h3>${tbl(pairs.slice(0,15),'Halch + DrVoldemar',pn)}${rest?`<div class="legend"><span>И ещё ${rest} пар, сыгранных реже.</span></div>`:''}</div></div>
+    <div class="legend"><span>Только игры, где вы в одной команде. «Мало»: меньше 5 игр, винрейт там почти случайный. Связки отсортированы по числу игр.</span></div>`;
+}
+
+/* ---------- Тренды по патчам ---------- */
+function patches(list){
+  const by={};list.forEach(r=>{const v=r.g.ver||'?';(by[v]=by[v]||[]).push(r)});
+  const vk=v=>v.split('.').reduce((s,x)=>s*100+(+x||0),0);
+  const ps=Object.keys(by).sort((a,b)=>vk(a)-vk(b));
+  if(!ps.length){$('patch').innerHTML='<div class="empty">Нет игр.</div>';return}
+  const A=agg(list),P=ps.map(v=>({v,a:agg(by[v]),rs:by[v]}));
+  const maj=ps[ps.length-1].split('.')[0],sv=v=>v.split('.')[0]===maj?v.slice(maj.length+1):v;
+  const W=Math.max(320,ps.length*38),H=170,pl=30,pb=34,bw=Math.min(26,(W-pl)/ps.length-8),y=wr=>10+(H-pb-10)*(1-wr/100);
+  const svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:${Math.min(W,560)}px;height:auto;display:block" role="img" aria-label="Винрейт по патчам">
+    ${[25,50,75].map(t=>`<line x1="${pl}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)" ${t===50?'':'stroke-dasharray="3 4"'}/><text x="${pl-4}" y="${y(t)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${t}%</text>`).join('')}
+    ${P.map((p,i)=>{const x=pl+(W-pl)*(i+.5)/ps.length,wr=p.a.wr,few=p.a.n<10,c=few?'var(--muted)':wr>=52?'var(--win)':wr<=46?'var(--loss)':'var(--gold)';
+      return `<g><title>${p.v}: ${fmt(wr,0)}% · ${p.a.n} игр</title><rect x="${x-bw/2}" y="${y(wr)}" width="${bw}" height="${y(0)-y(wr)}" fill="${c}" opacity="${few?.45:1}" rx="2"/>
+      <text x="${x}" y="${H-pb+14}" text-anchor="middle" font-size="10" fill="var(--ink)">${sv(p.v)}</text><text x="${x}" y="${H-pb+27}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${p.a.n}</text></g>`}).join('')}
+  </svg>`;
+  // лучший отрезок из 3 патчей подряд (от 15 игр) и последние 2 патча
+  let best=null;for(let i=0;i+2<P.length;i++){const rs=P.slice(i,i+3).flatMap(p=>p.rs);if(rs.length<15)continue;const a=agg(rs);if(!best||a.wr>best.a.wr)best={i,a}}
+  const last=P.slice(-2).flatMap(p=>p.rs),la=agg(last);
+  let tip=`За сезон ${fmt(A.wr,0)}% в ${A.n} играх.`;
+  if(best)tip+=` Лучший отрезок: ${P[best.i].v}–${P[best.i+2].v}, ${fmt(best.a.wr,0)}% (${best.a.n} игр).`;
+  if(la.n>=8){tip+=` Последние два патча (${P.slice(-2).map(p=>p.v).join(', ')}): ${fmt(la.wr,0)}% в ${la.n} играх`;
+    const gd=la.g15!=null&&A.g15!=null?la.g15-A.g15:null;
+    tip+=la.wr<A.wr-5?(gd!=null&&gd>-150?`, а линия как обычно (${sgn(la.g15)} на 15): проигрываешь середину и конец игры, а не линию.`:`, и линия тоже хуже обычного (${sgn(la.g15)} на 15 против ${sgn(A.g15)}).`):la.wr>A.wr+5?', лучше среднего за сезон.':', на уровне сезона.'}
+  else if(la.n)tip+=` В последних двух патчах всего ${la.n} игр, выводы делать рано.`;
+  const cell=(v,base,d,th,better=1)=>`<td class="${v==null||base==null||Math.abs(v-base)<th?'':((v-base)*better>0?'pos':'neg')}">${fmt(v,d)}</td>`;
+  const tbl=`<div class="xs-scroll"><table><thead><tr><th>Патч</th><th>Игр</th><th>Винрейт</th><th>KDA</th><th>Золото на 15</th><th>CS/мин</th><th>Смертей до 14</th><th>Доля урона</th></tr></thead><tbody>
+    ${P.slice().reverse().map(p=>`<tr><td>${p.v}</td><td>${p.a.n}${p.a.n<10?' <span class="few">мало</span>':''}</td>${cell(p.a.wr,A.wr,0,3)}${cell(p.a.kda,A.kda,2,.15)}<td class="${cls(p.a.g15)}">${sgn(p.a.g15)}</td>${cell(p.a.csm,A.csm,1,.25)}${cell(p.a.early,A.early,1,.25,-1)}${cell(p.a.dshare,A.dshare,0,1.5)}</tr>`).join('')}
+    <tr><td><b>Сезон</b></td><td><b>${A.n}</b></td><td><b>${fmt(A.wr,0)}%</b></td><td>${fmt(A.kda,2)}</td><td class="${cls(A.g15)}">${sgn(A.g15)}</td><td>${fmt(A.csm,1)}</td><td>${fmt(A.early,1)}</td><td>${fmt(A.dshare,0)}</td></tr></tbody></table></div>`;
+  // главные чемпионы по патчам
+  const cc={};list.forEach(r=>cc[r.m.c]=(cc[r.m.c]||0)+1);
+  const top=Object.entries(cc).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c])=>c);
+  const ch=`<div class="xs-scroll"><table><thead><tr><th>Чемпион</th>${ps.map(v=>`<th>${sv(v)}</th>`).join('')}</tr></thead><tbody>${top.map(c=>`<tr><td><span class="ch">${cimg(c,'xs')}${esc(cn(c))}</span></td>${ps.map(v=>{const rs=by[v].filter(r=>r.m.c===c);if(!rs.length)return '<td class="muted">·</td>';const w=rs.filter(r=>r.m.win).length;return `<td class="${rs.length<3?'muted':w/rs.length>=.55?'pos':w/rs.length<=.45?'neg':''}" title="${v}: ${w}–${rs.length-w}">${w}–${rs.length-w}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`;
+  $('patch').innerHTML=`<div class="legend" style="margin:0 0 10px"><span>${tip}</span></div><div class="xs-scroll">${svg}</div>
+    <div class="legend"><span>Под столбцом: номер патча и число игр. Бледный столбец: меньше 10 игр, винрейт там почти случайный.</span></div>
+    <h3 style="margin:16px 0 6px">Цифры по патчам</h3>${tbl}<div class="legend"><span>Зелёный и красный: лучше или хуже твоего среднего за сезон в этой выборке.</span></div>
+    <h3 style="margin:16px 0 6px">Главные чемпионы по патчам</h3>${ch}<div class="legend"><span>Победы–поражения. Цвет только от 3 игр за патч.</span></div>`;
+}
+
+/* ---------- Неудобные враги ---------- */
+function badEnemies(list){
+  const lane={},team={},z=()=>({n:0,w:0,g:[],ld:0,pos:{},mine:{}});
+  list.forEach(r=>{
+    if(r.m.opp){const o=lane[r.m.opp.c]=lane[r.m.opp.c]||z();o.n++;o.w+=r.m.win;if(r.m.diffs[15])o.g.push(r.m.diffs[15].gold);o.ld+=r.m.lane_d||0;o.pos[r.m.pos]=(o.pos[r.m.pos]||0)+1;
+      const mc=o.mine[r.m.c]=o.mine[r.m.c]||{n:0,w:0};mc.n++;mc.w+=r.m.win}
+    (r.g.parts||[]).forEach(p=>{if(p.team===r.m.team)return;const o=team[p.c]=team[p.c]||{n:0,w:0};o.n++;o.w+=r.m.win})});
+  const base=list.length?list.filter(r=>r.m.win).length/list.length:.5;
+  const L=Object.entries(lane).filter(([,o])=>o.n>=3).map(([c,o])=>[c,o,sm(o)]).filter(x=>x[1].w/x[1].n<.5||avg(x[1].g)<=-300).sort((a,b)=>a[2]-b[2]).slice(0,10);
+  const T=Object.entries(team).filter(([,o])=>o.n>=8).map(([c,o])=>[c,o,(o.w+5*base)/(o.n+5)]).filter(x=>x[1].w/x[1].n<base-.05).sort((a,b)=>a[2]-b[2]).slice(0,10);
+  const pick=o=>{const ok=Object.entries(o.mine).filter(([,m])=>m.n>=2&&m.w/m.n>=.5).sort((a,b)=>sm(b[1],4)-sm(a[1],4));
+    return ok.length?ok.slice(0,2).map(([c,m])=>`<span class="ch">${cimg(c,'xs')}${esc(cn(c))} ${m.w}–${m.n-m.w}</span>`).join(' '):''};
+  const role=o=>Object.entries(o.pos).sort((a,b)=>b[1]-a[1])[0][0];
+  const lola=(c,o)=>`<a href="https://lolalytics.com/lol/${c==='MonkeyKing'?'wukong':c.toLowerCase()}/counters/?lane=${LSLUG[role(o)]||'top'}&tier=emerald_plus" target="_blank" rel="noopener">контрпики</a>`;
+  $('bad').innerHTML=`<h3 style="margin-bottom:6px">На линии</h3>${L.length?`<div class="xs-scroll"><table><thead><tr><th>Против</th><th>Игр</th><th>Винрейт</th><th>Золото на 15</th><th>Смертей от него до 14</th><th>Что у тебя работало</th><th></th></tr></thead><tbody>
+    ${L.map(([c,o])=>`<tr><td><span class="ch">${cimg(c,'xs')}${esc(cn(c))}</span> <span class="few">${ROLE[role(o)]}</span></td><td>${o.n}</td><td>${fmt(o.w/o.n*100,0)}%${o.n<5?' <span class="few">мало</span>':''}</td><td class="${cls(avg(o.g))}">${sgn(avg(o.g))}</td><td>${fmt(o.ld/o.n,1)}</td><td>${pick(o)||'<span class="muted">пока ничего</span>'}</td><td>${lola(c,o)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Нет оппонентов, против которых ты стабильно проигрываешь (от 3 игр).</div>'}
+    <h3 style="margin:16px 0 6px">Во вражеской команде</h3>${T.length?wrBars(T.map(([c,o])=>[`<span class="ch">${cimg(c,'xs')}${esc(cn(c))}</span>`,o])):'<div class="empty">Нет чемпионов, с которыми у врагов ты заметно чаще проигрываешь (от 8 игр).</div>'}
+    <div class="legend"><span>На линии: от 3 игр, винрейт ниже 50% или в среднем −300 золота к 15 минуте; порядок по винрейту со сглаживанием к 50%. «Что у тебя работало»: твои чемпионы против него с 2+ играми и винрейтом от 50%. Во вражеской команде: от 8 игр и винрейт ниже твоего среднего (${fmt(base*100,0)}%) на 5+ пунктов.</span></div>`;
+}
 
 /* ---------- Сравнение игр ---------- */
 let CMP=[];

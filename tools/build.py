@@ -6,6 +6,7 @@ except Exception as e: print('аккаунты не получены',e);P=[]
 T={'IRON':'Железо','BRONZE':'Бронза','SILVER':'Серебро','GOLD':'Золото','PLATINUM':'Платина','EMERALD':'Изумруд','DIAMOND':'Алмаз','MASTER':'Мастер','GRANDMASTER':'Грандмастер','CHALLENGER':'Претендент'}
 ranks=[];snap=[]
 try:
+ if not P: raise RuntimeError('нет аккаунтов')
  for n,p in P:
    r=json.load(urllib.request.urlopen(urllib.request.Request(f'https://euw1.api.riotgames.com/lol/league/v4/entries/by-puuid/{p}',headers={'X-Riot-Token':K,'User-Agent':'curl/8'})))
    qs=[]
@@ -23,6 +24,7 @@ games=json.load(open('games.json'))
 # мастерство чемпионов
 mastery={}
 try:
+  if not P: raise RuntimeError('нет аккаунтов')
   idmap={int(v['key']):v['id'] for v in json.load(open('dd/champion.json'))['data'].values()}
   for n,p in P:
     r=json.load(urllib.request.urlopen(urllib.request.Request(f'https://euw1.api.riotgames.com/lol/champion-mastery/v4/champion-masteries/by-puuid/{p}',headers={'X-Riot-Token':K,'User-Agent':'curl/8'})))
