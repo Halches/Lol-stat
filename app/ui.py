@@ -81,7 +81,7 @@ DEFAULTS = {
     'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False,
     'alpha': 88, 'scale': 100, 'layout': {},
     'keys': {'mute': 'ctrl+shift+m', 'hide': 'ctrl+shift+h', 'scoreboard': 'tab', 'drag': 'alt'},
-    'voice': 'dmitri', 'volume': 80, 'rate': 1.0,
+    'voice': 'dmitri', 'volume': 80, 'rate': 1.0, 'master': 100, 'beep_volume': 70,
     'obj': dict(core.OBJ), 'who': '', 'auto_update': True,
 }
 
@@ -389,6 +389,7 @@ class App:
         self.client = lcu.LCU()
         self.voice = Voice(self.home)
         self.voice.voice, self.voice.volume, self.voice.rate = self.s['voice'], self.s['volume'], self.s['rate']
+        self.voice.master, self.voice.beep_volume = self.s['master'], self.s['beep_volume']
         self.q = queue.Queue()
         self.hidden = False
         self.account = None
@@ -795,11 +796,22 @@ class App:
         ttk.Button(r, text='Прослушать', command=lambda: self.voice.say('Окно ганка через двадцать секунд, поставь вард в реку', force=True)).pack(side='left', padx=8)
         self.voice_msg = ttk.Label(f, text='', style='M.TLabel'); self.voice_msg.pack(anchor='w', pady=4)
         self.refresh_voices()
-        for key, name, lo, hi in (('volume', 'Громкость', 10, 100), ('rate', 'Скорость речи', .7, 1.6)):
-            row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=2)
-            ttk.Label(row, text=name, width=16).pack(side='left')
+        self.h(f, 'Громкость')
+        for key, name, lo, hi, test in (('master', 'Общая', 0, 100, None), ('volume', 'Голос', 0, 100, 'voice'),
+                                        ('beep_volume', 'Сигнал', 0, 100, 'beep'), ('rate', 'Скорость речи', .7, 1.6, None)):
+            if key == 'rate': self.h(f, 'Речь')
+            row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=3)
+            ttk.Label(row, text=name, width=14).pack(side='left')
             v = tk.DoubleVar(value=self.s[key])
-            ttk.Scale(row, from_=lo, to=hi, variable=v, length=260, command=lambda _, key=key, v=v: self.set_voice_param(key, v.get())).pack(side='left')
+            val = ttk.Label(row, width=6, foreground=C['gold'])
+            fmt = (lambda x: f'{x:.1f}×') if key == 'rate' else (lambda x: f'{x:.0f}%')
+            val.configure(text=fmt(self.s[key]))
+            def changed(_, key=key, v=v, val=val, fmt=fmt):
+                self.set_voice_param(key, v.get()); val.configure(text=fmt(v.get()))
+            ttk.Scale(row, from_=lo, to=hi, variable=v, length=320, command=changed).pack(side='left')
+            val.pack(side='left', padx=8)
+            if test == 'voice': ttk.Button(row, text='Проверить', command=lambda: self.voice.say('Дракон через минуту', force=True)).pack(side='left')
+            if test == 'beep': ttk.Button(row, text='Проверить', command=lambda: self.voice.beep(force=True)).pack(side='left')
         self.note(f, 'Голоса нейросетевые (Piper), работают без интернета. Дмитрий встроен, остальные скачиваются один раз (~60 МБ). '
                      f"Выключить звук в игре: {self.s['keys']['mute'].upper()}.")
 
@@ -825,6 +837,7 @@ class App:
 
     def set_voice_param(self, key, v):
         v = round(v, 2) if key == 'rate' else int(v)
+        if self.s.get(key) == v: return
         self.s[key] = v; setattr(self.voice, key, v); self.s.save()
 
     def build_keys(self):
