@@ -111,7 +111,8 @@ def start_download(app, tag, url):
             app.root.after(0, lambda: app.update_state(f'Версия {tag} скачана', lambda: restart_into(app, new)))
         except Exception as e:
             log(f'download failed: {e!r}')
-            app.root.after(0, lambda: app.update_state(f'Не скачалось: {e}. Попробуй ещё раз или скачай вручную с GitHub', lambda: start_download(app, tag, url)))
+            msg = f'Не скачалось: {e}. Попробуй ещё раз или скачай вручную с GitHub'
+            app.root.after(0, lambda: app.update_state(msg, lambda: start_download(app, tag, url)))
     app.update_state(f'Скачиваю {tag}…')
     threading.Thread(target=job, daemon=True).start()
 

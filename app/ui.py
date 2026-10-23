@@ -1179,7 +1179,8 @@ class App:
                     self.voice_msg.configure(text=f'Голос {VOICES[v]} установлен')
                 self.root.after(0, done)
             except Exception as e:
-                self.root.after(0, lambda: self.voice_msg.configure(text=f'Не скачалось: {e}'))
+                msg = f'Не скачалось: {e}'
+                self.root.after(0, lambda: self.voice_msg.configure(text=msg))
         threading.Thread(target=job, daemon=True).start()
 
     def set_voice_param(self, key, v):
