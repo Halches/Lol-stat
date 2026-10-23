@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
+    inputs:
+      test_fire:
+        description: "Проверить запуск обновления в Claude без новых игр"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -74,7 +79,7 @@ jobs:
           gh api -X POST "repos/${{ github.repository }}/pages/builds" || true
 
       - name: Обновить версию в Claude
-        if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
+        if: (steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0') || inputs.test_fire
         env:
           FIRE_URL: ${{ secrets.CLAUDE_FIRE_URL }}
           FIRE_TOKEN: ${{ secrets.CLAUDE_FIRE_TOKEN }}
@@ -88,4 +93,5 @@ jobs:
             -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
-            -d '{}' || echo "::warning::Не удалось запустить обновление в Claude"
+            -d '{}' -o fire.json -w "HTTP %{http_code}\n" || echo "::warning::Не удалось запустить обновление в Claude"
+          head -c 300 fire.json | sed 's/"[a-z_]*token[a-z_]*":"[^"]*"/"token":"***"/g'; echo
