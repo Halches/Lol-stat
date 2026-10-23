@@ -229,6 +229,8 @@ button:disabled{opacity:.5;cursor:default}
 .jump button.main{background:var(--gold);color:var(--bg);border-color:var(--gold);font-weight:600}
 .jump button[hidden]{display:none}
 .dact{display:flex;gap:6px;flex-wrap:wrap}
+.dsel{display:flex;gap:8px 16px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.dsel select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 8px;margin-left:4px;max-width:60vw}
 .live{background:var(--panel);border:1px solid var(--gold);border-radius:8px;padding:12px 14px}
 .lp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .lp.me b{color:var(--gold)}
@@ -406,6 +408,7 @@ button:disabled{opacity:.5;cursor:default}
 
   <section id="deathsec">
     <div class="ctitle"><h2>Где и от кого ты умираешь</h2><div class="seg sm" id="dfilt" role="group" aria-label="Время"><button data-d="all" aria-pressed="true">Все</button><button data-d="early" aria-pressed="false">До 14 мин</button><button data-d="late" aria-pressed="false">После 14 мин</button></div></div>
+    <div class="dsel"><label>Роль <select id="drolef"></select></label><label>Чемпион <select id="dchampf"></select></label></div>
     <div class="deaths" id="deaths"></div>
   </section>
 
@@ -791,7 +794,14 @@ function mapSVG(ds,big){
   return s+'</svg>';
 }
 let dfilt='all';
+let dRole='',dChamp='';
 function deaths(list){
+  const cnt=(a,f)=>{const c={};a.forEach(r=>{const k=f(r);c[k]=(c[k]||0)+1});return c};
+  const rc=cnt(list,r=>r.m.pos);if(dRole&&!rc[dRole])dRole='';
+  $('drolef').innerHTML=`<option value="">Все (${list.length})</option>`+ORD.filter(p=>rc[p]).map(p=>`<option value="${p}"${p===dRole?' selected':''}>${ROLE[p]} (${rc[p]})</option>`).join('');
+  const l1=dRole?list.filter(r=>r.m.pos===dRole):list,cc=cnt(l1,r=>r.m.c);if(dChamp&&!cc[dChamp])dChamp='';
+  $('dchampf').innerHTML=`<option value="">Все (${l1.length})</option>`+Object.keys(cc).sort((a,b)=>cc[b]-cc[a]).map(c=>`<option value="${c}"${c===dChamp?' selected':''}>${esc(cn(c))} (${cc[c]})</option>`).join('');
+  list=dChamp?l1.filter(r=>r.m.c===dChamp):l1;
   let ds=list.flatMap(r=>(r.m.dpos||[]));
   if(dfilt==='early')ds=ds.filter(d=>d[0]<14);else if(dfilt==='late')ds=ds.filter(d=>d[0]>=14);
   if(!ds.length){$('deaths').innerHTML='<div class="empty">Нет данных.</div>';return}
@@ -1131,6 +1141,8 @@ function hover(e){
 }
 $('games').addEventListener('pointermove',hover);
 $('games').addEventListener('pointerleave',e=>{document.querySelectorAll('.tip').forEach(t=>t.hidden=true);document.querySelectorAll('.cross').forEach(c=>c.setAttribute('visibility','hidden'))},true);
+$('drolef').onchange=()=>{dRole=$('drolef').value;dChamp='';deaths(rows())};
+$('dchampf').onchange=()=>{dChamp=$('dchampf').value;deaths(rows())};
 $('dfilt').addEventListener('click',e=>{const b=e.target.closest('[data-d]');if(!b)return;dfilt=b.dataset.d;$('dfilt').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));deaths(rows())});
 $('bchamps').addEventListener('click',e=>{const b=e.target.closest('[data-bc]');if(!b)return;bchamp=b.dataset.bc;builds(rows())});
 $('recs').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(!b)return;if(!$('g-'+b.dataset.go)){const i=CUR.findIndex(r=>r.g.id===b.dataset.go);if(i>=LIM){LIM=i+1;showGames()}}const d=$('g-'+b.dataset.go);if(!d)return;d.open=true;d.scrollIntoView({behavior:'smooth',block:'start'});d.classList.add('flash');setTimeout(()=>d.classList.remove('flash'),1600)});
