@@ -7,7 +7,7 @@ ROLE_RU = {'TOP': 'топ', 'JUNGLE': 'лес', 'MIDDLE': 'мид', 'BOTTOM': '�
 LCU_ROLE = {'top': 'TOP', 'jungle': 'JUNGLE', 'middle': 'MIDDLE', 'bottom': 'BOTTOM', 'utility': 'UTILITY'}
 
 # Время объектов сезона 2026 (секунды). Меняются в настройках, если Riot их поправит.
-OBJ = {'dragon_first': 300, 'dragon_respawn': 300, 'elder_respawn': 360, 'grubs': 480, 'herald': 900,
+OBJ = {'crab': 210, 'dragon_first': 300, 'dragon_respawn': 300, 'elder_respawn': 360, 'grubs': 480, 'herald': 900,
        'baron_first': 1200, 'baron_respawn': 360, 'inhib_respawn': 300}
 
 # Лесники: ранние ганкеры и фармеры (для третьего окна ганка)
@@ -84,8 +84,12 @@ class Player:
     def norm(self, c, pos=None):
         gs = self.on(c, pos) or self.on(c)
         if len(gs) < 3: gs = self.on(pos=pos) if pos else self.games
-        avg = lambda k: (sum(g[k] for g in gs if g.get(k) is not None) / max(1, sum(1 for g in gs if g.get(k) is not None))) if gs else None
-        return {'n': len(gs), 'csm': avg('csm'), 'cs10': avg('cs10'), 'ed': avg('ed'), 'vsm': avg('vsm'), 'd': avg('d')}
+        def avg(k):
+            xs = [g[k] for g in gs if g.get(k) is not None]
+            return sum(xs) / len(xs) if xs else None
+        kda = [(g['k'] + g['a']) / max(1, g['d']) for g in gs if g.get('k') is not None and g.get('d') is not None]
+        return {'n': len(gs), 'csm': avg('csm'), 'cs10': avg('cs10'), 'ed': avg('ed'), 'vsm': avg('vsm'), 'd': avg('d'),
+                'gpm': avg('gpm'), 'kp': avg('kp'), 'kda': sum(kda) / len(kda) if kda else None}
 
     def vs(self, mine, enemy):
         gs = [g for g in self.games if g['opp'] == enemy and (mine is None or g['c'] == mine)]
@@ -205,12 +209,25 @@ def parse_champ_select(sess, data):
 
 # ---------------- Живая игра ----------------
 
+def _norm(s):
+    return re.sub(r'[\W_]', '', (s or '').lower())
+
+
 def champ_key(p, data):
-    raw = p.get('rawChampionName') or ''
-    k = raw.replace('game_character_displayname_', '')
-    if k: return k
-    name = p.get('championName', '')
-    return next((key for key, n in data.names.items() if n == name), name)
+    """Ключ чемпиона (как в Data Dragon) из любых вариантов имени, которые отдаёт игра:
+    game_character_displayname_Seraphine, Character_Seraphine_Name, русское имя и т.п."""
+    keys = data.__dict__.setdefault('_keys', {_norm(k): k for k in data.names})
+    ru = data.__dict__.setdefault('_ru', {_norm(n): k for k, n in data.names.items()})
+    for cand in (p.get('rawChampionName'), p.get('championName')):
+        c = (cand or '').replace('game_character_displayname_', '')
+        m = re.search(r'Character_([A-Za-z]+?)_Name', c)
+        if m: c = m.group(1)
+        n = _norm(c)
+        if not n: continue
+        if n in keys: return keys[n]
+        if n in ru: return ru[n]
+    raw = (p.get('rawChampionName') or '').replace('game_character_displayname_', '')
+    return raw or p.get('championName', '')
 
 
 class Game:
@@ -315,6 +332,7 @@ HINTS = [
     ('jungler', 'Загрузка', 'Кто лесник врагов: ранний ганкер или фармер', 'voice', 0),
     ('trinket', 'Загрузка', 'Купи тотем, если слот пуст', 'voice', 60),
     ('early_ward', 'Загрузка', 'Ранний вард в реку / вражеский лес', 'text', 0),
+    ('crab', 'Лес', 'Лесник: крабы в 3:30 и на какой стороне сильнее линии', 'voice', 0),
     ('gank1', 'Линия', 'Ганк 1: лесник взял 3 лагеря', 'voice', 0),
     ('gank2', 'Линия', 'Ганк 2: полная зачистка', 'voice', 0),
     ('gank3', 'Линия', 'Ганк 3: под вражеского лесника', 'voice', 0),
@@ -328,7 +346,7 @@ HINTS = [
     ('tp', 'Линия', 'Телепорт к дракону', 'text', 0),
     ('cannon', 'Линия', 'Волна с осадным миньоном', 'off', 0),
     ('control', 'Обзор и предметы', 'Нет контрольного тотема после возвращения', 'voice', 0),
-    ('lens', 'Обзор и предметы', 'Поменяй тотем на линзу', 'text', 0),
+    ('lens', 'Обзор и предметы', 'Поддержка: поменяй тотем на линзу', 'text', 0),
     ('vision', 'Обзор и предметы', 'Обзор ниже цели (10 и 20 мин)', 'text', 0),
     ('enemy_dmg', 'Обзор и предметы', 'Тип урона врагов и антихил', 'text', 0),
     ('enemy_item', 'Обзор и предметы', 'Оппонент закончил предмет', 'voice', 0),
@@ -398,6 +416,19 @@ class Engine:
         if 55 < t < 70 and self._once('early_ward'):
             add('early_ward', 'Поставь первый вард в реку или вход во вражеский лес к 1:30', 'Первый вард в реку')
 
+        # --- крабы (только для лесника): появляются в 3:30, сторону подсказываем по силе своих линий
+        if g.role == 'JUNGLE' and OBJ['crab'] - 25 <= t < OBJ['crab'] - 20 and self._once('crab'):
+            def side(roles):
+                sc = 0
+                for r in roles:
+                    a_ = next((x for x in g.allies if x['pos'] == r), None); e_ = next((x for x in g.enemies if x['pos'] == r), None)
+                    if a_ and e_: sc += (a_['lvl'] - e_['lvl']) * 10 + (a_['cs'] - e_['cs'])
+                return sc
+            top, bot = side(['TOP', 'MIDDLE']), side(['BOTTOM', 'UTILITY', 'MIDDLE'])
+            where = 'верхнего' if top > bot + 5 else 'нижнего' if bot > top + 5 else None
+            if where: add('crab', f'Крабы в {mmss(OBJ["crab"])}: иди на {where} краба — там твои линии сильнее и помогут', f'Крабы через двадцать секунд, иди на {where}')
+            else: add('crab', f'Крабы в {mmss(OBJ["crab"])}: линии равны, бери ближайшего краба и поставь вард в реку', 'Крабы через двадцать секунд')
+
         # --- ганки (только для линии)
         if laner and t < 300:
             for hid, a, b, why in gank_windows(g):
@@ -445,7 +476,7 @@ class Engine:
         # --- обзор и предметы
         if p and self.spent_at == t and t > 300 and 2055 not in me['items'] and self._cool('control', t):
             add('control', 'Нет контрольного тотема: купи на базе', 'Купи контрольный тотем')
-        if me['lvl'] >= 9 and 3340 in me['items'] and self._once('lens'):
+        if g.role == 'UTILITY' and me['lvl'] >= 9 and 3340 in me['items'] and self._once('lens'):
             add('lens', 'Девятый уровень: поменяй Скрытый тотем на Лупу оракула', 'Поменяй тотем на линзу')
         for m in (10, 20):
             if m * 60 <= t < m * 60 + 5 and self._once(f'vis{m}'):
@@ -532,3 +563,54 @@ def postgame(engine, g, player):
     res = [(n, v, th, (v >= th) if op == '>=' else (v <= th), dec) for n, v, th, op, dec in rows]
     worst = min((r for r in res if not r[3]), key=lambda r: (r[1] / r[2] if r[2] else 0) if r[0] in ('CS в минуту', 'Обзор в минуту', 'Участие в убийствах, %') else -r[1], default=None)
     return {'goals': res, 'main': worst[0] if worst else None, 'hints': list(engine.fired), 'me': me, 'min': mins}
+
+
+def summarize_history(hist, champ_id):
+    """Короткая характеристика игрока по последним играм: серия, винрейт, игры на текущем чемпионе, KDA."""
+    if not hist: return None
+    w = sum(h['win'] for h in hist)
+    st = 0
+    for h in hist:
+        if st == 0 or (st > 0) == h['win']: st += 1 if h['win'] else -1
+        else: break
+    on = [h for h in hist if str(h['champ']) == str(champ_id)] if champ_id else []
+    kd = lambda xs: round(sum(x['k'] + x['a'] for x in xs) / max(1, sum(x['d'] for x in xs)), 1)
+    out = {'n': len(hist), 'w': w, 'streak': st, 'on': len(on), 'on_w': sum(x['win'] for x in on), 'kda': kd(on or hist)}
+    tags = []
+    if len(on) >= len(hist) * .7 and len(on) >= 5: tags.append('играет почти только на нём')
+    elif champ_id and not on: tags.append('не играл на нём недавно')
+    if st >= 3: tags.append(f'серия побед {st}')
+    if st <= -3: tags.append(f'серия поражений {-st}')
+    out['tags'] = tags
+    return out
+
+
+def item_remaining(data, it, owned):
+    """Сколько золота докупить до предмета it, если owned (список id) уже есть. Использованные компоненты убираются из owned."""
+    it = str(it)
+    if it in owned:
+        owned.remove(it); return 0
+    info = data.items.get(it) or {}
+    comps = [str(x) for x in info.get('from', [])]
+    if not comps: return info.get('g', 0)
+    own_cost = info.get('g', 0) - sum((data.items.get(x) or {}).get('g', 0) for x in comps)
+    return own_cost + sum(item_remaining(data, x, owned) for x in comps)
+
+
+def next_item_plan(data, player, champ, items, gold):
+    """Следующий крупный предмет по лучшей сборке игрока: что докупить сейчас и сколько не хватает.
+    -> {'item', 'need' (до предмета), 'comp', 'comp_need' (до компонента)} или None."""
+    if not player: return None
+    have = [str(i) for i in items]
+    target = next((i for i in player.best_build(champ) if str(i) not in have), None)
+    if not target: return None
+    owned = list(have)
+    need = item_remaining(data, target, owned)
+    comps = []
+    for x in (data.items.get(str(target)) or {}).get('from', []):
+        o = list(have)
+        r = item_remaining(data, x, o)
+        if r > 0: comps.append((str(x), r))
+    afford = [c for c in comps if c[1] <= gold]
+    comp = max(afford, key=lambda c: c[1]) if afford else (min(comps, key=lambda c: c[1]) if comps else (str(target), need))
+    return {'item': str(target), 'need': max(0, need - gold), 'total': need, 'comp': comp[0], 'comp_need': max(0, comp[1] - gold)}

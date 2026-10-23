@@ -102,6 +102,26 @@ class LCU:
         if not q.get('tier') or q['tier'] in ('NONE', ''): return None
         return {'tier': q['tier'], 'div': q.get('division', ''), 'lp': q.get('leaguePoints', 0), 'w': q.get('wins', 0), 'l': q.get('losses', 0)}
 
+    def history(self, puuid, n=20):
+        """Последние игры игрока из клиента (как во вкладке «История» профиля):
+        [{'win', 'champ' (id), 'k', 'd', 'a', 'q', 'lane'}], новые первыми."""
+        try:
+            r = self.call(f'/lol-match-history/v1/products/lol/{puuid}/matches?begIndex=0&endIndex={n - 1}')
+        except Exception:
+            return None
+        out = []
+        for g in (((r or {}).get('games') or {}).get('games') or []):
+            pid = next((x.get('participantId') for x in g.get('participantIdentities') or []
+                        if (x.get('player') or {}).get('puuid') == puuid), None)
+            p = next((x for x in g.get('participants') or [] if x.get('participantId') == pid), None)
+            if not p or (g.get('gameDuration') or 0) < 300: continue
+            st = p.get('stats') or {}
+            out.append({'win': bool(st.get('win')), 'champ': p.get('championId'), 'k': st.get('kills', 0), 'd': st.get('deaths', 0),
+                        'a': st.get('assists', 0), 'q': g.get('queueId'), 't': g.get('gameCreation', 0),
+                        'lane': ((p.get('timeline') or {}).get('lane') or '')})
+        out.sort(key=lambda x: -x['t'])
+        return out
+
     def phase(self):
         return self.call('/lol-gameflow/v1/gameflow-phase') or 'None'
 

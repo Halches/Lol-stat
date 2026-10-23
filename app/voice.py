@@ -6,6 +6,15 @@ GH = 'https://github.com/Halches/Lol-stat/releases/download/voices/ru_RU-{v}-med
 HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/{v}/medium/ru_RU-{v}-medium.onnx'
 NOWIN = 0x08000000
 BEEP = object()   # метка сигнала в очереди звука
+# Стили сигнала: (название, [(начало с, частота Гц, длительность с, громкость, сдвиг частоты Гц)])
+SOUNDS = {
+    'bell': ('Колокольчик', [(0, 1046.5, .9, .8), (.11, 1318.5, 1.1, .6)]),
+    'soft': ('Мягкий', [(0, 523.3, .7, .9), (.09, 659.3, .9, .6)]),
+    'drop': ('Капля', [(0, 1400, .25, .9, -700)]),
+    'chime': ('Перезвон', [(0, 784, .8, .6), (.1, 988, .8, .5), (.2, 1175, 1.0, .5)]),
+    'tick': ('Короткий щелчок', [(0, 1600, .08, .7)]),
+    'classic': ('Старый (двойной писк)', [(0, 880, .15, .9), (.18, 1175, .2, .9)]),
+}
 
 
 def bundle_dir():
@@ -17,6 +26,7 @@ class Voice:
         self.home = home                      # %APPDATA%/LoLHelper
         self.voice, self.volume, self.rate = 'dmitri', 80, 1.0
         self.master, self.beep_volume = 100, 70   # общая громкость и громкость сигнала, %
+        self.sound = 'bell'
         self.q = queue.Queue()
         self.muted = False
         threading.Thread(target=self._loop, daemon=True).start()
@@ -92,14 +102,24 @@ class Voice:
         subprocess.run(['powershell', '-NoProfile', '-Command', ps], timeout=30, creationflags=NOWIN)
 
     def beep_wav(self):
-        """Двойной сигнал 880 и 1175 Гц с плавными краями, громкость = общая × сигнал."""
-        rate, k = 22050, 0.6 * self.beep_volume * self.master / 10000
-        a = array.array('h')
-        for f, ms in ((880, 120), (0, 30), (1175, 160)):
-            n = rate * ms // 1000
+        """Сигнал выбранного стиля (self.sound), громкость = общая × сигнал."""
+        rate, k = 44100, 0.5 * self.beep_volume * self.master / 10000
+        notes = SOUNDS.get(self.sound, SOUNDS['bell'])[1]
+        n_total = int(rate * max(t + d for t, f, d, *_ in notes))
+        buf = [0.0] * n_total
+        for t0, f, dur, *rest in notes:
+            amp = rest[0] if rest else 1.0
+            sweep = rest[1] if len(rest) > 1 else 0
+            start, n = int(rate * t0), int(rate * dur)
+            ph = 0.0
             for i in range(n):
-                env = min(1, i / 200, (n - i) / 200)
-                a.append(int(32767 * k * env * math.sin(2 * math.pi * f * i / rate)) if f else 0)
+                x = i / rate
+                env = min(1.0, i / (rate * .006)) * math.exp(-x * 5.5 / dur)   # мягкая атака и затухание как у колокольчика
+                fr = f + sweep * x / dur
+                ph += 2 * math.pi * fr / rate
+                v = math.sin(ph) + .25 * math.sin(2 * ph) + .08 * math.sin(3 * ph)
+                if start + i < n_total: buf[start + i] += amp * env * v / 1.33
+        a = array.array('h', (int(max(-1, min(1, x * k)) * 32767) for x in buf))
         b = io.BytesIO()
         with wave.open(b, 'wb') as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(a.tobytes())

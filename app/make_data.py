@@ -30,6 +30,7 @@ for g in sorted(games, key=lambda g: g['start']):
             'c': m['c'], 'pos': m['pos'], 'w': int(m['win']), 'q': g['q'], 't': g['start'] // 1000, 'dur': g['dur'],
             'opp': (m.get('opp') or {}).get('c'), 'g15': d15.get('gold'), 'cs10': d10.get('mycs'), 'csm': m.get('csm'),
             'd': m.get('d'), 'ed': m.get('early_d', 0), 'vsm': m.get('vsm'), 'kp': m.get('kp'), 'cw': m.get('cw'),
+            'k': m.get('k'), 'a': m.get('a'), 'gpm': m.get('gpm'),
             'e': [p['c'] for p in g['parts'] if p['team'] != m['team']],
             'pk': m.get('perks') or [], 'pr': m.get('prim'), 'sc': m.get('sec'), 'f': m.get('first') or [], 'it': [i for i in m.get('items', []) if i],
         })
@@ -47,7 +48,8 @@ out = {
     't': time.strftime('%Y-%m-%d %H:%M'), 'patch': patch,
     'names': {k: v['name'] for k, v in champs.items()} | icons.get('names', {}),
     'ids': {v['key']: k for k, v in champs.items()},
-    'items': {k: {'g': v['gold']['total'], 'n': v['name'], 'tags': v.get('tags', []), 'done': not v.get('into') and v['gold']['total'] >= 2000}
+    'items': {k: {'g': v['gold']['total'], 'n': v['name'], 'tags': v.get('tags', []), 'done': not v.get('into') and v['gold']['total'] >= 2000,
+                  'from': v.get('from', [])}
               for k, v in items.items() if v.get('maps', {}).get('11', True)},
     'lola': {k: v for k, v in lola.items() if not k.startswith('_')},
     'pools': POOLS, 'players': players,
