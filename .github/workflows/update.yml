@@ -34,6 +34,8 @@ jobs:
             echo "ok=0" >> "$GITHUB_OUTPUT"
           else
             echo "ok=1" >> "$GITHUB_OUTPUT"
+            K=$(printf '%s' "$RIOT_API_KEY" | tr -d '[:space:]"')
+            if printf '%s' "$K" | grep -Eq '^RGAPI-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then echo "Формат ключа верный (длина ${#K})"; else echo "::warning::Секрет RIOT_API_KEY не похож на ключ Riot: длина ${#K}, начало '${K:0:6}'"; fi
           fi
 
       - uses: actions/checkout@v4
