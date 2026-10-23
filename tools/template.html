@@ -6,17 +6,17 @@
 /* Layout: one column "scouting report" — header with rank plates, player tabs, summary strip, coach notes, tables, then expandable match log */
 :root{
   --bg:#eef1f6; --panel:#ffffff; --panel2:#f5f7fb; --ink:#141b2b; --muted:#5d6779; --line:#d9dee8;
-  --gold:#a8771c; --blue:#2d6cdf; --red:#d0443e; --win:#2d6cdf; --loss:#d0443e; --good:#1f8a5b; --bad:#c2410c;
+  --gold:#a8771c; --xp:#2f8fd8; --blue:#2d6cdf; --red:#d0443e; --win:#2d6cdf; --loss:#d0443e; --good:#1f8a5b; --bad:#c2410c;
   --winbg:rgba(45,108,223,.08); --lossbg:rgba(208,68,62,.08);
   --f-disp:"Fira Sans Condensed","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0b1120; --panel:#121a2c; --panel2:#18223a; --ink:#e6eaf2; --muted:#94a0b8; --line:#26314a;
-  --gold:#d8a94a; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
+  --gold:#d8a94a; --xp:#5cb8ff; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
   --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0b1120; --panel:#121a2c; --panel2:#18223a; --ink:#e6eaf2; --muted:#94a0b8; --line:#26314a;
-  --gold:#d8a94a; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
+  --gold:#d8a94a; --xp:#5cb8ff; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
   --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5}
@@ -68,6 +68,21 @@ th:first-child,td:first-child{text-align:left}
 .bar{display:inline-block;height:6px;border-radius:3px;background:var(--win);vertical-align:middle}
 .chart{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
 .chart svg{display:block;width:100%;height:auto}
+.ctitle{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between;margin-bottom:8px}
+.ctitle .legend{margin-top:0}
+.plot{position:relative}
+.tip{position:absolute;top:0;width:260px;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.4;padding:6px 8px;border-radius:4px;pointer-events:none;z-index:2}
+.seg.sm button{font-size:13px;padding:4px 10px}
+.lgs{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.lg{font:inherit;font-size:12px;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:12px;padding:2px 8px 2px 6px;cursor:pointer}
+.lg[aria-pressed="false"]{opacity:.4}
+.lg i{width:10px;height:3px;border-radius:2px;display:inline-block}
+.ic.xs{width:18px;height:18px}
+.its{display:flex;flex-wrap:wrap;gap:6px}
+.itm{display:inline-flex;flex-direction:column;align-items:center;font-size:10px;color:var(--muted);line-height:1.1}
+.itl td:first-child{width:170px}
+.itl tr.me td{background:var(--winbg);font-weight:600}
+.itl .sep td{border-bottom:2px solid var(--line)}
 .legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .games{display:flex;flex-direction:column;gap:6px}
@@ -312,24 +327,64 @@ function review(g,m){
   return {good,bad,flow};
 }
 
-function goldChart(g,m){
-  const me100=m.team===100,gd=g.gd.map(v=>me100?v:-v);
+const ALLY=['#3d7bfd','#21b8c8','#7b61ff','#2fb36d','#9fb0c9'],ENEMY=['#ef4b4b','#f08c2b','#e14fa9','#c9a227','#a8674a'];
+const ORD=['TOP','JUNGLE','MIDDLE','BOTTOM','UTILITY'];
+function axisX(n,x,H,pb){let s='';const st=n>40?10:5;for(let t=st;t<n;t+=st)s+=`<line x1="${x(t)}" x2="${x(t)}" y1="0" y2="${H-pb}" stroke="var(--line)" stroke-dasharray="2 4"/><text x="${x(t)}" y="${H-6}" text-anchor="middle" font-size="11" fill="var(--muted)">${t}′</text>`;return s}
+function niceStep(mx,base){const r=[1,2,2.5,5];let p=base;while(true){for(const k of r){if(k*p*4>=mx)return k*p}p*=10}}
+
+function advChart(g,m){
+  const sg=m.team===100?1:-1,gd=g.gd.map(v=>v*sg),xd=(g.xd||[]).map(v=>v*sg);
   if(gd.length<2)return '';
-  const W=1000,H=180,pl=48,pr=10,pt=10,pb=24;
-  const mx=Math.max(2000,...gd.map(Math.abs));const step=Math.ceil(mx/2000)*2000;
-  const x=i=>pl+(W-pl-pr)*i/(gd.length-1),y=v=>pt+(H-pt-pb)/2*(1-v/step);
-  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Разница в золоте команд по минутам">`;
-  for(const v of [-step,0,step])s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${sgn(v)}</text>`;
-  for(let t=5;t<gd.length;t+=5)s+=`<text x="${x(t)}" y="${H-6}" text-anchor="middle" font-size="11" fill="var(--muted)">${t}′</text>`;
-  const line=gd.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
-  s+=`<defs><clipPath id="up${g.id}"><rect x="0" y="0" width="${W}" height="${y(0)}"/></clipPath><clipPath id="dn${g.id}"><rect x="0" y="${y(0)}" width="${W}" height="${H}"/></clipPath></defs>`;
-  const area=`${x(0)},${y(0)} ${line} ${x(gd.length-1)},${y(0)}`;
-  s+=`<polygon points="${area}" fill="var(--win)" opacity=".18" clip-path="url(#up${g.id})"/><polygon points="${area}" fill="var(--loss)" opacity=".18" clip-path="url(#dn${g.id})"/>`;
-  s+=`<polyline points="${line}" fill="none" stroke="var(--ink)" stroke-width="1.6"/>`;
-  m.deaths.forEach(t=>{const i=Math.min(gd.length-1,t);const v=gd[Math.floor(i)];s+=`<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="var(--loss)" stroke="var(--panel)" stroke-width="1.5"><title>Твоя смерть, ${fmt(t,1)} мин</title></circle>`});
-  const mark={DRAGON:'Д',BARON_NASHOR:'Б',RIFTHERALD:'Г',HORDE:'Л',ATAKHAN:'А',ELDER_DRAGON:'Э'};
-  (g.obev||[]).filter(e=>mark[e.type]).forEach(e=>{const mine=e.team===m.team;s+=`<text x="${x(Math.min(gd.length-1,e.t))}" y="${mine?pt+10:H-pb-2}" font-size="11" font-weight="600" text-anchor="middle" fill="${mine?'var(--win)':'var(--loss)'}">${mark[e.type]}<title>${mine?'Ваша':'Вражеская'} команда: ${e.type}, ${fmt(e.t,1)} мин</title></text>`});
-  return s+`</svg><div class="legend"><span>Выше нуля: ваша команда впереди по золоту.</span><span><i style="background:var(--loss);border-radius:50%"></i>твои смерти</span><span>Буквы: Д дракон, Б барон, Г герольд, Л личинки, А атакан. Сверху ваши, снизу вражеские.</span></div>`;
+  const W=1000,H=260,pl=56,pr=12,pt=26,pb=24;
+  const mx=Math.max(1000,...gd.map(Math.abs),...xd.map(Math.abs));const step=niceStep(mx,100);const lim=step*Math.ceil(mx/step);
+  const n=gd.length,x=i=>pl+(W-pl-pr)*i/(n-1),y=v=>pt+(H-pt-pb)/2*(1-v/lim);
+  let s=`<svg viewBox="0 0 ${W} ${H}" class="hov" data-n="${n}" data-pl="${pl}" data-pr="${pr}" role="img" aria-label="Преимущество команды по золоту и опыту">`;
+  s+=`<rect x="${pl}" y="${pt}" width="${W-pl-pr}" height="${y(0)-pt}" fill="var(--win)" opacity=".05"/><rect x="${pl}" y="${y(0)}" width="${W-pl-pr}" height="${H-pb-y(0)}" fill="var(--loss)" opacity=".05"/>`;
+  for(let v=-lim;v<=lim;v+=step)s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="${v?1:1.5}"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${sgn(v)}</text>`;
+  s+=axisX(n,x,H,pb);
+  s+=`<text x="${pl+6}" y="${pt+14}" font-size="11" font-weight="600" fill="var(--win)">ваша команда впереди</text><text x="${pl+6}" y="${H-pb-6}" font-size="11" font-weight="600" fill="var(--loss)">враги впереди</text>`;
+  // kills: ticks along the top band
+  (g.kev||[]).forEach(([t,team])=>{const mine=team===m.team;s+=`<line x1="${x(Math.min(n-1,t))}" x2="${x(Math.min(n-1,t))}" y1="${mine?2:12}" y2="${mine?10:20}" stroke="${mine?'var(--win)':'var(--loss)'}" stroke-width="2"/>`});
+  const pts=a=>a.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+  if(xd.length)s+=`<polyline points="${pts(xd)}" fill="none" stroke="var(--xp)" stroke-width="2.2" stroke-linejoin="round"/>`;
+  s+=`<polyline points="${pts(gd)}" fill="none" stroke="var(--gold)" stroke-width="2.6" stroke-linejoin="round"/>`;
+  m.deaths.forEach(t=>{const i=Math.min(n-1,t),v=gd[Math.round(i)];s+=`<circle cx="${x(i)}" cy="${y(v)}" r="4.5" fill="var(--loss)" stroke="var(--panel)" stroke-width="1.5"/>`});
+  const mark={DRAGON:'Д',BARON_NASHOR:'Б',RIFTHERALD:'Г',HORDE:'Л',ATAKHAN:'А',ELDER_DRAGON:'Э',INHIBITOR_BUILDING:'И'};
+  (g.obev||[]).filter(e=>mark[e.type]).forEach(e=>{const mine=e.team===m.team,cx=x(Math.min(n-1,e.t)),cy=mine?pt+30:H-pb-24;
+    s+=`<circle cx="${cx}" cy="${cy}" r="8" fill="var(--panel)" stroke="${mine?'var(--win)':'var(--loss)'}" stroke-width="1.5"/><text x="${cx}" y="${cy+4}" font-size="10" font-weight="700" text-anchor="middle" fill="${mine?'var(--win)':'var(--loss)'}">${mark[e.type]}</text>`});
+  s+=`<g class="cross" visibility="hidden"><line y1="${pt}" y2="${H-pb}" stroke="var(--ink)" stroke-width="1" opacity=".5"/></g></svg>`;
+  const tip=gd.map((v,i)=>`${i} мин: золото ${sgn(v)}${xd.length?`, опыт ${sgn(xd[i])}`:''}`);
+  return `<div class="ctitle"><h3>Преимущество команды</h3><div class="legend"><span><i style="background:var(--gold)"></i>золото</span><span><i style="background:var(--xp)"></i>опыт</span><span><i style="background:var(--loss);border-radius:50%"></i>твои смерти</span><span>штрихи сверху: убийства (выше ваши, ниже вражеские)</span><span>Д дракон, Б барон, Г герольд, Л личинки, А атакан, И ингибитор; сверху ваши, снизу вражеские</span></div></div><div class="plot">${s}<div class="tip" hidden></div></div><script type="application/json" class="tipdata">${JSON.stringify(tip)}<\/script>`;
+}
+
+function playersChart(g,m,key){
+  const ps=[...g.parts].sort((a,b)=>(a.team===m.team?0:1)-(b.team===m.team?0:1)||ORD.indexOf(a.pos)-ORD.indexOf(b.pos));
+  const ser=ps.map(p=>p[key]||[]);const n=Math.max(...ser.map(a=>a.length));if(n<2)return '';
+  const W=1000,H=300,pl=56,pr=40,pt=12,pb=24;
+  const mx=Math.max(1,...ser.flat());const step=niceStep(mx,key==='sc'?1:100);const lim=step*Math.ceil(mx/step);
+  const x=i=>pl+(W-pl-pr)*i/(n-1),y=v=>pt+(H-pt-pb)*(1-v/lim);
+  let s=`<svg viewBox="0 0 ${W} ${H}" class="hov" data-n="${n}" data-pl="${pl}" data-pr="${pr}" role="img" aria-label="Графики игроков">`;
+  for(let v=0;v<=lim;v+=step)s+=`<line x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmt(v)}</text>`;
+  s+=axisX(n,x,H,pb);
+  ps.forEach((p,i)=>{const ally=p.team===m.team,c=(ally?ALLY:ENEMY)[i%5],a=ser[i];if(!a.length)return;
+    s+=`<g class="pl" data-i="${i}"><polyline points="${a.map((v,j)=>`${x(j)},${y(v)}`).join(' ')}" fill="none" stroke="${c}" stroke-width="${p.me?3.2:1.8}" stroke-linejoin="round" ${ally?'':'stroke-dasharray="6 3"'}/>`+
+      (IC.c[p.c]?`<image href="${IC.c[p.c]}" x="${x(a.length-1)+4}" y="${y(a[a.length-1])-11}" width="22" height="22"/>`:'')+`</g>`});
+  s+=`<g class="cross" visibility="hidden"><line y1="${pt}" y2="${H-pb}" stroke="var(--ink)" stroke-width="1" opacity=".5"/></g></svg>`;
+  const unit={sg:'золота',sx:'опыта',sc:'CS'}[key];
+  const tip=[...Array(n).keys()].map(j=>`${j} мин: `+ps.map((p,i)=>[cn(p.c),ser[i][j]]).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`${c} ${fmt(v)}`).join(' · '));
+  const leg=ps.map((p,i)=>`<button class="lg" data-i="${i}" aria-pressed="true" title="Скрыть или показать"><i style="background:${(p.team===m.team?ALLY:ENEMY)[i%5]}"></i>${cimg(p.c,'xs')}${esc(cn(p.c))}${p.me?' (ты)':''}</button>`).join('');
+  return `<div class="plot">${s}<div class="tip" hidden></div></div><script type="application/json" class="tipdata">${JSON.stringify(tip)}<\/script><div class="lgs">${leg}</div><div class="legend"><span>Сплошные линии: ваша команда, пунктир: враги. Нажми на чемпиона, чтобы скрыть линию. Единицы: ${unit}.</span></div>`;
+}
+
+function itemsTimeline(g,m){
+  const ps=[...g.parts].sort((a,b)=>(a.team===m.team?0:1)-(b.team===m.team?0:1)||ORD.indexOf(a.pos)-ORD.indexOf(b.pos));
+  return `<div class="tbl"><table class="itl"><tbody>${ps.map((p,i)=>`<tr class="${p.me?'me':''} ${i===4?'sep':''}"><td><span class="ch">${cimg(p.c,'sm')}${esc(cn(p.c))}</span></td><td style="text-align:left"><div class="its">${(p.buys||[]).map(([it,t])=>`<span class="itm">${iimg(it)}<small>${fmt(t,0)}′</small></span>`).join('')||'<span class="muted">—</span>'}</div></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function graphs(g,m){
+  return `<div class="chart">${advChart(g,m)}</div>
+  <div class="chart"><div class="ctitle"><h3>Игроки по минутам</h3><div class="seg sm" role="group" aria-label="Показатель"><button data-k="sg" aria-pressed="true">Золото</button><button data-k="sx" aria-pressed="false">Опыт</button><button data-k="sc" aria-pressed="false">CS</button></div></div><div class="pc">${playersChart(g,m,'sg')}</div></div>
+  <div class="chart"><div class="ctitle"><h3>Тайминги предметов</h3><div class="legend"><span>Когда куплены сапоги и законченные предметы, минута под иконкой.</span></div></div>${itemsTimeline(g,m)}</div>`;
 }
 
 function scoreboard(g){
@@ -339,8 +394,16 @@ function scoreboard(g){
   return `<div class="tbl sb"><table><thead><tr><th>Игрок</th><th>KDA</th><th>CS</th><th>Урон</th><th>Золото</th><th style="text-align:left">Предметы</th></tr></thead><tbody>${ps.map((p,i)=>`<tr class="t${p.team} ${p.me?'me':''} ${i===4?'sep':''}"><td><span class="ch">${cimg(p.c,'sm')}<span>${esc(p.n)}<br><span class="few">${ROLE[p.pos]||''} · ${esc(cn(p.c))}</span></span></span></td><td>${p.k}/${p.d}/${p.a}</td><td>${p.cs}</td><td>${fmt(p.dmg)}</td><td>${fmt(p.g)}</td><td style="text-align:left"><span class="build">${p.items.map(iimg).join('')}</span></td></tr>`).join('')}</tbody></table></div>`;
 }
 
-function gameRow({g,m,o}){
-  const rv=review(g,m),d15=m.diffs[15];
+const DETAIL={};
+function detailHTML({g,m,o}){
+  const rv=review(g,m);
+  const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
+  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${graphs(g,m)}${scoreboard(g)}`;
+}
+function gameRow(r){
+  DETAIL[r.g.id]=r;
+  const {g,m,o}=r;
+  const d15=m.diffs[15];
   const chips=[];
   if(d15)chips.push(`<span class="chip ${d15.gold>=500?'g':d15.gold<=-500?'b':''}">@15 ${sgn(d15.gold)}</span>`);
   if(m.early_d>=2)chips.push(`<span class="chip b">${m.early_d} ран. смерти</span>`);
@@ -348,19 +411,13 @@ function gameRow({g,m,o}){
   const duo=o?`<div class="vs">${cimg(o.c,'sm')} DrVoldemar: ${o.k}/${o.d}/${o.a}, ${ROLE[o.pos]||''}${o.team!==m.team?' (против тебя)':''}</div>`:'';
   const sums=m.sums.map(s=>IC.s[s]?`<img class="ic sm" src="${IC.s[s]}" alt="" title="${esc(IC.snames[s]||'')}">`:'').join('');
   const rune=[m.keystone,m.sec].map(r=>IC.r[r]?`<img class="ic sm" src="${IC.r[r]}" alt="" title="${esc(IC.rnames[r]||'')}">`:'').join('');
-  const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
   return `<details class="game ${m.win?'w':'l'}"><summary>
     <div class="res">${m.win?'Победа':'Поражение'}<small>${g.qn} · ${fmt(g.dur,0)} мин<br>${date(g.start)}</small></div>
     <div class="ch">${cimg(m.c)}<div><b>${esc(cn(m.c))}</b><div class="few">${ROLE[m.pos]||''}</div><div class="build">${sums}${rune}</div></div></div>
     <div class="kda">${m.k}/${m.d}/${m.a}<small>KDA ${fmt(kda(m.k,m.d,m.a),2)} · ${m.cs} CS (${fmt(m.csm,1)})</small></div>
     <div class="vs">${m.opp?`против ${cimg(m.opp.c,'sm')} ${esc(cn(m.opp.c))} ${m.opp.k}/${m.opp.d}/${m.opp.a}`:''}<div class="chips">${chips.join('')}</div>${duo}</div>
     <div class="build">${m.items.map(iimg).join('')}</div>
-  </summary><div class="detail">
-    <div class="verdict"><b>Итог.</b> ${rv.flow}</div>
-    ${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}
-    <div class="chart">${goldChart(g,m)}</div>
-    ${scoreboard(g)}
-  </div></details>`;
+  </summary><div class="detail" data-id="${g.id}"></div></details>`;
 }
 
 function duoNotes(list){
@@ -382,7 +439,26 @@ function duoNotes(list){
 
 function render(){
   try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(e){}
-  document.querySelectorAll('#who button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.who));
+  $('games').addEventListener('toggle',e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount)d.innerHTML=detailHTML(DETAIL[d.dataset.id])},true);
+$('games').addEventListener('click',e=>{
+  const kb=e.target.closest('[data-k]');
+  if(kb){const det=kb.closest('.detail'),r=DETAIL[det.dataset.id];kb.parentNode.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===kb));kb.closest('.chart').querySelector('.pc').innerHTML=playersChart(r.g,r.m,kb.dataset.k);return}
+  const lg=e.target.closest('.lg');
+  if(lg){const on=lg.getAttribute('aria-pressed')!=='true';lg.setAttribute('aria-pressed',on);const pl=lg.closest('.chart').querySelector(`.pl[data-i="${lg.dataset.i}"]`);if(pl)pl.style.display=on?'':'none'}
+});
+function hover(e){
+  const svg=e.target.closest&&e.target.closest('svg.hov');if(!svg)return;
+  const plot=svg.parentNode,tip=plot.querySelector('.tip'),data=JSON.parse(plot.nextElementSibling.textContent);
+  const r=svg.getBoundingClientRect(),vb=svg.viewBox.baseVal,sx=vb.width/r.width;
+  const pl=+svg.dataset.pl,pr=+svg.dataset.pr,n=+svg.dataset.n;
+  const px=(e.clientX-r.left)*sx,i=Math.max(0,Math.min(n-1,Math.round((px-pl)/(vb.width-pl-pr)*(n-1))));
+  const cx=pl+(vb.width-pl-pr)*i/(n-1),cr=svg.querySelector('.cross');
+  cr.setAttribute('visibility','visible');cr.querySelector('line').setAttribute('x1',cx);cr.querySelector('line').setAttribute('x2',cx);
+  tip.hidden=false;tip.textContent=data[i];const left=cx/sx;tip.style.left=Math.min(Math.max(0,left-120),r.width-260)+'px';
+}
+$('games').addEventListener('pointermove',hover);
+$('games').addEventListener('pointerleave',e=>{document.querySelectorAll('.tip').forEach(t=>t.hidden=true);document.querySelectorAll('.cross').forEach(c=>c.setAttribute('visibility','hidden'))},true);
+document.querySelectorAll('#who button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.who));
   document.querySelectorAll('#queue button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.queue));
   const list=rows();
   if(st.who==='duo'){duoNotes(list);trend(list);champs(list)}

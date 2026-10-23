@@ -4,6 +4,7 @@ P={'rGwU8TiuBiNSHqzSURckHNSy4h3eqNCkE7jmS30dYYFe8Qnx6IXOEttr8cz4SHa35xwCrweFXfcF
    '8p5ZvbhGJkcwxL_F0wKmjeb0keVOtltH7esKs1_gV8AZxaHIeC-S0eV7B78iINgvIVzNsJMR2i57DQ':'drv'}
 Q={420:'Соло/дуо',440:'Флекс',400:'Обычная (драфт)',430:'Обычная (вслепую)',490:'Быстрая игра',480:'Быстрая игра'}
 champ=json.load(open('dd/champion.json'))['data']
+ITEMS=json.load(open('dd/item.json'))['data']
 cid={int(v['key']):(k,v['name']) for k,v in champ.items()}
 games=[]
 for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
@@ -26,6 +27,21 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
     for k,v in fm['participantFrames'].items():
       s+= v['totalGold']*(1 if byid[int(k)]['teamId']==100 else -1)
     gd.append(s)
+  xd=[]
+  for fm in frames:
+    xd.append(sum(v['xp']*(1 if byid[int(k)]['teamId']==100 else -1) for k,v in fm['participantFrames'].items()))
+  ser={}
+  for k in byid:
+    ser[k]=dict(gold=[fm['participantFrames'][str(k)]['totalGold'] for fm in frames],
+      xp=[fm['participantFrames'][str(k)]['xp'] for fm in frames],
+      cs=[fm['participantFrames'][str(k)]['minionsKilled']+fm['participantFrames'][str(k)]['jungleMinionsKilled'] for fm in frames])
+  buys={k:[] for k in byid}
+  for fm in frames:
+    for e in fm['events']:
+      if e['type']=='ITEM_PURCHASED' and e.get('participantId') in buys and str(e['itemId']) in ITEMS:
+        it=ITEMS[str(e['itemId'])]
+        if (it['gold']['total']>=2200 and not it.get('into')) or 'Boots' in it.get('tags',[]) and it['gold']['total']>=900:
+          buys[e['participantId']].append([e['itemId'],round(e['timestamp']/60000,1)])
   kills=[e for fm in frames for e in fm['events'] if e['type']=='CHAMPION_KILL']
   obj=[e for fm in frames for e in fm['events'] if e['type'] in('ELITE_MONSTER_KILL','BUILDING_KILL')]
   teams={t['teamId']:t for t in i['teams']}
@@ -33,7 +49,8 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
   for p in parts:
     plist.append(dict(c=p['championName'],n=p['riotIdGameName'],t=p['riotIdTagline'],team=p['teamId'],pos=p['teamPosition'],
       k=p['kills'],d=p['deaths'],a=p['assists'],cs=p['totalMinionsKilled']+p['neutralMinionsKilled'],dmg=p['totalDamageDealtToChampions'],
-      g=p['goldEarned'],items=[p[f'item{j}'] for j in range(7)],me=P.get(p['puuid'])))
+      g=p['goldEarned'],items=[p[f'item{j}'] for j in range(7)],me=P.get(p['puuid']),
+      sg=ser[p['participantId']]['gold'],sx=ser[p['participantId']]['xp'],sc=ser[p['participantId']]['cs'],buys=buys[p['participantId']]))
   me_list=[]
   for p in parts:
     who=P.get(p['puuid'])
@@ -76,7 +93,7 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
   games.append(dict(id=x['metadata']['matchId'],q=i['queueId'],qn=Q[i['queueId']],start=i['gameStartTimestamp'],dur=round(dur,1),
     ver='.'.join(i['gameVersion'].split('.')[:2]),win100=teams[100]['win'],
     obj={t:{k:v['kills'] for k,v in teams[t]['objectives'].items()} for t in teams},
-    gd=gd,parts=plist,me=me_list,
+    gd=gd,xd=xd,kev=[[round(e['timestamp']/60000,1),byid[e['killerId']]['teamId'] if e.get('killerId') in byid else 300-byid[e['victimId']]['teamId']] for e in kills],parts=plist,me=me_list,
     obev=[dict(t=round(e['timestamp']/60000,1),type=e.get('monsterType') or e.get('buildingType'),sub=e.get('monsterSubType') or e.get('towerType'),
       team=(e.get('killerTeamId') or (300-e['teamId'] if e.get('teamId') else None))) for e in obj]))
 games.sort(key=lambda g:-g['start'])
