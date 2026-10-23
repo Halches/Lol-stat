@@ -1498,7 +1498,8 @@ class App:
         self.voice_cb = ttk.Combobox(r, state='readonly', width=26, textvariable=self.voice_var); self.voice_cb.pack(side='left')
         self.voice_cb.bind('<<ComboboxSelected>>', lambda e: self.pick_voice())
         ttk.Button(r, text='Прослушать', command=lambda: self.voice.say('Окно ганка через двадцать секунд, поставь вард в реку', force=True)).pack(side='left', padx=8)
-        self.voice_msg = ttk.Label(f, text='', style='M.TLabel'); self.voice_msg.pack(anchor='w', pady=4)
+        self.voice_msg = ttk.Label(f, text='', style='M.TLabel', wraplength=self.fs(660)); self.voice_msg.pack(anchor='w', pady=4)
+        self.voice.on_error = lambda m: self.root.after(0, lambda: self.voice_msg.winfo_exists() and self.voice_msg.configure(text=m, foreground=C['bad']))
         self.refresh_voices()
         self.h(f, 'Громкость')
         self.slider(f, 'Общая', 'master', 0, 100, lambda x: self.set_voice_param('master', x))
@@ -1535,7 +1536,7 @@ class App:
         v = list(VOICES)[self.voice_cb.current()]
         if self.voice.ready(v):
             self.s['voice'] = self.voice.voice = v; self.s.save(); self.voice.warm()
-            self.voice_msg.configure(text=f'Голос: {VOICES[v]}'); return
+            self.voice_msg.configure(text=f'Голос: {VOICES[v]}', foreground=C['mute']); return
         what = 'пакет Silero (~350 МБ, один раз для всех голосов Silero)' if v.startswith('silero') else VOICES[v]
         def job():
             try:

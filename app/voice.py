@@ -154,27 +154,46 @@ class Voice:
     # ---- Microsoft (edge-tts): онлайн, mp3
     def synth_edge(self, text, voice):
         if time.time() < getattr(self, '_edge_off', 0): return None   # недавно не отвечал — не ждём зря
+        proxy = None
         try:
             import asyncio, edge_tts
             out = os.path.join(tempfile.gettempdir(), 'lolhelper_say.mp3')
             rate = f'{round((self.rate - 1) * 100):+d}%'
+            px = urllib.request.getproxies()   # системный прокси Windows (VPN-клиенты часто ставят его), aiohttp сам его не видит
+            proxy = px.get('https') or px.get('http')
+            if proxy and '://' not in proxy: proxy = 'http://' + proxy
             async def go():
-                await asyncio.wait_for(edge_tts.Communicate(text, voice, rate=rate).save(out), 8)
+                await asyncio.wait_for(edge_tts.Communicate(text, voice, rate=rate, proxy=proxy).save(out), 10)
             asyncio.run(go())
-            return out if os.path.getsize(out) > 1000 else None
-        except Exception:
+            if os.path.getsize(out) < 1000: raise IOError('пустой ответ')
+            return out
+        except Exception as e:
             self._edge_off = time.time() + 300
+            self.report(f'Microsoft не ответил ({type(e).__name__}: {e or "нет связи"}), сказал запасной голос' + (f'. Прокси: {proxy}' if proxy else ''))
             return None
+
+    def report(self, msg):
+        """Сообщить о сбое озвучки в программу и в voice.log."""
+        self.last_error = msg
+        try:
+            with open(os.path.join(self.home, 'voice.log'), 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + msg + '\n')
+        except Exception: pass
+        cb = getattr(self, 'on_error', None)
+        if cb: cb(msg)
 
     def _play_mp3(self, path):
         if os.name != 'nt': return
         import ctypes
         mci = ctypes.windll.winmm.mciSendStringW
         mci('close lhsay', None, 0, 0)
-        if mci(f'open "{path}" type mpegvideo alias lhsay', None, 0, 0): return
+        err = mci(f'open "{path}" type mpegvideo alias lhsay', None, 0, 0)
+        if err:
+            buf = ctypes.create_unicode_buffer(256); ctypes.windll.winmm.mciGetErrorStringW(err, buf, 256)
+            self.report(f'Не получилось проиграть mp3: {buf.value}'); return False
         mci(f'setaudio lhsay volume to {int(self.volume * self.master / 10)}', None, 0, 0)
         mci('play lhsay wait', None, 0, 0)
         mci('close lhsay', None, 0, 0)
+        return True
 
     # ---- синтез и воспроизведение
     def speak(self, text):
@@ -182,7 +201,7 @@ class Voice:
         eng, arg = ENGINES.get(self.voice, ('', 'piper', self.voice))[1:]
         if eng == 'edge':
             mp3 = self.synth_edge(text, arg)
-            if mp3: return self._play_mp3(mp3)
+            if mp3 and self._play_mp3(mp3) is not False: return
         elif eng == 'silero' and self.silero_ok():
             wav = self.synth_silero(text, arg)
             if wav: return self._play(wav)
@@ -250,6 +269,7 @@ class Voice:
         if force or not self.muted: self.q.put(BEEP)
 
     def say(self, text, force=False):
+        if force: self._edge_off = 0   # проверка кнопкой — пробуем Microsoft заново
         if text and (force or not self.muted): self.q.put(text)
 
     def _loop(self):
