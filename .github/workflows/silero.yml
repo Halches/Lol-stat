@@ -1,0 +1,60 @@
+name: Пакет голосов Silero
+
+# Отдельный пакет для LoL Helper: встроенный Python + torch (CPU) + модель v5_ru + сервер озвучки.
+# Программа скачивает его один раз из релиза silero.
+on:
+  push:
+    branches: [main]
+    paths: ['app/silero/**', '.github/workflows/silero.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Встроенный Python, torch и модель
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory pack | Out-Null
+          Invoke-WebRequest https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip -OutFile py.zip
+          Expand-Archive py.zip -DestinationPath pack/python
+          Add-Content pack/python/python312._pth "site"
+          Add-Content pack/python/python312._pth "import site"
+          pip install --quiet --target pack/python/site torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet --target pack/python/site numpy omegaconf
+          Remove-Item -Recurse -Force pack/python/site/torch/include, pack/python/site/torch/test -ErrorAction SilentlyContinue
+          Get-ChildItem pack/python/site/torch/lib -Filter *.lib | Remove-Item
+          Copy-Item app/silero/silero_srv.py pack/
+          Invoke-WebRequest https://models.silero.ai/models/tts/ru/v5_ru.pt -OutFile pack/v5_ru.pt
+          "{0:N0} MB" -f ((Get-ChildItem pack -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Проверка озвучки
+        shell: pwsh
+        run: |
+          $q = '{"text": "Дракон через минуту, поставь вард в реку.", "speaker": "xenia", "out": "' + ((Get-Location).Path -replace '\\','/') + '/t.wav"}'
+          $q | pack/python/python.exe pack/silero_srv.py
+          Get-Item t.wav | Select-Object Name, Length
+          if ((Get-Item t.wav).Length -lt 50000) { exit 1 }
+
+      - name: Архив и релиз
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          7z a -tzip -mx=5 silero_pack.zip ./pack/* | Select-Object -Last 3
+          Get-Item silero_pack.zip | Select-Object Name, Length
+          gh release view silero *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create silero --title "Голоса Silero для LoL Helper" --notes "Пакет озвучки Silero (v5_ru, CPU). Скачивается программой один раз." --latest=false
+          }
+          gh release upload silero silero_pack.zip --clobber

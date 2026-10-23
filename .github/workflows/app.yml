@@ -3,7 +3,7 @@ name: Сборка LoL Helper
 on:
   push:
     branches: [main]
-    paths: ['app/**', '!app/data.json', '.github/workflows/app.yml']
+    paths: ['app/**', '!app/data.json', '!app/silero/**', '.github/workflows/app.yml']
   workflow_dispatch:
 
 permissions:
@@ -70,8 +70,9 @@ jobs:
           $v = "v1.0.${{ github.run_number }}"
           Set-Content app/version.txt $v -NoNewline
           "VERSION=$v" | Out-File $env:GITHUB_ENV -Append
-          pip install --quiet pyinstaller==6.11.1 pillow
+          pip install --quiet pyinstaller==6.11.1 pillow edge-tts==7.3.1
           pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app --hidden-import PIL._tkinter_finder `
+            --collect-all edge_tts --collect-data certifi `
             --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." `
             --add-data "piper;piper" --add-data "voices;voices" app/lolhelper.py
           Get-Item dist/LoLHelper.exe | Select-Object Name, Length

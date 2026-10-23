@@ -184,6 +184,12 @@ def selftest():
         wav = v.synth('Проверка голоса')
         out.append(f'wav {wav and os.path.getsize(wav)}')
         if FROZEN and not wav: ok = False
+        try:   # голос Microsoft: библиотека в exe и связь с сервисом (на сборочной машине)
+            mp3 = v.synth_edge('Проверка голоса', 'ru-RU-SvetlanaNeural')
+            out.append(f'edge mp3 {mp3 and os.path.getsize(mp3)}')
+        except Exception as e:
+            out.append(f'edge failed: {e!r}')
+        import edge_tts  # noqa: F401  (должен быть внутри exe)
     except Exception:
         out.append(traceback.format_exc()); ok = False
     out.append('OK' if ok else 'FAIL')

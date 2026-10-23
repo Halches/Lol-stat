@@ -809,6 +809,7 @@ class App:
         v, s = self.voice, self.s
         v.voice, v.volume, v.rate, v.master, v.beep_volume = s['voice'], s['volume'], s['rate'], s['master'], s['beep_volume']
         v.sound = s['sound']
+        v.warm()
 
     def style(self):
         st = ttk.Style(self.root)
@@ -1488,24 +1489,27 @@ class App:
         ttk.Label(row, text='  звучит так, как настроено для «Ганк 1» на вкладке «Подсказки»', style='M.TLabel').pack(side='left')
         self.h(f, 'Речь')
         self.slider(f, 'Скорость речи', 'rate', .7, 1.6, lambda x: self.set_voice_param('rate', x), fmt=lambda x: f'{x:.1f}×')
-        self.note(f, 'Голоса нейросетевые (Piper), работают без интернета. Дмитрий встроен, остальные скачиваются один раз (~60 МБ). '
+        self.note(f, 'Microsoft звучат лучше всех, но нужен интернет. Silero работают без интернета, пакет ~350 МБ скачивается один раз. '
+                     'Piper: Дмитрий встроен, остальные ~60 МБ. Если выбранный голос не сработал, говорит Piper. '
                      f"Выключить звук в игре: {self.s['keys']['mute'].upper()}.")
         self.reset_btn(f, 'voice', 'Звук по умолчанию')
 
     def refresh_voices(self):
-        vals = [f"{n}{'' if self.voice.model(v) else ' (скачать)'}" for v, n in VOICES.items()]
+        vals = [f"{n}{'' if self.voice.ready(v) else ' (скачать)'}" for v, n in VOICES.items()]
         self.voice_cb.configure(values=vals)
         self.voice_var.set(vals[list(VOICES).index(self.s['voice'])] if self.s['voice'] in VOICES else vals[0])
 
     def pick_voice(self):
         v = list(VOICES)[self.voice_cb.current()]
-        if self.voice.model(v):
-            self.s['voice'] = self.voice.voice = v; self.s.save(); self.voice_msg.configure(text=f'Голос: {VOICES[v]}'); return
+        if self.voice.ready(v):
+            self.s['voice'] = self.voice.voice = v; self.s.save(); self.voice.warm()
+            self.voice_msg.configure(text=f'Голос: {VOICES[v]}'); return
+        what = 'пакет Silero (~350 МБ, один раз для всех голосов Silero)' if v.startswith('silero') else VOICES[v]
         def job():
             try:
-                self.voice.download(v, lambda p: self.root.after(0, lambda: self.voice_msg.configure(text=f'Скачиваю {VOICES[v]}: {p * 100:.0f}%')))
+                self.voice.fetch(v, lambda p: self.root.after(0, lambda: self.voice_msg.configure(text=f'Скачиваю {what}: {p * 100:.0f}%')))
                 def done():
-                    self.s['voice'] = self.voice.voice = v; self.s.save(); self.refresh_voices()
+                    self.s['voice'] = self.voice.voice = v; self.s.save(); self.refresh_voices(); self.voice.warm()
                     self.voice_msg.configure(text=f'Голос {VOICES[v]} установлен')
                 self.root.after(0, done)
             except Exception as e:
