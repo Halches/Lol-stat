@@ -19,6 +19,7 @@
   --gold:#d8a94a; --xp:#5cb8ff; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
   --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5}
 .wrap{max-width:1120px;margin:0 auto;padding-block:20px 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
 h1,h2,h3{font-family:var(--f-disp);font-weight:700;margin:0;text-wrap:balance;letter-spacing:.01em}
@@ -221,6 +222,13 @@ button:disabled{opacity:.5;cursor:default}
 .sb .sep td{border-bottom:2px solid var(--line)}
 .foot{font-size:12px;color:var(--muted);max-width:90ch}
 .empty{padding:20px;color:var(--muted)}
+.jump{display:flex;gap:4px;flex-basis:100%;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.jump::-webkit-scrollbar{display:none}
+.jump button{font:inherit;font-size:12px;white-space:nowrap;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:12px;padding:3px 10px;cursor:pointer}
+.jump button:hover{border-color:var(--gold)}
+.jump button.main{background:var(--gold);color:var(--bg);border-color:var(--gold);font-weight:600}
+.jump button[hidden]{display:none}
+.totop{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));z-index:6;font:inherit;font-family:var(--f-disp);font-weight:600;font-size:14px;padding:8px 14px;border-radius:20px;border:0;background:var(--ink);color:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}
 .goals{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
 .goal{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .gh{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
@@ -282,6 +290,9 @@ button:disabled{opacity:.5;cursor:default}
       <output id="nlabel" for="ngames"></output>
       <div class="presets" id="npre"><button data-n="20">20</button><button data-n="50">50</button><button data-n="100">100</button><button data-n="0">все</button></div>
     </div>
+    <nav class="jump" id="jump" aria-label="Перейти к разделу">
+      <button data-to="gamesec" class="main">↓ Матчи</button><button data-to="top">Наверх</button><button data-to="goalsec">Цели</button><button data-to="lpsec">Рейтинг</button><button data-to="notesec">Выводы</button><button data-to="trendsec">Линия</button><button data-to="impsec">Вклад</button><button data-to="wlsec">Победы/поражения</button><button data-to="deathsec">Смерти</button><button data-to="ganksec">Ганки</button><button data-to="buildsec">Билды</button><button data-to="recsec">Рекорды</button><button data-to="actsec">Активность</button><button data-to="emsec">Изумруд+</button><button data-to="champsec">Чемпионы</button>
+    </nav>
   </div>
 
   <div class="seg viewtabs" id="view" role="tablist" aria-label="Раздел">
@@ -339,12 +350,12 @@ button:disabled{opacity:.5;cursor:default}
     <div class="chart" id="lp"></div>
   </section>
 
-  <section>
+  <section id="notesec">
     <h2>Что видно по играм</h2>
     <div class="notes" id="notes"></div>
   </section>
 
-  <section>
+  <section id="trendsec">
     <h2>Линия: разница с оппонентом на 15 минуте</h2>
     <div class="chart" id="trend"></div>
   </section>
@@ -384,7 +395,7 @@ button:disabled{opacity:.5;cursor:default}
     <div class="recs" id="recs"></div>
   </section>
 
-  <div class="grid2">
+  <div class="grid2" id="actsec">
     <section><h2>Активность</h2><div class="chart" id="activity"></div></section>
     <section id="peersec"><h2>С кем играешь</h2><div class="tbl" id="peers"></div></section>
   </div>
@@ -394,12 +405,12 @@ button:disabled{opacity:.5;cursor:default}
     <div class="tbl" id="emerald"></div>
   </section>
 
-  <div class="grid2">
+  <div class="grid2" id="champsec">
     <section><h2>Чемпионы</h2><div class="tbl" id="champs"></div></section>
     <section><h2>Роли</h2><div class="tbl" id="roles"></div><div class="tbl" id="opps"></div></section>
   </div>
 
-  <section>
+  <section id="gamesec">
     <h2>Игры</h2>
     <div class="muted" style="font-size:12px">Нажми на игру, чтобы открыть разбор: ход игры по золоту, плюсы и минусы, состав и предметы.</div>
     <div class="games" id="games"></div>
@@ -408,6 +419,7 @@ button:disabled{opacity:.5;cursor:default}
   </div>
 
   <p class="foot" id="foot"></p>
+  <button type="button" class="totop" id="totop" hidden aria-label="Наверх, к разделам">↑ Разделы</button>
 </div>
 
 <script>
@@ -1044,6 +1056,7 @@ function render(){
   else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list)}
   impact(list);winloss();
   CUR=list;showGames();showView();
+  $('jump').querySelectorAll('[data-to]').forEach(b=>{const el=$(b.dataset.to);b.hidden=!!(el&&el.hidden)});
 }
 $('games').addEventListener('toggle',async e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){const r=DETAIL[d.dataset.id];
   if(!r.g.loaded){d.innerHTML='<div class="empty">Загружаю подробности игры…</div>';try{await loadChunk(r.g.ck)}catch(err){d.innerHTML='<div class="empty">Не удалось загрузить подробности. Обнови страницу.</div>';return}}
@@ -1245,6 +1258,13 @@ $('drole').addEventListener('click',e=>{const b=e.target.closest('[data-r]');if(
 $('denemy').addEventListener('input',()=>{if(!$('denemy').value||enemyKey())draft()});
 $('dout').addEventListener('click',e=>{if(e.target.id!=='dask')return;const E=enemyKey();st.view='coach';showView();ask(`Драфт: я играю на роли ${ROLE[drole]}${E?`, против меня ${cn(E)}`:''}. Кого из моего пула взять и почему (смотри мою статистику и мету), какой план на линию до 14 минуты, руны и первый предмет?`)});
 
+$('jump').addEventListener('click',e=>{const b=e.target.closest('[data-to]');if(!b)return;
+  if(st.view!=='stats'){st.view='stats';showView()}
+  if(b.dataset.to==='top'){window.scrollTo({top:0,behavior:'smooth'});return}
+  const el=$(b.dataset.to);if(!el)return;const c=document.querySelector('.controls'),off=getComputedStyle(c).position==='sticky'?c.offsetHeight+8:8;
+  window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-off,behavior:'smooth'})});
+$('totop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
+addEventListener('scroll',()=>{$('totop').hidden=window.scrollY<900},{passive:true});
 const CHUNKS={};
 function loadChunk(i){
   if(!CHUNKS[i])CHUNKS[i]=fetch(`data/d-${i}.json`).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(arr=>{arr.forEach(d=>{const g=GBY[d.id];if(g){Object.assign(g,d);g.loaded=true}})}).catch(e=>{delete CHUNKS[i];throw e});
