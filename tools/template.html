@@ -260,6 +260,7 @@ button:disabled{opacity:.5;cursor:default}
 .gn b{font-family:var(--f-disp);font-size:20px;font-variant-numeric:tabular-nums}
 .gn small{display:block;font-size:11px;color:var(--muted)}
 .gdots{display:flex;gap:3px}
+.scout{color:var(--ink)!important;opacity:.85}
 .gdots i{flex:1;height:10px;border-radius:2px}
 .gdots i.ok{background:var(--good)} .gdots i.no{background:var(--line)}
 .gk2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
@@ -842,17 +843,31 @@ function builds(list){
   if(!cs.length){$('bchamps').innerHTML='';$('builds').innerHTML='<div class="empty">Нужно хотя бы 3 игры на одном чемпионе.</div>';return}
   if(!by[bchamp]||by[bchamp].length<3)bchamp=cs[0][0];
   $('bchamps').innerHTML=cs.map(([c,x])=>`<button class="lg" data-bc="${esc(c)}" aria-pressed="${c===bchamp}">${cimg(c,'xs')}${esc(cn(c))} · ${x.length}</button>`).join('');
-  const ms=by[bchamp];
-  const grp=(key,label,cell)=>{const g={};ms.forEach(m=>{const k=key(m);if(k==null||k==='')return;(g[k]=g[k]||[]).push(m)});
-    const rows=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).slice(0,6).map(([k,x])=>{const w=x.filter(m=>m.win).length,wr=w/x.length*100;
-      return `<tr><td>${cell(k)}</td><td>${x.length}</td><td>${fmt(wr,0)}%${x.length<5?' <span class="few">мало</span>':''}<span class="wbar ${wr>=50?'':'l'}"><u style="width:${wr}%"></u></span></td></tr>`}).join('');
-    return `<div><h3>${label}</h3><div class="tbl"><table><thead><tr><th></th><th>Игры</th><th>Вин</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="muted">нет данных</td></tr>'}</tbody></table></div></div>`};
+  const ms=by[bchamp],base=ms.filter(m=>m.win).length/ms.length*100,found=[];
+  const grp=(key,label,cell,lim=6)=>{const g={};ms.forEach(m=>{const k=key(m);if(k==null||k==='')return;(g[k]=g[k]||[]).push(m)});
+    const rows=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).slice(0,lim).map(([k,x])=>{const w=x.filter(m=>m.win).length,wr=w/x.length*100,dl=wr-base,g15=avg(x.map(m=>m.diffs[15]?.gold));
+      if(x.length>=5&&x.length<ms.length&&Math.abs(dl)>=10)found.push({label,k,cell,n:x.length,wr,dl});
+      return `<tr><td>${cell(k)}</td><td>${x.length}</td><td>${fmt(wr,0)}%${x.length<5?' <span class="few">мало</span>':''}<span class="wbar ${wr>=50?'':'l'}"><u style="width:${wr}%"></u></span></td><td class="${x.length<5?'muted':cls(dl)}">${x.length<ms.length?sgn(dl,0):'·'}</td><td class="${cls(g15)}">${sgn(g15)}</td></tr>`}).join('');
+    return `<div><h3>${label}</h3><div class="tbl"><table><thead><tr><th></th><th>Игры</th><th>Вин</th><th title="Разница с твоим винрейтом на чемпионе">±</th><th title="Золото против оппонента на 15 минуте">На 15</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="muted">нет данных</td></tr>'}</tbody></table></div></div>`};
   const rn=r=>`<span class="ch">${IC.r[r]?`<img class="ic sm" src="${IC.r[r]}" alt="">`:''}${esc(IC.rnames[r]||r)}</span>`;
   const it=i=>`<span class="ch">${iimg(+i)}${esc(IC.inames[i]||i)}</span>`;
-  $('builds').innerHTML=grp(m=>m.keystone,'Ключевая руна',rn)+grp(m=>m.first&&m.first[0],'Первый предмет',it)
+  const sp=k=>`<span class="ch">${k.split('+').map(x=>IC.s[x]?`<img class="ic sm" src="${IC.s[x]}" alt="">`:'').join('')}${k.split('+').map(x=>esc(IC.snames[x]||x)).join(' + ')}</span>`;
+  // предмет в итоговом билде: винрейт с ним и без него
+  // только законченные предметы: те, что хоть раз попадали в «первые предметы» в любой игре
+  const done=new Set();GAMES.forEach(g=>g.me.forEach(m=>(m.first||[]).forEach(i=>done.add(+i))));
+  const ic={};ms.forEach(m=>new Set(m.items.filter(i=>done.has(+i))).forEach(i=>(ic[i]=ic[i]||[]).push(m)));
+  const ir=Object.entries(ic).filter(([,x])=>x.length>=3&&x.length<ms.length).sort((a,b)=>b[1].length-a[1].length).slice(0,10).map(([i,x])=>{
+    const w=x.filter(m=>m.win).length,o=ms.filter(m=>!x.includes(m)),ow=o.filter(m=>m.win).length,wr=w/x.length*100,owr=o.length?ow/o.length*100:null;
+    return `<tr><td>${it(i)}</td><td>${x.length}</td><td>${fmt(wr,0)}%${x.length<5?' <span class="few">мало</span>':''}</td><td>${owr==null?'—':fmt(owr,0)+'%'}</td><td class="${x.length<5?'muted':cls(owr==null?null:wr-owr)}">${owr==null?'—':sgn(wr-owr,0)}</td></tr>`}).join('');
+  const html=grp(m=>m.keystone,'Ключевая руна',rn)+grp(m=>m.sec,'Вторая ветка рун',rn)+grp(m=>m.first&&m.first[0],'Первый предмет',it)
     +grp(m=>m.first&&m.first.length===2?m.first.join('+'):null,'Первые два предмета',k=>`<span class="build">${k.split('+').map(i=>iimg(+i)).join('')}</span> <span class="few">${k.split('+').map(i=>esc(IC.inames[i]||'')).join(' → ')}</span>`)
+    +grp(m=>m.sums?m.sums.slice().sort((a,b)=>a-b).join('+'):null,'Заклинания призывателя',sp,4)
     +grp(m=>m.skills&&m.skills.length>=9?maxOrder(m.skills):null,'Порядок прокачки (что качаешь первым)',k=>`<b>${k}</b>`)
-    +`<div class="legend" style="grid-column:1/-1"><span>Только твои игры на ${esc(cn(bchamp))}: ${ms.length}. Меньше 5 игр в строке: винрейт ненадёжен. Первые предметы: законченные предметы без сапог по времени покупки.</span></div>`;
+    +`<div style="grid-column:1/-1"><h3>Предмет в итоговом билде</h3><div class="tbl"><table><thead><tr><th></th><th>Игр с ним</th><th>Вин с ним</th><th>Вин без него</th><th>±</th></tr></thead><tbody>${ir||'<tr><td colspan="5" class="muted">мало игр</td></tr>'}</tbody></table></div></div>`;
+  found.sort((a,b)=>Math.abs(b.dl)*Math.sqrt(b.n)-Math.abs(a.dl)*Math.sqrt(a.n));
+  const tip=found.length?found.slice(0,3).map(f=>`${f.label.toLowerCase()} ${f.cell(f.k).replace(/<[^>]+>/g,'').trim()}: ${fmt(f.wr,0)}% в ${f.n} играх (${sgn(f.dl,0)} к среднему)`).join('; '):'заметной разницы между вариантами нет (нужно от 5 игр и ±10% к среднему).';
+  $('builds').innerHTML=`<div class="legend" style="grid-column:1/-1;margin:0"><span><b>${esc(cn(bchamp))}: ${ms.length} игр, ${fmt(base,0)}% побед.</b> Что выделяется: ${tip}</span></div>`+html
+    +`<div class="legend" style="grid-column:1/-1"><span>«±»: разница с твоим винрейтом на ${esc(cn(bchamp))}. «На 15»: золото против оппонента на 15 минуте. Меньше 5 игр в строке: винрейт ненадёжен. Важно: предмет в итоговом билде часто следствие, а не причина (в длинных выигранных играх успеваешь собрать больше). Первые предметы: законченные предметы без сапог по времени покупки.</span></div>`;
 }
 const skillRow=sk=>sk?`<div class="skills">${[...sk].map((x,i)=>`<span class="${x}" title="Уровень ${i+1}">${x}</span>`).join('')}</div>`:'<span class="muted">нет данных</span>';
 
@@ -1071,7 +1086,7 @@ function detailHTML({g,m,o}){
   const act=`<div class="dact"><button type="button" class="cbtn" data-cmp="${g.id}">${CMP.includes(g.id)?'✓ В сравнении':'⇄ Сравнить'}</button><button type="button" class="cbtn" data-link="${g.id}">🔗 Ссылка на игру</button></div>`;
   const rv=review(g,m);
   const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
-  return act+`<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${impactBlock(g,m)}<div class="chart creview" data-id="${g.id}"></div>${bench({g,m})}${g.ppos&&g.kall?timeMap(g,m):''}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none">${g.ppos?'':`<div class="map sm">${mapSVG(m.dpos||[],false)}</div>`}<div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
+  return act+`<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${(()=>{const gc=goalCheck(m,goalValsFor(m.who));return gc.length?`<div class="chips" style="margin:6px 0 10px"><span class="muted" style="font-size:12px">Цели:</span>${gc.map(x=>`<span class="chip ${x.ok?'g':'b'}">${x.ok?'✓':'✗'} ${x.G.name} ${fmt(x.v,x.G.d)}</span>`).join('')}</div>`:''})()}${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${impactBlock(g,m)}<div class="chart creview" data-id="${g.id}"></div>${bench({g,m})}${g.ppos&&g.kall?timeMap(g,m):''}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none">${g.ppos?'':`<div class="map sm">${mapSVG(m.dpos||[],false)}</div>`}<div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
 }
 function gameRow(r){
   DETAIL[r.g.id]=r;
@@ -1082,6 +1097,7 @@ function gameRow(r){
   if(m.tr)chips.push(`<span class="chip ${m.tr===1?'g':m.tr===5?'b':''}">${m.ar===1?'MVP · ':''}вклад #${m.tr} в команде</span>`);
   if(m.early_d>=2)chips.push(`<span class="chip b">${m.early_d} ран. смерти</span>`);
   if(m.dshare>=28)chips.push(`<span class="chip g">${fmt(m.dshare,0)}% урона</span>`);
+  {const gc=goalCheck(m,goalValsFor(m.who)),k=gc.filter(x=>x.ok).length;if(gc.length)chips.push(`<span class="chip ${k/gc.length>=.7?'g':k/gc.length<.5?'b':''}" title="${esc(gc.map(x=>`${x.ok?'✓':'✗'} ${x.G.name}: ${fmt(x.v,x.G.d)} (цель ${x.G.op==='>='?'≥':'≤'} ${fmt(x.th,x.G.d)})`).join('\n'))}">цели ${k}/${gc.length}</span>`)}
   const duo=o?`<div class="vs">${cimg(o.c,'sm')} DrVoldemar: ${o.k}/${o.d}/${o.a}, ${ROLE[o.pos]||''}${o.team!==m.team?' (против тебя)':''}</div>`:'';
   const sums=m.sums.map(s=>IC.s[s]?`<img class="ic sm" src="${IC.s[s]}" alt="" title="${esc(IC.snames[s]||'')}">`:'').join('');
   const rune=[m.keystone,m.sec].map(r=>IC.r[r]?`<img class="ic sm" src="${IC.r[r]}" alt="" title="${esc(IC.rnames[r]||'')}">`:'').join('');
@@ -1192,19 +1208,33 @@ const GOALS=[
   {id:'vsm',name:'Обзор в минуту',get:m=>m.vsm,op:'>=',def:.8,step:.1,d:1},
   {id:'cw',name:'Контрольных тотемов',get:m=>m.cw,op:'>=',def:1,step:1,d:0}
 ];
+function goalCheck(m,gv){return GOALS.map(G=>{const v=G.get(m);if(v==null)return null;const th=gv[G.id]??G.def;return {G,v,th,ok:G.op==='>='?v>=th:v<=th}}).filter(Boolean)}
+function goalValsFor(who){try{return JSON.parse(localStorage.getItem('lolgoals_'+who))||{}}catch(e){return{}}}
 function goalVals(){try{return JSON.parse(localStorage.getItem('lolgoals_'+st.who))||{}}catch(e){return{}}}
 function goals(){
   const gv=goalVals(),all=allRows(true);
-  $('goals').innerHTML=GOALS.map(G=>{
+  const per=all.map(r=>({r,c:goalCheck(r.m,gv)})).filter(x=>x.c.length),l20=per.slice(0,20);
+  const full=x=>x.c.filter(y=>y.ok).length/x.c.length;
+  let cur=0;for(const x of per){if(full(x)>=.7)cur++;else break}
+  let best=0,run=0;per.forEach(x=>{run=full(x)>=.7?run+1:0;best=Math.max(best,run)});
+  const wrIf=f=>{const a=per.filter(f);return a.length?`${fmt(a.filter(x=>x.r.m.win).length/a.length*100,0)}% в ${a.length}`:'—'};
+  const sum=per.length?`<div class="goal" style="grid-column:1/-1"><div class="gh"><b>Цели по каждой игре</b><span class="muted" style="font-size:12px">квадрат = игра (слева старые), чем ярче, тем больше целей выполнено</span></div>
+    <div class="gn"><span><b>${fmt(avg(l20.map(full))*100,0)}%</b><small>целей в последних 20</small></span><span><b class="${cur>=3?'pos':''}">${cur}</b><small>игр подряд с 70%+ целей</small></span><span><b>${best}</b><small>рекорд такой серии</small></span>
+    <span><b>${wrIf(x=>full(x)>=.7)}</b><small>винрейт при 70%+ целей</small></span><span><b>${wrIf(x=>full(x)<.5)}</b><small>при меньше половины</small></span></div>
+    <div class="gdots">${l20.slice().reverse().map(x=>`<i class="ok" style="opacity:${.15+.85*full(x)}" title="${esc(cn(x.r.m.c))} · ${date(x.r.g.start)} · ${x.r.m.win?'победа':'поражение'} · целей ${x.c.filter(y=>y.ok).length} из ${x.c.length}"></i>`).join('')}</div></div>`:'';
+  $('goals').innerHTML=sum+GOALS.map(G=>{
     const th=gv[G.id]??G.def,ok=v=>G.op==='>='?v>=th:v<=th;
     const vals=all.map(r=>({v:G.get(r.m),r})).filter(x=>x.v!=null);
     const l20=vals.slice(0,20),l10=vals.slice(0,10),p20=vals.slice(20,40);
     const c=a=>a.filter(x=>ok(x.v)).length;
     const now=l20.length?c(l20)/l20.length*100:null,prev=p20.length>=10?c(p20)/p20.length*100:null,dl=now!=null&&prev!=null?now-prev:null;
     const dots=l20.slice().reverse().map(x=>`<i class="${ok(x.v)?'ok':'no'}" title="${esc(cn(x.r.m.c))} · ${fmt(x.v,G.d)} · ${x.r.m.win?'победа':'поражение'}"></i>`).join('');
+    let cur=0;for(const x of vals){if(ok(x.v))cur++;else break}
+    let best=0,run=0;vals.forEach(x=>{run=ok(x.v)?run+1:0;best=Math.max(best,run)});
     return `<div class="goal"><div class="gh"><b>${G.name}</b><label>${G.op==='>='?'не меньше':'не больше'} <input type="number" data-goal="${G.id}" value="${th}" step="${G.step}"></label></div>
       <div class="gn"><span><b>${c(l10)}</b>/${l10.length}<small>последние 10</small></span><span><b>${c(l20)}</b>/${l20.length}<small>последние 20</small></span>
-      <span><b class="${cls(dl)}">${dl==null?'—':sgn(dl)+' п.п.'}</b><small>к прошлым 20</small></span></div>
+      <span><b class="${cls(dl)}">${dl==null?'—':sgn(dl)+' п.п.'}</b><small>к прошлым 20</small></span>
+      <span><b class="${cur>=3?'pos':''}">${cur}</b><small>серия сейчас</small></span><span><b>${best}</b><small>рекорд серии</small></span></div>
       <div class="gdots" aria-label="Последние 20 игр, слева старые">${dots}</div></div>`}).join('');
 }
 $('goals').addEventListener('change',e=>{const i=e.target.closest('[data-goal]');if(!i)return;const gv=goalVals();const v=parseFloat(i.value);if(isNaN(v))delete gv[i.dataset.goal];else gv[i.dataset.goal]=v;try{localStorage.setItem('lolgoals_'+st.who,JSON.stringify(gv))}catch(err){}goals()});
@@ -1536,6 +1566,17 @@ const QN={420:'Соло/дуо',440:'Флекс',400:'Обычная',430:'Об�
 let LIVE=null;
 function liveRec(c,who){const a=GAMES.map(g=>g.me.find(m=>m.who===who)).filter(m=>m&&m.opp&&m.opp.c===c),b=GAMES.filter(g=>{const m=g.me.find(x=>x.who===who);return m&&g.parts.some(p=>p.c===c&&p.team!==m.team)}).map(g=>g.me.find(x=>x.who===who));
   return {lane:a.length,lw:a.filter(m=>m.win).length,any:b.length,aw:b.filter(m=>m.win).length}}
+const pts=n=>n>=1e6?fmt(n/1e6,1)+' млн':n>=1e3?fmt(n/1e3,0)+' тыс.':fmt(n);
+function scoutHTML(p){
+  const c=p.sc,out=[],tags=[];
+  if(c.m){out.push(`мастерство ${c.m[0]} · ${pts(c.m[1])} очков`);if(c.m[1]>=300000)tags.push('<span class="chip b">ванчемп</span>');else if(c.m[1]<15000)tags.push('<span class="chip g">впервые на чемпионе</span>')}
+  if(c.cn&&c.cn[0]>=7)tags.push('<span class="chip b">играет только его</span>');
+  if(c.r){const n=c.r[0]+c.r[1];out.push(`последние ${n} рейтинговых: ${c.r[0]}–${c.r[1]}`);
+    if(c.st>=3)tags.push(`<span class="chip b">${c.st} победы подряд</span>`);else if(c.st<=-3)tags.push(`<span class="chip g">${-c.st} поражения подряд, может тильтовать</span>`)}
+  if(c.cn&&c.cn[0])out.push(`на ${esc(cn(p.c))}: ${c.cn[1]}–${c.cn[0]-c.cn[1]}${c.kda!=null?`, KDA ${fmt(c.kda,1)}`:''}`);
+  if(c.pos)out.push(`чаще играет: ${ROLE[c.pos]||c.pos}`);
+  return out.length||tags.length?`<small class="scout">${out.join(' · ')}</small>${tags.length?`<div class="chips">${tags.join('')}</div>`:''}`:'';
+}
 function renderLive(){
   const s=$('livesec'),L=LIVE&&LIVE.games||[];
   if(!L.length){s.hidden=true;return}
@@ -1543,7 +1584,7 @@ function renderLive(){
   $('live').innerHTML=L.map(g=>{const who=g.who[0],meP=g.players.find(p=>p.me===who),myT=meP?meP.team:100;
     const side=team=>g.players.filter(p=>p.team===team).map(p=>{const r=team!==myT?liveRec(p.c,who):null;
       const sp=p.s.map(x=>IC.s[x]?`<img class="ic xs" src="${IC.s[x]}" alt="" title="${esc(IC.snames[x]||'')}">`:'').join('');const kr=IC.r[p.k]?`<img class="ic xs" src="${IC.r[p.k]}" alt="" title="${esc(IC.rnames[p.k]||'')}">`:'';
-      return `<div class="lp ${p.me?'me':''}">${cimg(p.c,'sm')}<div><b>${esc(cn(p.c))}</b> <span class="muted">${esc(p.n||'')}</span><small>${p.rk||'без ранга в соло'}</small>${r&&r.any?`<small>Ты против него: ${r.aw}–${r.any-r.aw}${r.lane?`, на линии ${r.lw}–${r.lane-r.lw}`:''}</small>`:''}</div><span class="build">${sp}${kr}</span></div>`}).join('');
+      return `<div class="lp ${p.me?'me':''}">${cimg(p.c,'sm')}<div><b>${esc(cn(p.c))}</b> <span class="muted">${esc(p.n||'')}</span><small>${p.rk||'без ранга в соло'}</small>${r&&r.any?`<small>Ты против него: ${r.aw}–${r.any-r.aw}${r.lane?`, на линии ${r.lw}–${r.lane-r.lw}`:''}</small>`:''}${p.sc?scoutHTML(p):''}</div><span class="build">${sp}${kr}</span></div>`}).join('');
     const bans=t=>(g.bans||[]).filter(b=>b[1]===t&&b[0]).map(b=>cimg(b[0],'xs')).join('');
     const mins=g.start?Math.max(0,(Date.now()-g.start)/60000):null;
     return `<div class="live"><div class="legend" style="margin:0 0 8px"><span><b>${g.who.map(w=>NAME[w]).join(' и ')}</b> · ${QN[g.q]||'Игра'}${mins!=null&&g.start>0?` · идёт ~${fmt(mins,0)} мин`:''}</span></div>
