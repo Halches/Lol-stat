@@ -1,0 +1,66 @@
+name: Сборка LoL Helper
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '!app/data.json', '.github/workflows/app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-app
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Тесты логики
+        run: python app/test_core.py
+
+      - name: Piper и голос Дмитрий
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          Expand-Archive piper.zip -DestinationPath .
+          Get-ChildItem piper | Select-Object -First 20 Name
+          New-Item -ItemType Directory voices | Out-Null
+          $hf = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx"
+          Invoke-WebRequest $hf -OutFile voices/ru_RU-dmitri-medium.onnx
+          Invoke-WebRequest "$hf.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
+
+      - name: Собрать exe
+        shell: pwsh
+        run: |
+          $v = "v1.0.${{ github.run_number }}"
+          Set-Content app/version.txt $v -NoNewline
+          "VERSION=$v" | Out-File $env:GITHUB_ENV -Append
+          pip install --quiet pyinstaller==6.11.1
+          pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app `
+            --add-data "app/data.json;." --add-data "app/version.txt;." `
+            --add-data "piper;piper" --add-data "voices;voices" app/lolhelper.py
+          Get-Item dist/LoLHelper.exe | Select-Object Name, Length
+
+      - name: Самопроверка exe
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/LoLHelper.exe -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content dist/selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Релиз
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $log = git log -5 --format="- %s" -- app
+          gh release create $env:VERSION dist/LoLHelper.exe --title "LoL Helper $env:VERSION" --notes "Изменения:`n$($log -join "`n")"

@@ -3,3 +3,6 @@ tools/img/
 tools/dd/
 tools/index.html
 __pycache__/
+app/__pycache__/
+app/version.txt
+app/selftest.txt

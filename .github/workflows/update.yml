@@ -67,6 +67,7 @@ jobs:
           # средние Изумруд+ с lolalytics: обновлять раз в 3 дня
           python -c "import json,time,sys;t=json.load(open('lola.json')).get('_t','2000-01-01');sys.exit(0 if time.time()-time.mktime(time.strptime(t,'%Y-%m-%d'))>3*86400 else 1)" && python lola.py || true
           python build.py
+          python ../app/make_data.py
 
       - name: Опубликовать
         if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
@@ -75,7 +76,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json
+          git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json app/data.json
           git commit -m "Новые игры: ${{ steps.fetch.outputs.new }}" || exit 0
           for i in 1 2 3; do git pull --rebase -q origin main && git push && break; sleep 5; done
           gh api -X POST "repos/${{ github.repository }}/pages/builds" || true
