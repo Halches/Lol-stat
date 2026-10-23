@@ -49,12 +49,16 @@ def update_data(app):
         return False
 
 
+SIZES = {}   # ожидаемый размер exe по данным GitHub API
+
+
 def latest_release():
     """Тег и ссылка на exe последнего релиза. Сначала API, иначе редирект github.com/releases/latest."""
     try:
         with get(f'https://api.github.com/repos/{REPO}/releases/latest', 10) as r: j = json.load(r)
-        url = next((a['browser_download_url'] for a in j.get('assets', []) if a['name'].lower().endswith('.exe')), None)
-        return j['tag_name'], url
+        a = next((a for a in j.get('assets', []) if a['name'].lower().endswith('.exe')), None)
+        if a: SIZES[a['browser_download_url']] = a.get('size')
+        return j['tag_name'], a and a['browser_download_url']
     except Exception:
         with get(f'https://github.com/{REPO}/releases/latest', 10) as r:
             tag = r.geturl().rstrip('/').split('/')[-1]
@@ -98,7 +102,10 @@ def start_download(app, tag, url):
                         last = time.time()
                         txt = f'Скачиваю {tag}: {got * 100 // total}% ({got >> 20} из {total >> 20} МБ)' if total else f'Скачиваю {tag}: {got >> 20} МБ'
                         app.root.after(0, lambda t=txt: app.update_state(t))
-            if total and got < total: raise IOError(f'скачано {got} из {total} байт')
+            want = SIZES.get(url) or total
+            if want and got != want: raise IOError(f'скачано {got} из {want} байт')
+            with open(new + '.part', 'rb') as f:
+                if f.read(2) != b'MZ' or got < 20 << 20: raise IOError('файл повреждён')
             os.replace(new + '.part', new)
             log(f'downloaded {tag} {got} bytes')
             app.root.after(0, lambda: app.update_state(f'Версия {tag} скачана', lambda: restart_into(app, new)))
