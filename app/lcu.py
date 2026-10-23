@@ -128,14 +128,14 @@ class LCU:
     def champ_select(self):
         return self.call('/lol-champ-select/v1/session')
 
-    def set_runes(self, name, prim, sec, perks):
+    def set_runes(self, name, prim, sec, perks, shards=None):
         """Создаёт страницу рун «LoL Helper», заменяя прошлую такую же."""
         pages = self.call('/lol-perks/v1/pages') or []
         for p in pages:
             if p.get('name', '').startswith('LoL Helper') and p.get('isDeletable'):
                 self.call(f"/lol-perks/v1/pages/{p['id']}", 'DELETE')
         body = {'name': f'LoL Helper: {name}', 'primaryStyleId': prim, 'subStyleId': sec,
-                'selectedPerkIds': list(perks) + [5008, 5008, 5011], 'current': True}
+                'selectedPerkIds': list(perks) + list(shards or [5008, 5008, 5011]), 'current': True}
         try:
             self.call('/lol-perks/v1/pages', 'POST', body); return True
         except urllib.error.HTTPError:

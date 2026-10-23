@@ -632,3 +632,76 @@ def next_item_plan(data, player, champ, items, gold):
     afford = [c for c in comps if c[1] <= gold]
     comp = max(afford, key=lambda c: c[1]) if afford else (min(comps, key=lambda c: c[1]) if comps else (str(target), need))
     return {'item': str(target), 'need': max(0, need - gold), 'total': need, 'comp': comp[0], 'comp_need': max(0, comp[1] - gold)}
+
+
+# ---------------- Сборки по Европе (lolalytics, EUW, Изумруд+) ----------------
+
+LOLA_LANE = {'TOP': 'top', 'JUNGLE': 'jungle', 'MIDDLE': 'middle', 'BOTTOM': 'bottom', 'UTILITY': 'support'}
+LOLA_FIX = {'MonkeyKing': 'wukong'}
+SPELL_KEY = {1: 'SummonerBoost', 3: 'SummonerExhaust', 4: 'SummonerFlash', 6: 'SummonerHaste', 7: 'SummonerHeal', 11: 'SummonerSmite',
+             12: 'SummonerTeleport', 13: 'SummonerMana', 14: 'SummonerDot', 21: 'SummonerBarrier', 32: 'SummonerSnowball'}
+
+
+def lola_url(champ, role):
+    return (f"https://lolalytics.com/lol/{LOLA_FIX.get(champ, champ.lower())}/build/"
+            f"?lane={LOLA_LANE.get(role, 'top')}&tier=emerald_plus&region=euw")
+
+
+def rune_tree(perk):
+    if perk // 100 == 99: return 8100      # Град клинков
+    if perk // 100 == 91: return 8000      # Триумф, Легенды
+    return perk // 100 * 100
+
+
+def parse_lola_build(html):
+    """Страница сборки lolalytics -> руны, заклинания и предметы, которые там выделены, с числом игр."""
+    toks = re.findall(r'<img[^>]*?(rune68|item64|spell64|statmod\w*)/(\d+)\.webp[^>]*?class="([^"]*)"|>([^<>]{2,40})<', html)
+    seq = []
+    for kind, i, cls, txt in toks:
+        if kind:
+            if 'grayscale' not in cls: seq.append((kind[:4], int(i)))
+        elif txt.strip(): seq.append(('t', txt.strip()))
+    def section(name, stop):
+        """Выделенные иконки после заголовка name до заголовка stop, плюс первые «N Games» и «% Win Rate» в ней."""
+        try: a = next(k for k, s in enumerate(seq) if s == ('t', name))
+        except StopIteration: return [], None, None
+        ids, n, wr = [], None, None
+        for k in range(a + 1, len(seq)):
+            kind, v = seq[k]
+            if kind == 't':
+                if v in stop: break
+                m = re.match(r'([\d,]+) Games$', v)
+                if m and n is None: n = int(m.group(1).replace(',', ''))
+                if v == '% Win Rate' and wr is None and k and re.match(r'[\d.]+$', str(seq[k - 1][1])): wr = float(seq[k - 1][1])
+            else: ids.append(v)
+            if kind == 't' and re.match(r'[\d.,]+$', v) and v not in stop:
+                if wr is None and '.' in v: wr = float(v)
+                elif n is None and '.' not in v: n = int(v.replace(',', ''))
+        return ids, n, wr
+    t = ' '.join(str(v) for _, v in seq)
+    m = re.search(r'([\d.]+) Win Rate [\d.]+ WR Delta', t)
+    games = re.search(r'Ban Rate ([\d,]+) Games', t)
+    spells, _, _ = section('Summoner Spells', {'Skill Order', 'Primary Runes'})
+    prim, nr, wrr = section('Primary Runes', {'Secondary'})
+    sec, _, _ = section('Secondary', {'Stat Mods'})
+    shards, _, _ = section('Stat Mods', {'Starting Items'})
+    start, ns, _ = section('Starting Items', {'Core Build'})
+    core_, nc, wrc = section('Core Build', {'Item 4'})
+    i4, _, _ = section('Item 4', {'Item 5'})
+    i5, _, _ = section('Item 5', {'Item 6'})
+    i6, _, _ = section('Item 6', {'LEGEND:'})
+    prim = [p for p in prim if p > 5100]; sec = [p for p in sec if p > 5100]
+    if len(prim) < 4 or len(sec) < 2: return None
+    return {'spells': [SPELL_KEY.get(s, s) for s in spells][:2], 'prim': rune_tree(prim[0]), 'sec': rune_tree(sec[0]), 'perks': prim[:4] + sec[:2],
+            'shards': [s for s in shards][:3], 'start': start, 'core': core_[:3], 'i4': i4, 'i5': i5, 'i6': i6,
+            'n_runes': nr, 'wr_runes': wrr, 'n_core': nc, 'wr_core': wrc, 'wr': float(m.group(1)) if m else None,
+            'games': int(games.group(1).replace(',', '')) if games else None}
+
+
+def lola_build_items(b):
+    """Порядок предметов: основа, затем по одному лучшему варианту 4–6 слота без повторов."""
+    out = list(b['core'])
+    for opts in (b['i4'], b['i5'], b['i6']):
+        it = next((x for x in opts if x not in out), None)
+        if it: out.append(it)
+    return out
