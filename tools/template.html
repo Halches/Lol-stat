@@ -129,6 +129,14 @@ th:first-child,td:first-child{text-align:left}
 .skills span.R{background:var(--gold);color:var(--bg);border-color:transparent}
 .more{font:inherit;font-family:var(--f-disp);font-weight:600;font-size:15px;padding:12px;border:1px dashed var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
 .more:hover{border-color:var(--gold)}
+@media (max-width:640px){.controls{position:static}}
+.range{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-basis:100%;font-size:13px}
+.range label{color:var(--muted)}
+.range input{flex:1 1 180px;min-width:0;accent-color:var(--gold)}
+.range output{font-family:var(--f-disp);font-weight:600;min-width:9em;font-variant-numeric:tabular-nums}
+.presets{display:flex;gap:4px}
+.presets button{font:inherit;font-size:12px;border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:12px;padding:2px 10px;cursor:pointer}
+.presets button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .games{display:flex;flex-direction:column;gap:6px}
@@ -184,6 +192,12 @@ th:first-child,td:first-child{text-align:left}
       <button data-v="420" aria-pressed="false">Соло</button>
       <button data-v="440" aria-pressed="false">Флекс</button>
       <button data-v="norm" aria-pressed="false">Обычные</button>
+    </div>
+    <div class="range">
+      <label for="ngames">Учитывать</label>
+      <input type="range" id="ngames" min="10" max="100" step="10" value="100">
+      <output id="nlabel" for="ngames"></output>
+      <div class="presets" id="npre"><button data-n="20">20</button><button data-n="50">50</button><button data-n="100">100</button><button data-n="0">все</button></div>
     </div>
   </div>
 
@@ -244,7 +258,7 @@ const IC=/*ICONS*/;
 const META=/*META*/;
 const ROLE={TOP:'Топ',JUNGLE:'Лес',MIDDLE:'Мид',BOTTOM:'Бот',UTILITY:'Саппорт','':'—',Invalid:'—'};
 const NAME={halch:'Halch',drv:'DrVoldemar'};
-const st={who:'halch',queue:'all'};
+const st={who:'halch',queue:'all',n:0};
 try{const s=JSON.parse(localStorage.getItem('lolsite')||'{}');Object.assign(st,s)}catch(e){}
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -260,9 +274,14 @@ const date=t=>new Date(t).toLocaleString('ru-RU',{day:'numeric',month:'short',ho
 const qok=g=>st.queue==='all'||(st.queue==='norm'?![420,440].includes(g.q):g.q==+st.queue);
 const laner=p=>['TOP','MIDDLE','BOTTOM'].includes(p);
 
-function rows(){
+function allRows(){
   if(st.who==='duo') return GAMES.filter(g=>qok(g)&&g.me.length===2).map(g=>({g,m:g.me.find(m=>m.who==='halch'),o:g.me.find(m=>m.who==='drv')}));
   return GAMES.filter(qok).map(g=>({g,m:g.me.find(m=>m.who===st.who)})).filter(r=>r.m);
+}
+let TOTAL=0;
+function rows(){
+  const a=allRows();TOTAL=a.length;
+  return st.n&&st.n<a.length?a.slice(0,st.n):a;
 }
 
 function agg(list){
@@ -646,6 +665,8 @@ function render(){
   document.querySelectorAll('#who button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.who));
   document.querySelectorAll('#queue button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.queue));
   const list=rows();
+  const sl=$('ngames');sl.max=Math.max(10,Math.ceil(TOTAL/10)*10);sl.value=st.n&&st.n<TOTAL?st.n:sl.max;nlab();
+  $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} игр в выборке · обновлено ${META.updated} · патч ${META.patch}`;
   $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=st.who==='duo';
   if(st.who==='duo'){duoNotes(list);trend(list);champs(list);lanes(list);activity(list)}
   else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list)}
@@ -673,9 +694,13 @@ $('games').addEventListener('pointerleave',e=>{document.querySelectorAll('.tip')
 $('dfilt').addEventListener('click',e=>{const b=e.target.closest('[data-d]');if(!b)return;dfilt=b.dataset.d;$('dfilt').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));deaths(rows())});
 $('bchamps').addEventListener('click',e=>{const b=e.target.closest('[data-bc]');if(!b)return;bchamp=b.dataset.bc;builds(rows())});
 $('recs').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(!b)return;if(!$('g-'+b.dataset.go)){const i=CUR.findIndex(r=>r.g.id===b.dataset.go);if(i>=LIM){LIM=i+1;showGames()}}const d=$('g-'+b.dataset.go);if(!d)return;d.open=true;d.scrollIntoView({behavior:'smooth',block:'start'});d.classList.add('flash');setTimeout(()=>d.classList.remove('flash'),1600)});
+function nlab(){const v=+$('ngames').value;$('nlabel').textContent=v>=TOTAL?`все ${TOTAL} игр`:`последние ${v} игр`;
+  $('npre').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.n===(st.n&&st.n<TOTAL?st.n:0)))}
+let ntimer;
+$('ngames').addEventListener('input',e=>{const v=+e.target.value;st.n=v>=TOTAL?0:v;nlab();clearTimeout(ntimer);ntimer=setTimeout(render,180)});
+$('npre').addEventListener('click',e=>{const b=e.target.closest('[data-n]');if(!b)return;st.n=+b.dataset.n;render()});
 document.querySelectorAll('#who button').forEach(b=>b.onclick=()=>{st.who=b.dataset.v;render()});
 document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.dataset.v;render()});
-$('meta').textContent=`${GAMES.length} игр на Ущелье · обновлено ${META.updated} · патч ${META.patch}`;
 $('plates').innerHTML=META.ranks.map(r=>`<div class="plate"><div class="who">${esc(r.name)}</div>${r.q.map(q=>`<div class="rk">${q.t}: <b>${q.r}</b> · ${q.wl}</div>`).join('')}</div>`).join('');
 $('foot').textContent=`Данные: Riot API (все игры сезона с 8 января, рейтинговые и обычные, только Ущелье призывателей, игры короче 10 минут не считаются). Разница с оппонентом считается против игрока той же роли во вражеской команде. «Мало» в таблицах: меньше 5 игр, винрейт ненадёжен. Иконки и названия: Data Dragon ${META.dd}.`;
 render();

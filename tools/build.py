@@ -13,7 +13,7 @@ for n,p in P:
       wl=f"{e['wins']}–{e['losses']} ({round(e['wins']/(e['wins']+e['losses'])*100)}%)"))
   ranks.append(dict(name=n,q=qs))
 games=json.load(open('games.json'))
-patch=collections.Counter(g['ver'] for g in games).most_common(1)[0][0]
+patch=games[0]['ver']
 msk=datetime.datetime.utcnow()+datetime.timedelta(hours=3)
 meta=dict(ranks=ranks,updated=msk.strftime('%d.%m %H:%M')+' МСК',patch=patch,dd=open('dd/ver').read().strip())
 h=open('template.html').read().replace('/*DATA*/',json.dumps(games,ensure_ascii=False,separators=(',',':'))).replace('/*ICONS*/',open('icons.json').read()).replace('/*META*/',json.dumps(meta,ensure_ascii=False))
