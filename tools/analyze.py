@@ -132,7 +132,9 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
     q=next(q for q in plist if q['pid']==m_['pid']); m_['imp']=q['imp']; m_['tr']=q['tr']; m_['ar']=q['ar']; m_['share']=q['share']
   for q in plist:
     for k in ('taken','obj','cc','heal','pid'): q.pop(k,None)
-  games.append(dict(id=x['metadata']['matchId'],q=i['queueId'],qn=Q[i['queueId']],start=i['gameStartTimestamp'],dur=round(dur,1),
+  ppos=[[[round(fm['participantFrames'][str(k)].get('position',{}).get('x',0)/10),round(fm['participantFrames'][str(k)].get('position',{}).get('y',0)/10)] for fm in frames] for k in sorted(byid)]
+  kall=[[round(e['timestamp']/60000,2),round(e.get('position',{}).get('x',0)/10),round(e.get('position',{}).get('y',0)/10),e.get('killerId',0)-1,e['victimId']-1,[a_-1 for a_ in (e.get('assistingParticipantIds') or [])]] for e in kills]
+  games.append(dict(ppos=ppos,kall=kall,id=x['metadata']['matchId'],q=i['queueId'],qn=Q[i['queueId']],start=i['gameStartTimestamp'],dur=round(dur,1),
     ver='.'.join(i['gameVersion'].split('.')[:2]),win100=teams[100]['win'],
     obj={t:{k:v['kills'] for k,v in teams[t]['objectives'].items()} for t in teams},
     gd=gd,xd=xd,kev=[[round(e['timestamp']/60000,1),byid[e['killerId']]['teamId'] if e.get('killerId') in byid else 300-byid[e['victimId']]['teamId']] for e in kills],parts=plist,me=me_list,
@@ -149,5 +151,6 @@ for g in games:
   if not keep:
     for p in g['parts']:
       for k in ('sg','sx','sc','buys'): p.pop(k,None)
+    g.pop('ppos',None); g.pop('kall',None)
 json.dump(games,open('games.json','w'),ensure_ascii=False,separators=(',',':'))
 print(len(games), os.path.getsize('games.json'))

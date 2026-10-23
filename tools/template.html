@@ -178,6 +178,17 @@ button:disabled{opacity:.5;cursor:default}
 .irow em{font-style:normal;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
 .badge{font-family:var(--f-disp);font-weight:700;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--gold);color:var(--bg);letter-spacing:.04em}
 .wl td.better{color:var(--good)} .wl td.worse{color:var(--bad)}
+.tm-grid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:16px}
+@media (max-width:760px){.tm-grid{grid-template-columns:minmax(0,1fr)}}
+.tm-ctl{display:flex;align-items:center;gap:10px;margin-top:10px}
+.tm-ctl input{flex:1;min-width:0;accent-color:var(--gold)}
+.tm-ctl output{font-family:var(--f-disp);font-weight:600;font-size:16px;min-width:3.2em;font-variant-numeric:tabular-nums}
+.tm-play{font:inherit;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--ink);color:var(--bg);cursor:pointer;font-size:14px}
+.feed{display:flex;flex-direction:column;gap:4px;font-size:12px;min-width:0}
+.feed .k{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:3px 6px;border-radius:4px}
+.feed .k.mine{background:var(--lossbg)}
+.feed .k.ours{background:var(--winbg)}
+.feed .t{font-variant-numeric:tabular-nums;color:var(--muted);width:3em}
 .legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .games{display:flex;flex-direction:column;gap:6px}
@@ -866,11 +877,52 @@ function winloss(){
     return `<tr><td>${l}</td><td class="${big?(diff*dir>0?'better':'worse'):''}">${signed?sgn(a):fmt(a,d)}</td><td>${signed?sgn(b):fmt(b,d)}</td><td>${sgn(diff,d)}</td></tr>`}).join('');
   $('winloss').innerHTML=`<table class="wl"><thead><tr><th>Показатель</th><th>Победы (${W.length})</th><th>Поражения (${L.length})</th><th>Разница</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
+
+const TM={};
+const mm=t=>`${Math.floor(t)}:${String(Math.round((t%1)*60)).padStart(2,'0')}`;
+function timeMap(g,m){
+  const n=g.ppos[0].length-1;
+  return `<div class="chart tmap" data-id="${g.id}"><div class="ctitle"><h3>Карта по времени</h3><div class="seg sm" role="group" aria-label="Что показывать"><button data-tmm="all" aria-pressed="true">Все убийства</button><button data-tmm="ours" aria-pressed="false">Смерти ваши</button></div></div>
+  <div class="tm-grid"><div><div class="map"><svg viewBox="0 0 1000 1000" role="img" aria-label="Карта игры по времени">${IC.map?`<image href="${IC.map}" width="1000" height="1000" opacity=".8"/>`:''}<g class="tm-layer"></g></svg></div>
+  <div class="tm-ctl"><button class="tm-play" data-tmplay aria-label="Воспроизвести">▶</button><input type="range" min="0" max="${g.dur}" step="0.1" value="${Math.min(15,g.dur)}" data-tmr aria-label="Минута игры"><output>${mm(Math.min(15,g.dur))}</output></div></div>
+  <div class="feed"></div></div>
+  <div class="legend"><span>Иконки — где были чемпионы на эту минуту (позиции Riot записывает раз в минуту, между ними сглажено). <i style="background:${C_ME}"></i>Halch, <i style="background:${C_FR}"></i>DrVoldemar, <i style="background:${C_AL}"></i>союзники, <i style="background:${C_EN}"></i>враги. Крестики — смерти за последнюю минуту, точки — более ранние.</span></div></div>`;
+}
+function drawTM(el){
+  const id=el.dataset.id,{g,m}=DETAIL[id],s=TM[id]||(TM[id]={t:Math.min(15,g.dur),mode:'all'});
+  const t=s.t,P=g.parts,n=g.ppos[0].length-1;
+  const X=x=>x/1487*1000,Y=y=>(1-y/1498)*1000;
+  const col=i=>P[i].me==='halch'?C_ME:P[i].me==='drv'?C_FR:P[i].team===m.team?C_AL:C_EN;
+  const ours=i=>P[i]&&P[i].me;
+  let ks=g.kall.filter(k=>k[0]<=t);
+  if(s.mode==='ours')ks=ks.filter(k=>ours(k[4]));
+  let svg='';
+  ks.forEach(k=>{const age=t-k[0];if(age>1)svg+=`<circle cx="${X(k[1])}" cy="${Y(k[2])}" r="9" fill="${col(k[4])}" opacity="${Math.max(.25,.7-age/40)}"/>`});
+  // champions
+  const i0=Math.min(n,Math.floor(t)),i1=Math.min(n,i0+1),f=t-i0;
+  P.forEach((p,i)=>{const a=g.ppos[i][i0],b=g.ppos[i][i1];const x=X(a[0]+(b[0]-a[0])*f),y=Y(a[1]+(b[1]-a[1])*f);
+    const dead=g.kall.some(k=>k[4]===i&&k[0]<=t&&t-k[0]<0.35);
+    svg+=`<g opacity="${dead?.35:1}"><circle cx="${x}" cy="${y}" r="${p.me?44:39}" fill="${col(i)}"/>${IC.c[p.c]?`<image href="${IC.c[p.c]}" x="${x-33}" y="${y-33}" width="66" height="66" clip-path="circle(33px)"/>`:''}<title>${esc(cn(p.c))}</title></g>`});
+  ks.forEach(k=>{const age=t-k[0];if(age<=1){const x=X(k[1]),y=Y(k[2]);svg+=`<g opacity="${1-age*.5}"><circle cx="${x}" cy="${y}" r="24" fill="var(--panel)" stroke="${col(k[4])}" stroke-width="5"/><path d="M${x-12} ${y-12}L${x+12} ${y+12}M${x+12} ${y-12}L${x-12} ${y+12}" stroke="${col(k[4])}" stroke-width="7" stroke-linecap="round"/></g>`}});
+  el.querySelector('.tm-layer').innerHTML=svg;
+  el.querySelector('output').textContent=mm(t);
+  el.querySelector('[data-tmr]').value=t;
+  const nm=i=>i>=0&&P[i]?`${cimg(P[i].c,'xs')}${esc(cn(P[i].c))}`:'башня/миньоны';
+  el.querySelector('.feed').innerHTML=`<h4 style="margin:0 0 4px;font-family:var(--f-disp)">${s.mode==='ours'?'Ваши смерти':'Убийства'} к ${mm(t)} (${ks.length})</h4>`+(ks.slice(-12).reverse().map(k=>`<div class="k ${ours(k[4])?'mine':ours(k[3])?'ours':''}"><span class="t">${mm(k[0])}</span>${nm(k[3])} <span class="muted">→</span> ${nm(k[4])}${k[5].length?` <span class="few">+${k[5].length}</span>`:''}</div>`).join('')||'<span class="muted">пока никого</span>');
+  el.querySelectorAll('[data-tmm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tmm===s.mode));
+}
+function tmPlay(el){
+  const id=el.dataset.id,s=TM[id],{g}=DETAIL[id],btn=el.querySelector('[data-tmplay]');
+  if(s.timer){clearInterval(s.timer);s.timer=null;btn.textContent='▶';return}
+  if(s.t>=g.dur-0.05)s.t=0;
+  btn.textContent='❚❚';
+  s.timer=setInterval(()=>{s.t=Math.min(g.dur,s.t+0.15);if(!el.isConnected){clearInterval(s.timer);s.timer=null;return}drawTM(el);if(s.t>=g.dur){clearInterval(s.timer);s.timer=null;btn.textContent='▶'}},100);
+}
 const DETAIL={};
 function detailHTML({g,m,o}){
   const rv=review(g,m);
   const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
-  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${impactBlock(g,m)}<div class="chart creview" data-id="${g.id}"></div>${bench({g,m})}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none"><div class="map sm">${mapSVG(m.dpos||[],false)}</div><div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
+  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${impactBlock(g,m)}<div class="chart creview" data-id="${g.id}"></div>${bench({g,m})}${g.ppos&&g.kall?timeMap(g,m):''}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none">${g.ppos?'':`<div class="map sm">${mapSVG(m.dpos||[],false)}</div>`}<div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
 }
 function gameRow(r){
   DETAIL[r.g.id]=r;
@@ -931,7 +983,7 @@ function render(){
   impact(list);winloss();
   CUR=list;showGames();showView();
 }
-$('games').addEventListener('toggle',e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){d.innerHTML=detailHTML(DETAIL[d.dataset.id]);d.querySelectorAll('.creview').forEach(renderCR)}},true);
+$('games').addEventListener('toggle',e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){d.innerHTML=detailHTML(DETAIL[d.dataset.id]);d.querySelectorAll('.creview').forEach(renderCR);d.querySelectorAll('.tmap').forEach(drawTM)}},true);
 $('games').addEventListener('click',e=>{
   const kb=e.target.closest('[data-k]');
   if(kb){const det=kb.closest('.detail'),r=DETAIL[det.dataset.id];kb.parentNode.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===kb));kb.closest('.chart').querySelector('.pc').innerHTML=playersChart(r.g,r.m,kb.dataset.k);return}
@@ -959,6 +1011,8 @@ let ntimer;
 $('ngames').addEventListener('input',e=>{const v=+e.target.value;st.n=v>=TOTAL?0:v;nlab();clearTimeout(ntimer);ntimer=setTimeout(render,180)});
 $('npre').addEventListener('click',e=>{const b=e.target.closest('[data-n]');if(!b)return;st.n=+b.dataset.n;render()});
 $('games').addEventListener('click',e=>{const b=e.target.closest('[data-cr]');if(b){reviewGame(b.dataset.cr);return}const s=e.target.closest('[data-crstop]');if(s)CR[s.dataset.crstop]?.ctl?.abort()});
+$('games').addEventListener('input',e=>{const r=e.target.closest('[data-tmr]');if(!r)return;const el=r.closest('.tmap');TM[el.dataset.id].t=+r.value;drawTM(el)});
+$('games').addEventListener('click',e=>{const p=e.target.closest('[data-tmplay]');if(p){tmPlay(p.closest('.tmap'));return}const md_=e.target.closest('[data-tmm]');if(md_){const el=md_.closest('.tmap');TM[el.dataset.id].mode=md_.dataset.tmm;drawTM(el)}});
 $('view').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;st.view=b.dataset.view;showView()});
 function showView(){const c=st.view==='coach';$('coachview').hidden=!c;$('statsview').hidden=c;$('view').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===(c?'coach':'stats')));coachScope();coachAvail()}
 $('quick').addEventListener('click',e=>{const b=e.target.closest('button');if(b)ask(b.textContent)});
