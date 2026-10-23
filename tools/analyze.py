@@ -8,12 +8,15 @@ ITEMS=json.load(open('dd/item.json'))['data']
 cid={int(v['key']):(k,v['name']) for k,v in champ.items()}
 games=[]
 for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
-  x=json.load(open(f))
+  try: x=json.load(open(f))
+  except Exception: continue
   if not x: continue
   i=x['info']
   if i['queueId'] not in Q or i['gameDuration']<600: continue
   tlf=f.replace('.json','_tl.json')
-  tl=json.load(open(tlf)) if os.path.exists(tlf) else None
+  try: tl=json.load(open(tlf)) if os.path.exists(tlf) else None
+  except Exception: tl=None
+  if not tl: continue
   dur=i['gameDuration']/60
   parts=i['participants']
   byid={p['participantId']:p for p in parts}
@@ -66,6 +69,19 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
         csa=a['minionsKilled']+a['jungleMinionsKilled']; csb=b['minionsKilled']+b['jungleMinionsKilled']
         diffs[m]=dict(gold=a['totalGold']-b['totalGold'],xp=a['xp']-b['xp'],cs=csa-csb,mycs=csa,lvl=a['level']-b['level'])
     mydeaths=[e['timestamp']/60000 for e in kills if e.get('victimId')==pid]
+    ejg=next((o['participantId'] for o in parts if o['teamId']!=team and o['teamPosition']=='JUNGLE'),None)
+    dpos=[]
+    for e in kills:
+      if e.get('victimId')!=pid: continue
+      kid=e.get('killerId',0); inv=set([kid]+(e.get('assistingParticipantIds') or []))-{0}
+      if kid==0 or kid not in byid: typ='tower'
+      elif len(inv)>=3: typ='fight'
+      elif ejg in inv: typ='jungle'
+      elif opp and opp['participantId'] in inv: typ='lane'
+      else: typ='roam'
+      pos=e.get('position',{})
+      dpos.append([round(e['timestamp']/60000,1),pos.get('x',0),pos.get('y',0),typ,byid[kid]['championName'] if kid in byid else None])
+    skills=''.join('QWER'[e['skillSlot']-1] for fm in frames for e in fm['events'] if e['type']=='SKILL_LEVEL_UP' and e.get('participantId')==pid and e.get('levelUpType')=='NORMAL' and 1<=e['skillSlot']<=4)
     mykills=[e for e in kills if e.get('killerId')==pid]
     solo=sum(1 for e in mykills if not e.get('assistingParticipantIds'))
     early_d=sum(1 for t in mydeaths if t<14)
@@ -89,7 +105,9 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
       items=[p[f'item{j}'] for j in range(7)],sums=[p['summoner1Id'],p['summoner2Id']],
       keystone=perks[0]['selections'][0]['perk'],prim=perks[0]['style'],sec=perks[1]['style'],
       ff=p['gameEndedInSurrender'],early_ff=p['gameEndedInEarlySurrender'],
-      firstblood=p['firstBloodKill'] or p['firstBloodAssist']))
+      firstblood=p['firstBloodKill'] or p['firstBloodAssist'],
+      dpos=dpos,skills=skills,first=[i for i,t in buys[pid] if 'Boots' not in ITEMS[str(i)].get('tags',[])][:2],
+      perks=[sel['perk'] for st_ in perks for sel in st_['selections']]))
   games.append(dict(id=x['metadata']['matchId'],q=i['queueId'],qn=Q[i['queueId']],start=i['gameStartTimestamp'],dur=round(dur,1),
     ver='.'.join(i['gameVersion'].split('.')[:2]),win100=teams[100]['win'],
     obj={t:{k:v['kills'] for k,v in teams[t]['objectives'].items()} for t in teams},
@@ -97,5 +115,15 @@ for f in sorted(glob.glob(f'{D}/EUW1_*[0-9].json')):
     obev=[dict(t=round(e['timestamp']/60000,1),type=e.get('monsterType') or e.get('buildingType'),sub=e.get('monsterSubType') or e.get('towerType'),
       team=(e.get('killerTeamId') or (300-e['teamId'] if e.get('teamId') else None))) for e in obj]))
 games.sort(key=lambda g:-g['start'])
+cnt={'halch':0,'drv':0}
+for g in games:
+  keep=False
+  for m in g['me']:
+    cnt[m['who']]+=1
+    if cnt[m['who']]<=60: keep=True
+  g['full']=keep
+  if not keep:
+    for p in g['parts']:
+      for k in ('sg','sx','sc'): p.pop(k,None)
 json.dump(games,open('games.json','w'),ensure_ascii=False,separators=(',',':'))
 print(len(games), os.path.getsize('games.json'))

@@ -14,10 +14,19 @@ def get(url):
   raise Exception('fail '+url)
 B='https://europe.api.riotgames.com/lol/match/v5/matches/'
 ids=set()
+SEASON=int(os.environ.get('SEASON_START','1767830400'))
 for n,p in P.items():
-  l=get(B+f'by-puuid/{p}/ids?start=0&count=60')
-  json.dump(l,open(f'{D}/ids_{n.split("#")[0]}.json','w')); ids|=set(l)
-print(len(ids),file=sys.stderr)
+  allids=[]
+  for typ in ('ranked','normal'):
+    st=0
+    while True:
+      l=get(B+f'by-puuid/{p}/ids?type={typ}&startTime={SEASON}&start={st}&count=100')
+      allids+=l; st+=100
+      if len(l)<100: break
+  json.dump(allids,open(f'{D}/ids_{n.split("#")[0]}.json','w')); ids|=set(allids)
+  print(n,len(allids),file=sys.stderr,flush=True)
+print(len(ids),file=sys.stderr,flush=True)
+n_done=0
 for m in sorted(ids):
   f=f'{D}/{m}.json'
   if not os.path.exists(f):
@@ -27,4 +36,6 @@ for m in sorted(ids):
   if x and x['info'].get('queueId') in (400,420,430,440,490,480) and x['info']['gameDuration']>600:
     t=f'{D}/{m}_tl.json'
     if not os.path.exists(t): json.dump(get(B+m+'/timeline'),open(t,'w'))
+  n_done+=1
+  if n_done%50==0: print('progress',n_done,file=sys.stderr,flush=True)
 print('done',file=sys.stderr)

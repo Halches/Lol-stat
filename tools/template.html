@@ -109,6 +109,24 @@ th:first-child,td:first-child{text-align:left}
 .bench .tr u{position:absolute;inset:0 auto 0 0;border-radius:3px}
 .bench em{font-style:normal;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;white-space:nowrap}
 .game.flash{box-shadow:0 0 0 2px var(--gold)}
+.deaths{display:grid;grid-template-columns:minmax(0,420px) 1fr;gap:16px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+@media (max-width:760px){.deaths{grid-template-columns:1fr}}
+.map{position:relative;width:100%;max-width:420px;aspect-ratio:1}
+.map svg{width:100%;height:100%;display:block;border-radius:6px}
+.map.sm{max-width:260px}
+.dtypes{display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;align-items:center;font-size:13px}
+.dtypes .tr{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden}
+.dtypes .tr u{display:block;height:100%}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.killers{display:flex;flex-wrap:wrap;gap:6px}
+.killer{display:inline-flex;align-items:center;gap:6px;font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:2px 10px 2px 3px}
+.builds{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:12px}
+@media (max-width:760px){.builds{grid-template-columns:minmax(0,1fr)}}
+.builds>div{min-width:0}
+.builds h3{margin-bottom:6px}
+.skills{display:flex;flex-wrap:wrap;gap:3px;font-family:var(--f-disp);font-weight:600;font-size:12px}
+.skills span{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:var(--panel);border:1px solid var(--line)}
+.skills span.R{background:var(--gold);color:var(--bg);border-color:transparent}
 .legend{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .games{display:flex;flex-direction:column;gap:6px}
@@ -182,6 +200,16 @@ th:first-child,td:first-child{text-align:left}
   <section>
     <h2>Исход линии</h2>
     <div class="chart" id="lanes"></div>
+  </section>
+
+  <section id="deathsec">
+    <div class="ctitle"><h2>Где и от кого ты умираешь</h2><div class="seg sm" id="dfilt" role="group" aria-label="Время"><button data-d="all" aria-pressed="true">Все</button><button data-d="early" aria-pressed="false">До 14 мин</button><button data-d="late" aria-pressed="false">После 14 мин</button></div></div>
+    <div class="deaths" id="deaths"></div>
+  </section>
+
+  <section id="buildsec">
+    <h2>Билды и руны</h2>
+    <div class="chart"><div class="lgs" id="bchamps"></div><div class="builds" id="builds"></div></div>
   </section>
 
   <section id="recsec">
@@ -513,11 +541,59 @@ function bench(r){
   return `<div class="chart"><div class="ctitle"><h3>Бенчмарки</h3><div class="legend"><span>Как на Dotabuff, но сравнение с твоими же играми${byRole?` на роли «${ROLE[m.pos]}» (${pool.length})`:` (${pool.length})`}.</span></div></div><div class="bench">${rows}</div></div>`;
 }
 
+
+const DT={lane:['Оппонент по линии','#f08c2b'],jungle:['Лесник (ганк)','#9b5cf6'],fight:['Драка 3+ врагов','#e5484d'],roam:['Роум других линий','#14a3b8'],tower:['Башня / миньоны','#8a94a6']};
+const mapX=x=>x/14870*1000,mapY=y=>(1-y/14980)*1000;
+function mapSVG(ds,big){
+  let s=`<svg viewBox="0 0 1000 1000" role="img" aria-label="Карта смертей">${IC.map?`<image href="${IC.map}" x="0" y="0" width="1000" height="1000" opacity=".85"/>`:'<rect width="1000" height="1000" fill="var(--panel2)"/>'}`;
+  ds.forEach(d=>{s+=`<circle cx="${mapX(d[1])}" cy="${mapY(d[2])}" r="${big?13:17}" fill="${DT[d[3]][1]}" fill-opacity=".8" stroke="#fff" stroke-width="2.5"><title>${fmt(d[0],1)} мин · ${DT[d[3]][0]}${d[4]?' · убил '+cn(d[4]):''}</title></circle>`});
+  return s+'</svg>';
+}
+let dfilt='all';
+function deaths(list){
+  let ds=list.flatMap(r=>(r.m.dpos||[]));
+  if(dfilt==='early')ds=ds.filter(d=>d[0]<14);else if(dfilt==='late')ds=ds.filter(d=>d[0]>=14);
+  if(!ds.length){$('deaths').innerHTML='<div class="empty">Нет данных.</div>';return}
+  const n=ds.length,c={};ds.forEach(d=>c[d[3]]=(c[d[3]]||0)+1);
+  const types=Object.keys(DT).filter(k=>c[k]).sort((a,b)=>c[b]-c[a]).map(k=>`<span><i class="dot" style="background:${DT[k][1]}"></i>${DT[k][0]}</span><div class="tr"><u style="width:${c[k]/n*100}%;background:${DT[k][1]}"></u></div><em class="muted">${c[k]} · ${fmt(c[k]/n*100,0)}%</em>`).join('');
+  const kc={};ds.forEach(d=>{if(d[4])kc[d[4]]=(kc[d[4]]||0)+1});
+  const kl=Object.entries(kc).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([ch,k])=>`<span class="killer">${cimg(ch,'xs')}${esc(cn(ch))} <b>${k}</b></span>`).join('');
+  const games=list.length,per=n/Math.max(1,games);
+  const top=Object.keys(c).sort((a,b)=>c[b]-c[a])[0];
+  $('deaths').innerHTML=`<div class="map">${mapSVG(ds.slice(0,1500),true)}</div><div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+    <div><h3>${n} смертей за ${games} игр (${fmt(per,1)} за игру)</h3><div class="legend"><span>Чаще всего: ${DT[top][0].toLowerCase()}, ${fmt(c[top]/n*100,0)}%.</span></div></div>
+    <div class="dtypes">${types}</div>
+    <div><h3 style="margin-bottom:6px">Кто убивает чаще всего</h3><div class="killers">${kl}</div></div>
+    <div class="legend"><span>Тип смерти по тому, кто участвовал в убийстве: 3+ врага = драка; иначе лесник, если он участвовал; иначе оппонент по линии; иначе роум. Наведи на точку, чтобы увидеть минуту и убийцу.</span></div></div>`;
+}
+
+const maxOrder=sk=>{const c={Q:0,W:0,E:0},at={Q:99,W:99,E:99};[...(sk||'')].forEach((x,i)=>{if(x in c){c[x]++;if(c[x]===5&&at[x]===99)at[x]=i}});
+  return Object.keys(c).sort((a,b)=>at[a]-at[b]||c[b]-c[a]).join(' › ')};
+let bchamp=null;
+function builds(list){
+  const by={};list.forEach(r=>(by[r.m.c]=by[r.m.c]||[]).push(r.m));
+  const cs=Object.entries(by).filter(([c,x])=>x.length>=3).sort((a,b)=>b[1].length-a[1].length);
+  if(!cs.length){$('bchamps').innerHTML='';$('builds').innerHTML='<div class="empty">Нужно хотя бы 3 игры на одном чемпионе.</div>';return}
+  if(!by[bchamp]||by[bchamp].length<3)bchamp=cs[0][0];
+  $('bchamps').innerHTML=cs.map(([c,x])=>`<button class="lg" data-bc="${esc(c)}" aria-pressed="${c===bchamp}">${cimg(c,'xs')}${esc(cn(c))} · ${x.length}</button>`).join('');
+  const ms=by[bchamp];
+  const grp=(key,label,cell)=>{const g={};ms.forEach(m=>{const k=key(m);if(k==null||k==='')return;(g[k]=g[k]||[]).push(m)});
+    const rows=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).slice(0,6).map(([k,x])=>{const w=x.filter(m=>m.win).length,wr=w/x.length*100;
+      return `<tr><td>${cell(k)}</td><td>${x.length}</td><td>${fmt(wr,0)}%${x.length<5?' <span class="few">мало</span>':''}<span class="wbar ${wr>=50?'':'l'}"><u style="width:${wr}%"></u></span></td></tr>`}).join('');
+    return `<div><h3>${label}</h3><div class="tbl"><table><thead><tr><th></th><th>Игры</th><th>Вин</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="muted">нет данных</td></tr>'}</tbody></table></div></div>`};
+  const rn=r=>`<span class="ch">${IC.r[r]?`<img class="ic sm" src="${IC.r[r]}" alt="">`:''}${esc(IC.rnames[r]||r)}</span>`;
+  const it=i=>`<span class="ch">${iimg(+i)}${esc(IC.inames[i]||i)}</span>`;
+  $('builds').innerHTML=grp(m=>m.keystone,'Ключевая руна',rn)+grp(m=>m.first&&m.first[0],'Первый предмет',it)
+    +grp(m=>m.first&&m.first.length===2?m.first.join('+'):null,'Первые два предмета',k=>`<span class="build">${k.split('+').map(i=>iimg(+i)).join('')}</span> <span class="few">${k.split('+').map(i=>esc(IC.inames[i]||'')).join(' → ')}</span>`)
+    +grp(m=>m.skills&&m.skills.length>=9?maxOrder(m.skills):null,'Порядок прокачки (что качаешь первым)',k=>`<b>${k}</b>`)
+    +`<div class="legend" style="grid-column:1/-1"><span>Только твои игры на ${esc(cn(bchamp))}: ${ms.length}. Меньше 5 игр в строке: винрейт ненадёжен. Первые предметы: законченные предметы без сапог по времени покупки.</span></div>`;
+}
+const skillRow=sk=>sk?`<div class="skills">${[...sk].map((x,i)=>`<span class="${x}" title="Уровень ${i+1}">${x}</span>`).join('')}</div>`:'<span class="muted">нет данных</span>';
 const DETAIL={};
 function detailHTML({g,m,o}){
   const rv=review(g,m);
   const detail=(mm,label)=>{const r=review(g,mm);return `${label?`<h3>${label}</h3>`:''}<div class="review"><div class="gd"><h4>Хорошо</h4><ul>${r.good.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">ничего не выделилось</li>'}</ul></div><div class="bd"><h4>Над чем работать</h4><ul>${r.bad.map(s=>`<li>${s}</li>`).join('')||'<li class="muted">по цифрам чисто</li>'}</ul></div></div>`};
-  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${bench({g,m})}${graphs(g,m)}${scoreboard(g)}`;
+  return `<div class="verdict"><b>Итог.</b> ${rv.flow}</div>${o?detail(m,'Halch')+detail(o,'DrVoldemar'):detail(m)}${bench({g,m})}<div class="chart"><div class="ctitle"><h3>Смерти и прокачка</h3></div><div class="deaths" style="border:0;padding:0;background:none"><div class="map sm">${mapSVG(m.dpos||[],false)}</div><div style="display:flex;flex-direction:column;gap:10px;min-width:0"><div class="dtypes">${(m.dpos||[]).map(d=>`<span><i class="dot" style="background:${DT[d[3]][1]}"></i>${fmt(d[0],1)} мин</span><span>${DT[d[3]][0]}</span><span class="ch">${d[4]?cimg(d[4],'xs')+esc(cn(d[4])):''}</span>`).join('')||'<span class="muted">Ни одной смерти.</span>'}</div><div><h4 style="margin:0 0 6px;font-family:var(--f-disp)">Порядок прокачки: ${maxOrder(m.skills)}</h4>${skillRow(m.skills)}</div></div></div></div>${g.full?graphs(g,m):`<div class="chart">${advChart(g,m)}<div class="legend"><span>Графики по игрокам и тайминги предметов есть только у последних 60 игр, чтобы страница грузилась быстро.</span></div></div>`}${scoreboard(g)}`;
 }
 function gameRow(r){
   DETAIL[r.g.id]=r;
@@ -561,9 +637,9 @@ function render(){
   document.querySelectorAll('#who button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.who));
   document.querySelectorAll('#queue button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===st.queue));
   const list=rows();
-  $('recsec').hidden=$('peersec').hidden=st.who==='duo';
+  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=st.who==='duo';
   if(st.who==='duo'){duoNotes(list);trend(list);champs(list);lanes(list);activity(list)}
-  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list)}
+  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list)}
   $('games').innerHTML=list.length?list.map(gameRow).join(''):'<div class="empty">Нет игр в этом фильтре.</div>';
 }
 $('games').addEventListener('toggle',e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount)d.innerHTML=detailHTML(DETAIL[d.dataset.id])},true);
@@ -585,6 +661,8 @@ function hover(e){
 }
 $('games').addEventListener('pointermove',hover);
 $('games').addEventListener('pointerleave',e=>{document.querySelectorAll('.tip').forEach(t=>t.hidden=true);document.querySelectorAll('.cross').forEach(c=>c.setAttribute('visibility','hidden'))},true);
+$('dfilt').addEventListener('click',e=>{const b=e.target.closest('[data-d]');if(!b)return;dfilt=b.dataset.d;$('dfilt').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));deaths(rows())});
+$('bchamps').addEventListener('click',e=>{const b=e.target.closest('[data-bc]');if(!b)return;bchamp=b.dataset.bc;builds(rows())});
 $('recs').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(!b)return;const d=$('g-'+b.dataset.go);if(!d)return;d.open=true;d.scrollIntoView({behavior:'smooth',block:'start'});d.classList.add('flash');setTimeout(()=>d.classList.remove('flash'),1600)});
 document.querySelectorAll('#who button').forEach(b=>b.onclick=()=>{st.who=b.dataset.v;render()});
 document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.dataset.v;render()});

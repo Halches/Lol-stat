@@ -23,7 +23,7 @@ for c in champs:
   p=fetch(f'https://ddragon.leagueoflegends.com/cdn/{V}/img/champion/{k}.png',f'img/c_{k}.png')
   if p: out['c'][c]=enc(p,48)
 items=json.load(open('dd/item.json'))['data']
-iset={i for g in games for p in g['parts'] for i in p['items'] if i}
+iset={i for g in games for p in g['parts'] for i in p['items']+[b[0] for b in p.get('buys',[])] if i}
 out['inames']={}
 for i in iset:
   p=fetch(f'https://ddragon.leagueoflegends.com/cdn/{V}/img/item/{i}.png',f'img/i_{i}.png')
@@ -45,6 +45,14 @@ for st in runes:
 out['rnames']={}
 for r in {x for g in games for m in g['me'] for x in (m['keystone'],m['sec'])}:
   if r in perk:
+    p=fetch('https://ddragon.leagueoflegends.com/cdn/img/'+perk[r]['icon'],f'img/r_{r}.png')
+    if p: out['r'][r]=enc(p,28); out['rnames'][r]=perk[r]['name']
+p=fetch(f'https://ddragon.leagueoflegends.com/cdn/{V}/img/map/map11.png','img/map11.png')
+if p:
+  im=Image.open(p).convert('RGB').resize((420,420),Image.LANCZOS); b=io.BytesIO(); im.save(b,'WEBP',quality=70)
+  out['map']='data:image/webp;base64,'+base64.b64encode(b.getvalue()).decode()
+for r in {x for g in games for m in g['me'] for x in m.get('perks',[])[:1]}:
+  if r in perk and r not in out['r']:
     p=fetch('https://ddragon.leagueoflegends.com/cdn/img/'+perk[r]['icon'],f'img/r_{r}.png')
     if p: out['r'][r]=enc(p,28); out['rnames'][r]=perk[r]['name']
 json.dump(out,open('icons.json','w'),ensure_ascii=False,separators=(',',':'))
