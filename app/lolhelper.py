@@ -134,7 +134,9 @@ def selftest():
         app = ui.App(d, VERSION)
         app.root.after(2500, app.root.destroy)
         app.root.mainloop()
-        out.append('ui ok')
+        n = len(app.icons.a.get('champ', {}))
+        out.append(f'ui ok, portraits {n}, pillow {ui.Image is not None}')
+        if FROZEN and (n < 150 or ui.Image is None): ok = False
         from voice import Voice
         v = Voice(home())
         out.append(f'piper {v.piper()} model {v.model("dmitri")}')

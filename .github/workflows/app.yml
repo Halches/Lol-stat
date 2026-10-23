@@ -38,15 +38,26 @@ jobs:
           Invoke-WebRequest $hf -OutFile voices/ru_RU-dmitri-medium.onnx
           Invoke-WebRequest "$hf.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
 
+      - name: Картинки (портреты, предметы, руны, эмблемы)
+        shell: bash
+        run: |
+          pip install --quiet pillow
+          mkdir -p tools/dd
+          V=$(curl -s https://ddragon.leagueoflegends.com/api/versions.json | python -c "import json,sys;print(json.load(sys.stdin)[0])")
+          echo "$V" > tools/dd/ver
+          for f in champion item summoner runesReforged; do curl -s -o tools/dd/$f.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/$f.json; done
+          mv tools/dd/runesReforged.json tools/dd/runes.json
+          python app/make_assets.py
+
       - name: Собрать exe
         shell: pwsh
         run: |
           $v = "v1.0.${{ github.run_number }}"
           Set-Content app/version.txt $v -NoNewline
           "VERSION=$v" | Out-File $env:GITHUB_ENV -Append
-          pip install --quiet pyinstaller==6.11.1
-          pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app `
-            --add-data "app/data.json;." --add-data "app/version.txt;." `
+          pip install --quiet pyinstaller==6.11.1 pillow
+          pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app --hidden-import PIL._tkinter_finder `
+            --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." `
             --add-data "piper;piper" --add-data "voices;voices" app/lolhelper.py
           Get-Item dist/LoLHelper.exe | Select-Object Name, Length
 

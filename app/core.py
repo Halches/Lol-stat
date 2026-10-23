@@ -236,6 +236,9 @@ class Game:
                 'items': its, 'igold': sum(data.igold(i) * max(1, x.get('count', 1)) for i, x in zip(its, p.get('items') or [])),
                 'k': sc.get('kills', 0), 'd': sc.get('deaths', 0), 'a': sc.get('assists', 0), 'cs': sc.get('creepScore', 0), 'ward': sc.get('wardScore', 0),
                 'dead': p.get('isDead', False), 'respawn': p.get('respawnTimer', 0), 'smite': 'Smite' in spells, 'tp': 'Teleport' in spells,
+                'spells': re.findall(r'(Summoner(?!Spell)[A-Za-z]+?)(?:_|\b)', spells),
+                'keystone': ((p.get('runes') or {}).get('keystone') or {}).get('id'),
+                'sec_tree': ((p.get('runes') or {}).get('secondaryRuneTree') or {}).get('id'),
             })
         rn = lambda r: (r or '').split('#')[0].lower()
         self.me = next((p for p in self.players if rn(p['riot']) == rn(self.my_riot)), self.players[0] if self.players else None)

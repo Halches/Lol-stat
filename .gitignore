@@ -6,3 +6,4 @@ __pycache__/
 app/__pycache__/
 app/version.txt
 app/selftest.txt
+app/assets.json

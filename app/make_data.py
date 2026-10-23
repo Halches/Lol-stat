@@ -18,6 +18,10 @@ POOLS = {'halch': {'TOP': ['Sett', 'Aatrox', 'Camille', 'DrMundo', 'Garen', 'Ire
 RIOT = {'halch': 'Halch#9200', 'drv': 'DrVoldemar#EUW'}
 
 players = {w: {'riot': r, 'g': []} for w, r in RIOT.items()}
+for rk in load('ranks.json'):   # звание на момент сборки (в приложении потом берётся живое из клиента)
+    w = next((w for w, r in RIOT.items() if r == rk['name']), None)
+    solo = next((q for q in rk['q'] if q['t'] == 'Соло'), None)
+    if w and solo: players[w]['rank'] = solo['r'] + ' · ' + solo['wl']
 for g in sorted(games, key=lambda g: g['start']):
     for m in g['me']:
         df = m.get('diffs') or {}

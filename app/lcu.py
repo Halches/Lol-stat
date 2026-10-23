@@ -1,5 +1,5 @@
 # Связь с клиентом LoL (LCU) и с игрой (Live Client Data). Только чтение, кроме импорта рун и набора предметов.
-import base64, json, os, re, ssl, subprocess, urllib.request
+import base64, json, os, re, ssl, subprocess, urllib.parse, urllib.request
 
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -14,6 +14,7 @@ def _req(url, method='GET', body=None, auth=None, timeout=2):
     if auth: r.add_header('Authorization', 'Basic ' + base64.b64encode(f'riot:{auth}'.encode()).decode())
     with urllib.request.urlopen(r, context=CTX, timeout=timeout) as f:
         raw = f.read()
+        if f.headers.get_content_type().startswith('image/'): return raw
         return json.loads(raw) if raw else None
 
 
@@ -68,7 +69,38 @@ class LCU:
         s = self.call('/lol-summoner/v1/current-summoner')
         if not s: return None
         name = s.get('gameName') or s.get('displayName') or ''
-        return {'riot': f"{name}#{s.get('tagLine', '')}", 'id': s.get('summonerId')}
+        return {'riot': f"{name}#{s.get('tagLine', '')}", 'id': s.get('summonerId'), 'puuid': s.get('puuid'),
+                'icon': s.get('profileIconId'), 'level': s.get('summonerLevel')}
+
+    def image(self, path):
+        """Картинка из ресурсов клиента (иконка профиля, новый чемпион): байты или None."""
+        try:
+            b = self.call(path)
+            return b if isinstance(b, (bytes, bytearray)) else None
+        except Exception:
+            return None
+
+    def puuid(self, riot):
+        name, _, tag = (riot or '').partition('#')
+        q = urllib.parse.urlencode({'gameName': name, 'tagLine': tag})
+        for path in (f'/lol-summoner/v1/alias/lookup?{q}', f'/player-account/aliases/v1/lookup?{q}'):
+            try:
+                r = self.call(path)
+            except Exception:
+                continue
+            if isinstance(r, list): r = r[0] if r else None
+            if r and r.get('puuid'): return r['puuid']
+        return None
+
+    def rank(self, puuid=None):
+        """Одиночный рейтинг: {'tier': 'EMERALD', 'div': 'IV', 'lp': 17, 'w': 221, 'l': 211} или None."""
+        try:
+            r = self.call(f'/lol-ranked/v1/ranked-stats/{puuid}' if puuid else '/lol-ranked/v1/current-ranked-stats')
+        except Exception:
+            return None
+        q = ((r or {}).get('queueMap') or {}).get('RANKED_SOLO_5x5') or {}
+        if not q.get('tier') or q['tier'] in ('NONE', ''): return None
+        return {'tier': q['tier'], 'div': q.get('division', ''), 'lp': q.get('leaguePoints', 0), 'w': q.get('wins', 0), 'l': q.get('losses', 0)}
 
     def phase(self):
         return self.call('/lol-gameflow/v1/gameflow-phase') or 'None'
