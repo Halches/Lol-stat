@@ -21,7 +21,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 350
     env:
       RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
       INCREMENTAL: "1"
@@ -46,58 +46,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Найти новые игры
-        id: fetch
+      - name: Проверять новые игры каждые 10 минут (около 5,5 часа)
         if: steps.key.outputs.ok == '1'
         working-directory: tools
-        run: python fetch.py
-
-      - name: Пересобрать сайт
-        if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
-        working-directory: tools
-        run: |
-          pip install --quiet pillow
-          mkdir -p dd
-          V=$(curl -s https://ddragon.leagueoflegends.com/api/versions.json | python -c "import json,sys;print(json.load(sys.stdin)[0])")
-          echo "$V" > dd/ver
-          for f in champion item summoner; do curl -s -o dd/$f.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/$f.json; done
-          curl -s -o dd/runes.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/runesReforged.json
-          python analyze.py
-          python icons.py
-          # средние Изумруд+ с lolalytics: обновлять раз в 3 дня
-          python -c "import json,time,sys;t=json.load(open('lola.json')).get('_t','2000-01-01');sys.exit(0 if time.time()-time.mktime(time.strptime(t,'%Y-%m-%d'))>3*86400 else 1)" && python lola.py || true
-          python build.py
-          python ../app/make_data.py
-
-      - name: Опубликовать
-        if: steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json app/data.json
-          git commit -m "Новые игры: ${{ steps.fetch.outputs.new }}" || exit 0
-          # --autostash: сборка оставляет изменённые служебные файлы (tools/dd и т.п.), без него pull падал и игры не публиковались
-          ok=0
-          for i in 1 2 3; do git pull --rebase --autostash -q origin main && git push && { ok=1; break; }; sleep 5; done
-          [ "$ok" = 1 ] || { echo "::error::Не удалось отправить новые игры в репозиторий"; exit 1; }
-          gh api -X POST "repos/${{ github.repository }}/pages/builds" || true
-
-      - name: Обновить версию в Claude
-        if: (steps.fetch.outputs.new != '' && steps.fetch.outputs.new != '0') || inputs.test_fire
-        env:
           FIRE_URL: ${{ secrets.CLAUDE_FIRE_URL }}
           FIRE_TOKEN: ${{ secrets.CLAUDE_FIRE_TOKEN }}
+          TEST_FIRE: ${{ inputs.test_fire || false }}
         run: |
-          if [ -z "$FIRE_URL" ] || [ -z "$FIRE_TOKEN" ]; then
-            echo "::notice::CLAUDE_FIRE_URL/CLAUDE_FIRE_TOKEN не заданы, версию в Claude не трогаю."
-            exit 0
-          fi
-          curl -sS -X POST "$FIRE_URL" \
-            -H "Authorization: Bearer $FIRE_TOKEN" \
-            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "Content-Type: application/json" \
-            -d '{}' -o fire.json -w "HTTP %{http_code}\n" || echo "::warning::Не удалось запустить обновление в Claude"
-          head -c 300 fire.json | sed 's/"[a-z_]*token[a-z_]*":"[^"]*"/"token":"***"/g'; echo
+          pip install --quiet pillow
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash update_loop.sh
