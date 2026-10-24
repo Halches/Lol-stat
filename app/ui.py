@@ -1,10 +1,12 @@
 # Окна LoL Helper: панель управления, виджеты поверх игры, дашборд на втором мониторе, таблица по Tab, итог игры.
 # Внешний вид (тема, акцент, шрифт, иконки) настраивается на вкладке «Вид» и применяется сразу: окна пересобираются.
-import base64, io, json, os, queue, subprocess, sys, threading, time, urllib.request
+import base64, io, json, os, queue, subprocess, sys, threading, time, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 import core, lcu
+
+RELEASES = 'https://github.com/Halches/Lol-stat/releases'   # список всех версий с изменениями
 from voice import Voice, VOICES, SOUNDS
 
 try:
@@ -1935,7 +1937,11 @@ class App:
         v = tk.BooleanVar(value=self.s['auto_update'])
         ttk.Checkbutton(f, text='Проверять обновления при запуске', variable=v,
                         command=lambda: (self.s.__setitem__('auto_update', v.get()), self.s.save())).pack(anchor='w')
-        ttk.Button(f, text='Проверить сейчас', command=lambda: self.check_updates(True)).pack(anchor='w', pady=6)
+        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
+        ttk.Button(row, text='Проверить сейчас', command=lambda: self.check_updates(True)).pack(side='left')
+        ttk.Button(row, text='Что нового: все релизы на GitHub', command=lambda: webbrowser.open(RELEASES)).pack(side='left', padx=8)
+        link = tk.Label(f, text=RELEASES, bg=C['bg'], fg=C['blue'], font=(F['font'], self.fs(10), 'underline'), cursor='hand2')
+        link.pack(anchor='w'); link.bind('<Button-1>', lambda e: webbrowser.open(RELEASES))
         self.note(f, 'Статистика обновляется сама каждые 30 минут с raw.githubusercontent.com (работает без VPN).')
         self.h(f, 'Сброс')
         self.note(f, 'Вернуть все настройки программы к начальным: подсказки, вид, звук, окна, клавиши, таймеры.')
