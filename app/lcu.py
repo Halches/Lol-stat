@@ -180,7 +180,7 @@ class LCU:
         return False
 
     def set_items(self, summoner_id, champ_id, title, blocks):
-        """Набор предметов в магазине для чемпиона. blocks: [(название, [id предметов])]."""
+        """Наборы предметов в магазине для чемпиона. blocks: [(название, [id предметов])]; несколько наборов — title=[(название, blocks)]."""
         if not summoner_id:
             s = self.call('/lol-summoner/v1/current-summoner') or {}
             summoner_id = s.get('summonerId') or s.get('accountId')
@@ -190,9 +190,10 @@ class LCU:
         except Exception: cur = {}
         cur = {'accountId': cur.get('accountId', summoner_id), 'itemSets': cur.get('itemSets') or [], 'timestamp': cur.get('timestamp', 0)}
         sets = [s for s in cur.get('itemSets', []) if not s.get('title', '').startswith('LoL Helper')]
-        sets.append({'title': f'LoL Helper: {title}', 'associatedChampions': [int(champ_id)], 'associatedMaps': [11],
-                     'type': 'custom', 'map': 'any', 'mode': 'any', 'sortrank': 0, 'startedFrom': 'blank',
-                     'blocks': [{'type': n, 'items': [{'id': str(i), 'count': 1} for i in its]} for n, its in blocks if its]})
+        for k, (t, bl) in enumerate([(title, blocks)] if isinstance(title, str) else title):   # title — строка или [(название, блоки)]
+            sets.append({'title': f'LoL Helper: {t}'[:75], 'associatedChampions': [int(champ_id)], 'associatedMaps': [11],
+                         'type': 'custom', 'map': 'any', 'mode': 'any', 'sortrank': k, 'startedFrom': 'blank',
+                         'blocks': [{'type': n, 'items': [{'id': str(i), 'count': 1} for i in its]} for n, its in bl if its]})
         cur['itemSets'] = sets
         try:
             self.call(path, 'PUT', cur); return True

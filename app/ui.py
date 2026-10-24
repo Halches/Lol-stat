@@ -121,7 +121,7 @@ DEFAULTS = {
     'widgets': {k: True for k in WIDGETS},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {},
-    'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False,
+    'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'rune_pick': 'pick',
     'theme': 'hextech', 'accent': 'theme', 'font': 'Segoe UI', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
     'layout': {},
@@ -675,6 +675,10 @@ class Dashboard(tk.Toplevel):
         ttk.Button(row, text='Импорт рун и сборки в клиент', style='A.TButton', command=app.do_import).pack(side='left')
         ttk.Checkbutton(row, text='сам после выбора', variable=app.auto_var,
                         command=lambda: (app.s.__setitem__('auto_import', app.auto_var.get()), app.s.save())).pack(side='left', padx=10)
+        tk.Label(row, text='Руны:', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(side='left')
+        for val, t in (('pick', 'популярные'), ('win', 'лучший винрейт')):
+            ttk.Button(row, text=t, style='A.TButton' if app.s['rune_pick'] == val else 'TButton',
+                       command=lambda val=val: app.set_rune_pick(val)).pack(side='left', padx=1)
         self.import_lbl = tk.Label(self.bar, text=app.import_text, bg=C['bg'], fg=C['mute'], font=(fn, fs(10)), anchor='w')
         self.import_lbl.pack(anchor='w', fill='x')
 
@@ -697,6 +701,8 @@ class Dashboard(tk.Toplevel):
                 tk.Label(row, text=f' {d.cn(ch)} {val}', image=app.img('champ', ch, .7) or '', compound='left', bg=bg, fg=C[col_],
                          font=(fn, fs(10))).pack(side='left', padx=(0, 8))
         sp = tk.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
+        full = eu
+        if eu: eu = eu.get(app.s['rune_pick']) or eu   # руны и заклинания выбранного варианта
         if eu:
             for s in eu['spells'][:2]:
                 i2 = app.img('spell', s, .6)
@@ -719,13 +725,31 @@ class Dashboard(tk.Toplevel):
                 for i, rid in enumerate([eu['prim']] + eu['perks'][:4] + [eu['sec']] + eu['perks'][4:]):
                     i2 = app.img('rune', rid, .9 if i == 1 else .6)
                     if i2: tk.Label(row, image=i2, bg=bg).pack(side='left', padx=1)
-                row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
-                for i, it in enumerate(eu['start'] + [None] + core.lola_build_items(eu)):
-                    if it is None: tk.Label(row, text='  ›  ', bg=bg, fg=C['mute']).pack(side='left'); continue
-                    i2 = app.img('item', it, .7)
-                    tk.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
-                n = f", основа {eu['n_core']} игр, {eu['wr_core']:.0f}% побед" if eu.get('n_core') and eu.get('wr_core') else ''
-                tk.Label(box, text=f"Европа, Изумруд+: {eu['games']} игр на чемпионе{n}" if eu.get('games') else 'Европа, Изумруд+',
+                for key, title in (('pick', 'Популярная'), ('win', 'Лучший винрейт')):
+                    v = full.get(key)
+                    if not v or (key == 'win' and v is full.get('pick')): continue
+                    row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
+                    tk.Label(row, text=title, bg=bg, fg=C['gold'], font=(fn, fs(9), 'bold'), width=15, anchor='w').pack(side='left')
+                    for it in v['start'] + [None] + core.lola_build_items(v):
+                        if it is None: tk.Label(row, text=' › ', bg=bg, fg=C['mute']).pack(side='left'); continue
+                        i2 = app.img('item', it, .7)
+                        tk.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
+                    if v.get('n_core') and v.get('wr_core'):
+                        tk.Label(row, text=f"  {v['wr_core']:.0f}% · {v['n_core']} игр", bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(side='left')
+                if not full.get('pick'):   # старый формат со страницы сборки
+                    row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
+                    for it in eu['start'] + [None] + core.lola_build_items(eu):
+                        if it is None: tk.Label(row, text=' › ', bg=bg, fg=C['mute']).pack(side='left'); continue
+                        i2 = app.img('item', it, .7)
+                        tk.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
+                situ = full.get('situ') or []
+                for k0 in range(0, min(6, len(situ)), 2):   # по два в строку, чтобы не вылезать за карточку
+                    row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
+                    tk.Label(row, text='Ситуативно' if not k0 else '', bg=bg, fg=C['gold'], font=(fn, fs(9), 'bold'), width=15, anchor='w').pack(side='left')
+                    for it, short, _ in situ[k0:k0 + 2]:
+                        tk.Label(row, image=app.img('item', it, .6) or '', text=' ' + short, compound='left', bg=bg, fg=C['fg'],
+                                 font=(fn, fs(9))).pack(side='left', padx=(0, 6))
+                tk.Label(box, text=f"Европа, Изумруд+: {full['games']} игр на чемпионе" if full.get('games') else 'Европа, Изумруд+',
                          bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w')
             else:
                 st = app.lola_state.get((p['c'], r.get('role')))
@@ -1189,7 +1213,7 @@ class App:
         if k in self.lola: return self.lola[k]
         if self.lola_state.get(k): return None
         self.lola_state[k] = 'loading'
-        name = f'{champ}_{role}.json' if kind == 'build' else f'{kind}_{champ}_{role}.json'
+        name = f'full_{champ}_{role}.json' if kind == 'build' else f'{kind}_{champ}_{role}.json'
         path = os.path.join(self.home, 'lola', name)
         def job():
             b = None
@@ -1197,10 +1221,12 @@ class App:
                 if os.path.exists(path) and time.time() - os.path.getmtime(path) < 12 * 3600:
                     b = json.load(open(path, encoding='utf-8'))
                 else:
-                    url = core.lola_url(champ, role) if kind == 'build' else core.lola_api(kind, champ, role)
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=20) as r: raw = r.read().decode('utf-8', 'ignore')
-                    b = core.parse_lola_build(raw) if kind == 'build' else json.loads(raw)
+                    get = lambda url: urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=20).read().decode('utf-8', 'ignore')
+                    if kind == 'build':   # две сборки по Европе из API, иначе одна со страницы сборки
+                        try: b = core.parse_lola_full(json.loads(get(core.lola_api('build-full', champ, role, 'euw'))), self.data)
+                        except Exception as e: print('build-full', e); b = None
+                        b = b or core.parse_lola_build(get(core.lola_url(champ, role)))
+                    else: b = json.loads(get(core.lola_api(kind, champ, role)))
                     if kind == 'build-team': b = {'team': b.get('team')} if b.get('team') else None
                     if kind == 'counter': b = {'counters': b.get('counters')} if b.get('counters') else None
                     if b:
@@ -1268,6 +1294,13 @@ class App:
     def section(self, parent, text):
         self.dl(parent, text, 'gold', 11, True).pack(anchor='w', pady=(10, 3))
 
+    def set_rune_pick(self, val):
+        self.s['rune_pick'] = val; self.s.save()
+        self.imported = None
+        if self.dash: self.dash.draft_sig = None
+        self.draft_sig = None
+        if self.draft: self.on_draft(self.draft)
+
     def set_import_msg(self, text):
         self.import_text = text
         if self.dash and getattr(self.dash, 'import_lbl', None):
@@ -1282,7 +1315,8 @@ class App:
         self.client.last_error = ''
         eu = self.lola_build(me, self.draft_role(cs)[0])
         try:
-            if eu: ok_r = self.client.set_runes(self.data.cn(me), eu['prim'], eu['sec'], eu['perks'], eu['shards'] if len(eu['shards']) == 3 else None)
+            ev = (eu.get(self.s['rune_pick']) or eu) if eu else None
+            if ev: ok_r = self.client.set_runes(self.data.cn(me), ev['prim'], ev['sec'], ev['perks'], ev['shards'] if len(ev['shards']) == 3 else None)
             else:
                 ru = p.best_runes(me)
                 ok_r = bool(ru) and self.client.set_runes(self.data.cn(me), ru['prim'], ru['sec'], ru['perks'])
@@ -1292,17 +1326,16 @@ class App:
         self.client.last_error = ''
         acc = self.account or self.client.me() or {}
         cid = next((k for k, v in self.data.ids.items() if v == me), None)
-        if eu:
-            blocks = [('Старт (Европа)', eu['start']), ('Основа (Европа)', eu['core']), ('Предмет 4', eu['i4']), ('Предмет 5', eu['i5']),
-                      ('Предмет 6', eu['i6']), ('Тотемы', [2055, 3340, 3364])]
-        else: blocks = [('Сборка из твоих побед', p.best_build(me)), ('Тотемы', [2055, 3340, 3364])]
-        try: ok_i = bool(cid and blocks[0][1]) and self.client.set_items(acc.get('id'), cid, self.data.cn(me), blocks)
+        if eu: sets = core.lola_item_sets(eu, self.data.cn(me))
+        else: sets = [(self.data.cn(me), [('Сборка из твоих побед', p.best_build(me)), ('Тотемы', [2055, 3340, 3364])])]
+        try: ok_i = bool(cid and sets[0][1][0][1]) and self.client.set_items(acc.get('id'), cid, sets, None)
         except Exception as e: ok_i = False; self.client.last_error = self.client.last_error or repr(e)
         err_i = self.client.last_error
         self.imported = me
         src = 'по Европе' if eu else 'из твоих игр'
+        if eu: src += ', ' + ('лучший винрейт' if self.s['rune_pick'] == 'win' else 'популярные')
         msg = (f"Руны {src}: {'готово' if ok_r else 'не получилось' + (f' ({err_r})' if err_r else '')} · "
-               f"предметы: {'готово' if ok_i else 'не получилось' + (f' ({err_i})' if err_i else '')}")
+               f"предметы: {'2 набора (популярный и лучший винрейт)' if ok_i and eu else 'готово' if ok_i else 'не получилось' + (f' ({err_i})' if err_i else '')}")
         self.set_import_msg(msg)
         try:
             with open(os.path.join(self.home, 'import.log'), 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + me + ' ' + msg + '\n')

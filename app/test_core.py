@@ -106,6 +106,20 @@ def test_postgame():
     assert r['main'] and len(r['goals']) == 5, r
 
 
+def test_lola_full():
+    v = lambda core_, pri: {'sums': {'ids': [4, 14]}, 'runes': {'n': 100, 'wr': 51, 'set': {'pri': pri, 'sec': [8453, 8473], 'mod': [5008, 5008, 5001]}},
+                            'items': {'start': {'set': [1055, 2003]}, 'core': {'set': core_, 'n': 900, 'wr': 53.1},
+                                      'item4': [{'id': 6333}], 'item5': [{'id': 3053}], 'item6': [{'id': 3026}]}}
+    j = {'header': {'n': 5000, 'wr': 51.5}, 'summary': {'pick': v([6692, 3047, 6610], [8010, 9111, 9105, 8299]), 'win': v([6692, 3047, 3161], [8112, 8143, 8137, 8135])},
+         'boots': [[3047, 51, 60, 100, 13], [3111, 53, 29, 50, 16]], 'popularItem': [[6692, 51, 50, 1, 1], [3165, 55, 2, 1, 1], [3071, 53, 17, 1, 1]]}
+    b = core.parse_lola_full(j)
+    assert b['prim'] == 8000 and b['win']['prim'] == 8100 and b['spells'] == ['SummonerFlash', 'SummonerDot'], b
+    assert [x[0] for x in b['situ']] == [3111, 3165], b['situ']   # 3047 уже в основе, у 3071 нет подписи
+    sets = core.lola_item_sets(b, 'Атрокс')
+    assert len(sets) == 2 and sets[1][1][1][1] == [6692, 3047, 3161]
+    assert ('Ситуативно: против лечения', [3165]) in sets[0][1]
+
+
 if __name__ == '__main__':
     n = 0
     for k, f in list(globals().items()):

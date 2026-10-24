@@ -749,10 +749,11 @@ def lola_build_items(b):
 
 # ---------------- Контрпики, синергия и баны (lolalytics, Изумруд+) ----------------
 
-def lola_api(ep, champ, role):
-    """JSON lolalytics: ep='counter' — винрейт champ против каждого на линии, ep='build-team' — с каждым союзником."""
+def lola_api(ep, champ, role, region='all'):
+    """JSON lolalytics: ep='counter' — винрейт champ против каждого на линии, ep='build-team' — с каждым союзником,
+    ep='build-full' — руны и предметы (популярные и с лучшим винрейтом)."""
     return (f"https://a1.lolalytics.com/mega/?ep={ep}&v=1&patch=30&c={LOLA_FIX.get(champ, champ.lower())}"
-            f"&lane={LOLA_LANE.get(role, 'top')}&tier=emerald_plus&queue=ranked&region=all")
+            f"&lane={LOLA_LANE.get(role, 'top')}&tier=emerald_plus&queue=ranked&region={region}")
 
 
 def lola_counters(j, data, min_n=150):
@@ -906,3 +907,88 @@ def review_game(g, puuid, data):
     elif vsm < vb: tip = 'больше вардов: покупай контрольный вард при каждом возвращении'
     if tip: out['lines'].append(('Главное на следующую игру: ' + tip, 'gold'))
     return out
+
+
+# ---------------- Две сборки lolalytics: популярная и с лучшим винрейтом (ep=build-full) ----------------
+
+# Ситуативные предметы: против чего и когда. Только то, что следует из описания предмета; остальным подписи нет.
+SITU = {
+    3075: ('против лечения', 'против лечения и автоатак: бери, когда у врагов лечатся'),
+    3076: ('против лечения', 'дешёвое антилечение: бери рано против лечащихся'),
+    3165: ('против лечения', 'против лечения: бери, когда у врагов лечатся'),
+    3033: ('против лечения', 'против лечения и брони'),
+    3123: ('против лечения', 'дешёвое антилечение: бери рано против лечащихся'),
+    6609: ('против лечения', 'против лечения: бери, когда у врагов лечатся'),
+    3156: ('против магов', 'против магического бурста: щит от магии'),
+    4401: ('против магов', 'против магического урона'),
+    3065: ('против магов', 'против магов, усиливает твоё лечение'),
+    2504: ('против магов', 'против магического урона'),
+    3091: ('против магов', 'против магического урона'),
+    3111: ('против магов и контроля', 'сапоги против магов и контроля'),
+    3047: ('против AD', 'сапоги против автоатак'),
+    3143: ('против критов', 'против критующих стрелков'),
+    3110: ('против автоатак', 'против автоатакующих'),
+    6333: ('против бурста', 'против бурста AD: растягивает урон'),
+    3053: ('против бурста', 'против бурста в затяжных драках, даёт стойкость'),
+    3026: ('если фокусят', 'если тебя фокусят: второе воскрешение, поздняя игра'),
+    3157: ('против бурста', 'против бурста: остановка времени'),
+    3814: ('против контроля', 'щит от одного умения: против ключевого контроля'),
+    3102: ('против контроля', 'щит от одного умения: против ключевого контроля'),
+    3139: ('против контроля', 'снимает контроль'),
+    3140: ('против контроля', 'снимает контроль'),
+    3036: ('против танков', 'против врагов с большим запасом здоровья'),
+    6694: ('против брони', 'против брони'),
+    6695: ('против щитов', 'против щитов'),
+    3135: ('против маг. защиты', 'против магической защиты'),
+    3137: ('против маг. защиты', 'против магической защиты'),
+}
+
+
+def _lola_variant(v):
+    """summary.pick / summary.win -> руны, заклинания, старт и основа."""
+    ru, it = v.get('runes') or {}, v.get('items') or {}
+    st = ru.get('set') or {}
+    prim, sec = st.get('pri') or [], st.get('sec') or []
+    if len(prim) < 4 or len(sec) < 2: return None
+    core_ = it.get('core') or {}
+    ids = lambda xs: [x['id'] for x in xs or []]
+    return {'spells': [SPELL_KEY.get(s, s) for s in ((v.get('sums') or {}).get('ids') or [])][:2],
+            'prim': rune_tree(prim[0]), 'sec': rune_tree(sec[0]), 'perks': prim[:4] + sec[:2], 'shards': (st.get('mod') or [])[:3],
+            'n_runes': ru.get('n'), 'wr_runes': ru.get('wr'),
+            'start': list((it.get('start') or {}).get('set') or []), 'core': list(core_.get('set') or []),
+            'n_core': core_.get('n'), 'wr_core': core_.get('wr'),
+            'i4': ids(it.get('item4')), 'i5': ids(it.get('item5')), 'i6': ids(it.get('item6'))}
+
+
+def parse_lola_full(j, data=None):
+    """Ответ ep=build-full -> популярная сборка (верхний уровень и 'pick'), сборка с лучшим винрейтом ('win')
+    и ситуативные предметы ('situ': [(id, коротко, когда)]), которые часто покупают, но вне основы."""
+    s = (j or {}).get('summary') or {}
+    pick, win = _lola_variant(s.get('pick') or {}), _lola_variant(s.get('win') or {})
+    if not pick: return None
+    out = dict(pick)
+    out['pick'], out['win'] = pick, win or pick
+    out['games'] = ((j.get('header') or {}).get('n')) or j.get('n')
+    out['wr'] = (j.get('header') or {}).get('wr')
+    used = set(pick['core']) | set((win or pick)['core'])
+    situ = []
+    for row in (j.get('boots') or [])[:3] + (j.get('popularItem') or []):
+        iid, wr, pr = row[0], row[1], row[2]
+        if iid in used or iid in (x[0] for x in situ) or pr < .5: continue
+        if iid in SITU: situ.append((iid, *SITU[iid]))
+    out['situ'] = situ[:8]
+    return out
+
+
+def lola_item_sets(b, name):
+    """Наборы предметов для магазина: популярная сборка и с лучшим винрейтом, в конце каждой — ситуативные с подписями."""
+    situ = {}
+    for iid, short, _ in b.get('situ') or []: situ.setdefault(short, []).append(iid)
+    tail = [(f'Ситуативно: {k}', v) for k, v in situ.items()] + [('Тотемы', [2055, 3340, 3364])]
+    sets = []
+    for key, title in (('pick', 'популярная'), ('win', 'лучший винрейт')):
+        v = b.get(key) or b
+        n = f" ({v['n_core']} игр, {v['wr_core']:.0f}%)" if v.get('n_core') and v.get('wr_core') else ''
+        blocks = [('Старт', v['start']), ('Основа' + n, v['core']), ('Предмет 4', v['i4']), ('Предмет 5', v['i5']), ('Предмет 6', v['i6'])] + tail
+        sets.append((f'{name}: {title}', blocks))
+    return sets
