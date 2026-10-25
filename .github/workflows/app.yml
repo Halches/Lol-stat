@@ -73,7 +73,7 @@ jobs:
           pip install --quiet pyinstaller==6.11.1 pillow edge-tts==7.3.1 pywebview==5.3.2
           pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app --hidden-import PIL._tkinter_finder `
             --collect-all edge_tts --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data certifi --hidden-import clr --hidden-import sitewin `
-            --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." `
+            --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." --add-data "app/fonts;fonts" `
             --add-data "piper;piper" --add-data "voices;voices" app/lolhelper.py
           Get-Item dist/LoLHelper.exe | Select-Object Name, Length
 
@@ -89,5 +89,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $log = git log -5 --format="- %s" -- app
-          gh release create $env:VERSION dist/LoLHelper.exe --title "LoL Helper $env:VERSION" --notes "Изменения:`n$($log -join "`n")"
+          # весь текст последнего коммита: заголовок и пункты «- …», без служебных строк
+          $log = git log -1 --format=%B -- app | Where-Object { $_ -and $_ -notmatch '^(Co-Authored-By|Claude-Session):' }
+          gh release create $env:VERSION dist/LoLHelper.exe --title "LoL Helper $env:VERSION" --notes ($log -join "`n")

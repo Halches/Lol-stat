@@ -1,6 +1,7 @@
 # Рисование карточек виджетов через Pillow: сглаженный шрифт, скруглённая плашка, иконки, обводка текста.
 # Tk сам рисует текст грубо, поэтому виджеты поверх игры — это картинки, собранные здесь.
 import os
+import sys
 from PIL import Image, ImageDraw, ImageFont
 
 FONT_FILES = {   # шрифты Windows: обычный и полужирный
@@ -8,6 +9,9 @@ FONT_FILES = {   # шрифты Windows: обычный и полужирный
     'Calibri': ('calibri.ttf', 'calibrib.ttf'), 'Trebuchet MS': ('trebuc.ttf', 'trebucbd.ttf'),
     'Verdana': ('verdana.ttf', 'verdanab.ttf'), 'Consolas': ('consola.ttf', 'consolab.ttf'),
 }
+HERE = getattr(sys, '_MEIPASS', None) or os.path.dirname(os.path.abspath(__file__))
+for _n in ('Manrope', 'Oswald'):   # свои шрифты лежат рядом в fonts/
+    FONT_FILES[_n] = tuple(os.path.join(HERE, 'fonts', f'{_n}-{w}.ttf') for w in ('Regular', 'Bold'))
 FALLBACK = ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
 _cache = {}
 
@@ -76,7 +80,7 @@ class Card:
 
     def render(self):
         padx, pady = self.px(12), self.px(8)
-        stripe = self.px(4) if self.accent else 0
+        stripe = 0
         sizes = [[self._seg_size(s) for s in segs] for segs, _ in self.rows]
         widths = [sum(w for w, h in r) + self.px(6) * max(0, len(r) - 1) for r in sizes]
         heights = [max([h for w, h in r] or [0]) for r in sizes]
@@ -85,12 +89,9 @@ class Card:
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         r = self.px(10)
-        if self.plate:
-            d.rounded_rectangle((0, 0, W - 1, H - 1), r, fill=rgb(self.t['panel']) + (255,), outline=rgb(self.t['line']) + (255,))
-            if self.accent:   # цветная полоска слева, повторяет скругление карточки
-                m = Image.new('L', (W, H), 0); ImageDraw.Draw(m).rounded_rectangle((0, 0, W - 1, H - 1), r, fill=255)
-                m2 = Image.new('L', (W, H), 0); m2.paste(m.crop((0, 0, stripe, H)), (0, 0))
-                im.paste(Image.new('RGBA', (W, H), rgb(self.t[self.accent]) + (255,)), (0, 0), m2)
+        if self.plate:   # акцент — цветная рамка всей карточки
+            line = rgb(self.t[self.accent]) if self.accent else rgb(self.t.get('edge', self.t['line']))
+            d.rounded_rectangle((0, 0, W - 1, H - 1), r, fill=rgb(self.t['panel']) + (255,), outline=line + (255,), width=self.px(2) if self.accent else 1)
         y = pady
         for (segs, pad), sz, h in zip(self.rows, sizes, heights):
             x = padx + stripe
@@ -124,3 +125,27 @@ def rounded_icon(im, size, radius=0.18, gray=False, ring=None):
     if ring:
         ImageDraw.Draw(im).rounded_rectangle((0, 0, size - 1, size - 1), int(size * radius), outline=rgb(ring) + (255,), width=max(1, size // 18))
     return im
+
+
+def nav_icon(kind, color, size=20):
+    """Линейные иконки бокового меню (рисуются в 4 раза крупнее и уменьшаются для гладкости)."""
+    k = 4; S = size * k; w = max(2, round(S / 11))
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    c = rgb(color) + (255,)
+    P = lambda *xy: [(x * S / 24, y * S / 24) for x, y in xy]
+    def box(x0, y0, x1, y1, r=2): d.rounded_rectangle((x0 * S / 24, y0 * S / 24, x1 * S / 24, y1 * S / 24), int(r * S / 24), outline=c, width=w)
+    def circ(cx, cy, r, fill=False):
+        b = ((cx - r) * S / 24, (cy - r) * S / 24, (cx + r) * S / 24, (cy + r) * S / 24)
+        d.ellipse(b, fill=c) if fill else d.ellipse(b, outline=c, width=w)
+    ln = lambda *xy: d.line(P(*xy), fill=c, width=w, joint='curve')
+    if kind == 'home': ln((3, 11), (12, 4), (21, 11)); ln((5, 10), (5, 20), (19, 20), (19, 10))
+    elif kind == 'list': ln((4, 6), (20, 6)); ln((4, 12), (20, 12)); ln((4, 18), (14, 18))
+    elif kind == 'bulb': circ(12, 9, 6); ln((9, 15), (9, 18), (15, 18), (15, 15)); ln((10, 21), (14, 21))
+    elif kind == 'window': box(3, 5, 21, 19); ln((3, 10), (21, 10))
+    elif kind == 'look': circ(12, 12, 9); circ(8, 10, 1.5, True); circ(12, 7, 1.5, True); circ(16, 10, 1.5, True)
+    elif kind == 'sound': ln((4, 9), (8, 9), (13, 5), (13, 19), (8, 15), (4, 15), (4, 9)); ln((17, 9), (18, 12), (17, 15))
+    elif kind == 'keys': box(2, 6, 22, 18); ln((6, 10), (7, 10)); ln((11, 10), (12, 10)); ln((16, 10), (17, 10)); ln((7, 14), (17, 14))
+    elif kind == 'clock': circ(12, 12, 9); ln((12, 7), (12, 12), (15, 14))
+    elif kind == 'update': ln((12, 3), (12, 15)); ln((7, 10), (12, 15), (17, 10)); ln((4, 20), (20, 20))
+    elif kind == 'site': circ(12, 12, 9); ln((3, 12), (21, 12)); d.arc(((8) * S / 24, 3 * S / 24, 16 * S / 24, 21 * S / 24), 0, 360, fill=c, width=w)
+    return im.resize((size, size), Image.LANCZOS)
