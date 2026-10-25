@@ -41,7 +41,8 @@ while :; do
   new=$(sed -n 's/^new=//p' "$out" | tail -1); rm -f "$out"
   echo "$(date -u +%H:%M) новых игр: ${new:-?}"
   if [ -n "$new" ] && [ "$new" != "0" ]; then
-    if rebuild && publish "$new"; then fire; else echo "::error::Не удалось пересобрать или опубликовать $new игр"; fi
+    # версию в Claude обновляем только по просьбе в чате, автоматически не запускаем
+    rebuild && publish "$new" || echo "::error::Не удалось пересобрать или опубликовать $new игр"
   fi
   [ $(( $(date +%s) + 600 )) -lt "$END" ] || break
   sleep 600
