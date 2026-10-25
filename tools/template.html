@@ -28,6 +28,11 @@ h2{font-size:20px}
 h3{font-size:16px}
 .num,td,.tile b{font-variant-numeric:tabular-nums}
 .muted{color:var(--muted)}
+.skgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:8px}
+.sk{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.sk .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.sk b{font-size:26px;font-family:var(--f-disp)}
+.sk .skbar{height:6px;background:var(--panel2);border-radius:3px;margin:6px 0 4px;overflow:hidden}.sk .skbar i{display:block;height:100%;border-radius:3px}
+.sk small{color:var(--muted);font-size:12px}
 .eyebrow{font-family:var(--f-disp);text-transform:uppercase;letter-spacing:.08em;font-size:12px;color:var(--gold);font-weight:600}
 header{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
 .plates{display:flex;gap:10px;flex-wrap:wrap}
@@ -391,6 +396,12 @@ button:disabled{opacity:.5;cursor:default}
     <div class="coach" id="week"></div>
   </section>
 
+  <section id="skillsec">
+    <h2>Навыки 0–100</h2>
+    <div class="muted" style="font-size:12px;margin-top:-6px">Каждая игра оценивается по шкале Изумруда с учётом роли, здесь среднее по выборке. 50 — уровень Изумруда, 100 — заметно выше. Стрелка: последние 7 дней против игр до них.</div>
+    <div class="skgrid" id="skills"></div>
+  </section>
+
   <section id="goalsec">
     <div class="ctitle"><h2>Цели</h2><button type="button" class="cbtn" id="goalreset">Сбросить пороги</button></div>
     <div class="muted" style="font-size:12px;margin-top:-6px">Поменяй порог, и он сохранится в этом браузере. Цели считаются по последним играм выбранной очереди, без учёта ползунка.</div>
@@ -550,6 +561,27 @@ function agg(list){
     g10:avg(ms.map(m=>m.diffs[10]?.gold)),g15:avg(ms.map(m=>m.diffs[15]?.gold)),cs10:avg(ms.map(m=>m.diffs[10]?.cs)),
     vsm:avg(ms.map(m=>m.vsm)),early:avg(ms.map(m=>m.early_d)),dshare:avg(ms.map(m=>m.dshare))};
 }
+
+/* ---------- Навыки 0–100 (как GPI у Mobalytics, но по твоим играм) ---------- */
+const SKILL=[ // [название, значение из игры, ноль, сотня, подсказка]; значения под роль
+  ['Фарм',m=>m.pos==='UTILITY'?null:m.csm,m=>m.pos==='JUNGLE'?3.5:4.5,m=>m.pos==='JUNGLE'?7.5:9,'CS в минуту'],
+  ['Выживание',m=>m.d,()=>10,()=>2,'смертей за игру'],
+  ['Линия',m=>m.pos==='JUNGLE'?null:m.diffs?.[15]?.gold,()=>-1500,()=>1500,'золото против оппонента на 15'],
+  ['Обзор',m=>m.vsm,m=>m.pos==='UTILITY'?.8:.2,m=>m.pos==='UTILITY'?3:1.3,'обзор в минуту'],
+  ['Участие',m=>m.kp,()=>30,()=>75,'участие в убийствах, %'],
+  ['Урон',m=>m.pos==='UTILITY'?null:m.dshare,()=>12,()=>34,'доля урона команды, %']];
+function skillScore(list,i){
+  const [,get,lo,hi]=SKILL[i];
+  const xs=list.map(r=>{const v=get(r.m);if(v==null||isNaN(v))return null;const a=lo(r.m),b=hi(r.m);return Math.max(0,Math.min(100,(v-a)/(b-a)*100))}).filter(x=>x!=null);
+  return xs.length?{v:xs.reduce((s,x)=>s+x,0)/xs.length,n:xs.length}:null}
+function skills(list){
+  const wk=Date.now()-7*864e5,now=list.filter(r=>r.g.start>=wk),before=list.filter(r=>r.g.start<wk);
+  $('skills').innerHTML=SKILL.map(([name,,,,tip],i)=>{
+    const a=skillScore(list,i);if(!a)return '';
+    const n=skillScore(now,i),b=skillScore(before,i),dl=n&&b&&n.n>=3?n.v-b.v:null;
+    const col=a.v>=60?'var(--good)':a.v<40?'var(--bad)':'var(--gold)';
+    const arrow=dl==null?'<small>мало игр за неделю</small>':`<small style="color:${dl>=0?'var(--good)':'var(--bad)'}">${dl>=0?'▲':'▼'} ${Math.abs(dl).toFixed(0)} за неделю</small>`;
+    return `<div class="sk"><div class="h"><span>${name}</span><b style="color:${col}">${a.v.toFixed(0)}</b></div><div class="skbar"><i style="width:${a.v}%;background:${col}"></i></div><div class="h"><small>${tip}</small>${arrow}</div></div>`}).join('')}
 
 function tiles(list){
   const a=agg(list);
@@ -1162,10 +1194,10 @@ function render(){
   const list=rows();
   const sl=$('ngames');sl.max=Math.max(10,Math.ceil(TOTAL/10)*10);sl.value=st.n&&st.n<TOTAL?st.n:sl.max;nlab();
   $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} ${({all:'игр',win:'побед',loss:'поражений'})[st.res]} в выборке · обновлено ${META.updated} · патч ${META.patch}`;
-  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=$('goalsec').hidden=$('lpsec').hidden=$('ganksec').hidden=$('emsec').hidden=$('tiltsec').hidden=$('mupsec').hidden=$('mastsec').hidden=$('badsec').hidden=st.who==='duo';$('duosec').hidden=st.who!=='duo';
+  $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=$('goalsec').hidden=$('skillsec').hidden=$('lpsec').hidden=$('ganksec').hidden=$('emsec').hidden=$('tiltsec').hidden=$('mupsec').hidden=$('mastsec').hidden=$('badsec').hidden=st.who==='duo';$('duosec').hidden=st.who!=='duo';
   if(st.who==='duo')$('weeksec').hidden=true;
   if(st.who==='duo'){duoNotes(list);duo(list);trend(list);champs(list);lanes(list);activity(list)}
-  else{tiles(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);badEnemies(list);weekly();mastery()}
+  else{tiles(list);skills(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);badEnemies(list);weekly();mastery()}
   impact(list);winloss();patches(list);
   CUR=list;showGames();showView();
 }
@@ -1203,7 +1235,7 @@ $('npre').addEventListener('click',e=>{const b=e.target.closest('[data-n]');if(!
 $('games').addEventListener('click',e=>{const b=e.target.closest('[data-cr]');if(b){reviewGame(b.dataset.cr);return}const s=e.target.closest('[data-crstop]');if(s)CR[s.dataset.crstop]?.ctl?.abort()});
 $('games').addEventListener('input',e=>{const r=e.target.closest('[data-tmr]');if(!r)return;const el=r.closest('.tmap');TM[el.dataset.id].t=+r.value;drawTM(el)});
 $('games').addEventListener('click',e=>{const p=e.target.closest('[data-tmplay]');if(p){tmPlay(p.closest('.tmap'));return}const md_=e.target.closest('[data-tmm]');if(md_){const el=md_.closest('.tmap');TM[el.dataset.id].mode=md_.dataset.tmm;drawTM(el)}});
-const TABS={over:['tiles','livesec','weeksec','notesec','goalsec','lpsec'],lane:['trendsec','lanesec','mupsec','badsec','ganksec','emsec'],fight:['impsec','wlsec','deathsec'],
+const TABS={over:['tiles','skillsec','livesec','weeksec','notesec','goalsec','lpsec'],lane:['trendsec','lanesec','mupsec','badsec','ganksec','emsec'],fight:['impsec','wlsec','deathsec'],
   champ:['champsec','buildsec','mastsec','patchsec'],habit:['tiltsec','actsec','recsec','duosec'],games:['gamesec','cmp']};
 $('view').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;st.view=b.dataset.view;if(b.dataset.tab)st.tab=b.dataset.tab;showView();try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(err){}
   const top=$('view').getBoundingClientRect().top+window.scrollY;if(window.scrollY>top)window.scrollTo({top})});

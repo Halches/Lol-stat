@@ -114,6 +114,31 @@ class Card:
         return im
 
 
+def death_map(marks, size, theme):
+    """Схема карты Ущелья с точками: смерти красным крестом (до 14 минуты крупнее), убийства и помощь зелёным."""
+    k = 4; S = size * k
+    im = Image.new('RGBA', (S, S), rgb(theme['deep']) + (255,)); d = ImageDraw.Draw(im)
+    P = lambda x, y: (x / 15000 * S, S - y / 15000 * S)
+    lane = rgb(theme['line']) + (255,); w = max(2, S // 40)
+    d.line([P(1200, 1800), P(1200, 13800), P(13200, 13800)], fill=lane, width=w)           # верхняя линия
+    d.line([P(1800, 1200), P(13800, 1200), P(13800, 13200)], fill=lane, width=w)           # нижняя
+    d.line([P(1800, 1800), P(13200, 13200)], fill=lane, width=w)                           # средняя
+    d.line([P(3200, 11800), P(11800, 3200)], fill=rgb(theme['blue']) + (90,), width=w * 2)  # река
+    for (x, y), c in (((900, 900), 'blue'), ((14100, 14100), 'red')):
+        cx, cy = P(x, y); r = S / 22
+        d.rectangle((cx - r, cy - r, cx + r, cy + r), fill=rgb(theme[c]) + (255,))
+    for x, y, t, kind in marks:
+        cx, cy = P(x, y)
+        if kind == 'death':
+            r = S / (34 if t < 840 else 48)
+            d.line((cx - r, cy - r, cx + r, cy + r), fill=rgb(theme['bad']) + (255,), width=w)
+            d.line((cx - r, cy + r, cx + r, cy - r), fill=rgb(theme['bad']) + (255,), width=w)
+        else:
+            r = S / 70
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=rgb(theme['good']) + (255,))
+    return im.resize((size, size), Image.LANCZOS)
+
+
 def rounded_icon(im, size, radius=0.18, gray=False, ring=None):
     """Квадратная иконка со скруглением и, по желанию, цветной рамкой."""
     from PIL import ImageOps
@@ -147,5 +172,6 @@ def nav_icon(kind, color, size=20):
     elif kind == 'keys': box(2, 6, 22, 18); ln((6, 10), (7, 10)); ln((11, 10), (12, 10)); ln((16, 10), (17, 10)); ln((7, 14), (17, 14))
     elif kind == 'clock': circ(12, 12, 9); ln((12, 7), (12, 12), (15, 14))
     elif kind == 'update': ln((12, 3), (12, 15)); ln((7, 10), (12, 15), (17, 10)); ln((4, 20), (20, 20))
+    elif kind == 'search': circ(10, 10, 6); ln((15, 15), (20, 20))
     elif kind == 'site': circ(12, 12, 9); ln((3, 12), (21, 12)); d.arc(((8) * S / 24, 3 * S / 24, 16 * S / 24, 21 * S / 24), 0, 360, fill=c, width=w)
     return im.resize((size, size), Image.LANCZOS)

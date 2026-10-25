@@ -52,6 +52,8 @@ out = {
                   'from': v.get('from', [])}
               for k, v in items.items() if v.get('maps', {}).get('11', True)},
     'lola': {k: v for k, v in lola.items() if not k.startswith('_')},
+    'champs': {k: {'tags': v.get('tags', []), 'atk': v['info']['attack'], 'mag': v['info']['magic'], 'def': v['info']['defense']}
+               for k, v in champs.items()},
     'pools': POOLS, 'players': players,
 }
 p = os.path.join(HERE, 'data.json')

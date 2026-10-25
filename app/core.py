@@ -3,7 +3,7 @@
 import json, math, re, time
 
 ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY']
-ROLE_RU = {'TOP': 'топ', 'JUNGLE': 'лес', 'MIDDLE': 'мид', 'BOTTOM': 'бот', 'UTILITY': 'саппорт', '': '—'}
+ROLE_RU = {'TOP': 'топ', 'JUNGLE': 'лес', 'MIDDLE': 'мид', 'BOTTOM': 'бот', 'UTILITY': 'саппорт', '': '—', 'ARAM': 'ARAM'}
 LCU_ROLE = {'top': 'TOP', 'jungle': 'JUNGLE', 'middle': 'MIDDLE', 'bottom': 'BOTTOM', 'utility': 'UTILITY'}
 
 # Время объектов сезона 2026 (секунды). Меняются в настройках, если Riot их поправит.
@@ -41,6 +41,7 @@ class Data:
         self.ids = d['ids']                    # '62' -> 'MonkeyKing'
         self.items = d['items']
         self.lola = d['lola']
+        self.champs = d.get('champs', {})        # 'Sett' -> {'tags': ['Fighter', 'Tank'], 'atk': 8, 'mag': 1, 'def': 5} (Data Dragon)
         self.lanes = {}                        # 'Seraphine' -> {'UTILITY': 52000, 'MIDDLE': 9000, ...} — игры на линиях, все чемпионы
 
     def lane_n(self, c, r):
@@ -103,6 +104,23 @@ class Player:
         g15 = [g['g15'] for g in gs if g['g15'] is not None]
         return {'n': len(gs), 'w': w, 'g15': sum(g15) / len(g15) if g15 else None}
 
+    def matchup_tip(self, enemy):
+        """Личный совет по матчапу из твоих игр против него: смерти до 14 минуты и как заканчивались игры."""
+        gs = [g for g in self.games if g['opp'] == enemy and g.get('ed') is not None]
+        if len(gs) < 2: return None
+        ed = sum(g['ed'] for g in gs) / len(gs)
+        base = [g['ed'] for g in self.games if g.get('ed') is not None]
+        usual = sum(base) / len(base) if base else 0
+        lost = [g for g in gs if not g['w']]
+        early_lost = sum(1 for g in lost if g['ed'] >= 2)
+        if lost and early_lost * 2 >= len(lost) and early_lost >= 2:
+            return f'В {early_lost} из {len(lost)} проигрышей против {self.data.cn(enemy)} ты умирал дважды до 14 минуты: первые уровни играй от фарма и варда'
+        if ed >= usual + .7:
+            return f'Против {self.data.cn(enemy)} ты умираешь до 14 минуты чаще обычного ({ed:.1f} против {usual:.1f} за игру): не начинай размен первым'
+        if ed <= usual - .5 and sum(g['w'] for g in gs) * 2 > len(gs):
+            return f'Против {self.data.cn(enemy)} ты обычно спокойно стоишь линию ({ed:.1f} смерти до 14 мин): можно давить'
+        return None
+
     def bad_enemies(self, min_n=3):
         by = {}
         for g in self.games:
@@ -139,6 +157,42 @@ class Player:
 
 
 # ---------------- Драфт ----------------
+
+def champ_profile(data, c, dmg=None):
+    """Тип урона и живучесть чемпиона: {'ap': доля магического урона 0..1, 'front': танк/брузер}.
+    dmg — урон по lolalytics (точнее), иначе оценка Data Dragon (атака и магия по 10-балльной шкале)."""
+    info = (getattr(data, 'champs', {}) or {}).get(c) or {}
+    if dmg and dmg.get('ad', 0) + dmg.get('ap', 0) > 0: ap = dmg['ap'] / (dmg['ad'] + dmg['ap'])
+    elif info: ap = info.get('mag', 0) / max(1, info.get('atk', 0) + info.get('mag', 0))
+    else: ap = None
+    tags = info.get('tags') or []
+    front = 'Tank' in tags or ('Fighter' in tags and info.get('def', 0) >= 6)
+    return {'ap': ap, 'front': front, 'known': bool(info) or ap is not None}
+
+
+def team_comp(data, champs, dmgs=None):
+    """Состав команды: доля AP-урона, сколько фронтлайна и сколько чемпионов учтено."""
+    pr = [champ_profile(data, c, (dmgs or {}).get(c)) for c in champs if c]
+    aps = [x['ap'] for x in pr if x['ap'] is not None]
+    return {'n': len(pr), 'ap': sum(aps) / len(aps) if aps else None, 'front': sum(x['front'] for x in pr)}
+
+
+def comp_advice(data, allies, role, pool, dmgs=None):
+    """Чего не хватает команде без тебя и кто из пула это закрывает: (текст, [чемпионы пула]) или None."""
+    tc = team_comp(data, allies, dmgs)
+    if tc['n'] < 2 or tc['ap'] is None: return None
+    need, fit = [], lambda c: True
+    if tc['ap'] < .3:
+        need.append('почти весь урон физический — нужен магический')
+        fit = lambda c, f=fit: f(c) and (champ_profile(data, c, (dmgs or {}).get(c))['ap'] or 0) >= .5
+    elif tc['ap'] > .7:
+        need.append('почти весь урон магический — нужен физический')
+        fit = lambda c, f=fit: f(c) and (champ_profile(data, c, (dmgs or {}).get(c))['ap'] or 1) <= .5
+    if tc['front'] == 0 and tc['n'] >= 3 and role in ('TOP', 'JUNGLE', 'UTILITY'):
+        need.append('нет фронтлайна — нужен танк или брузер')
+        fit = lambda c, f=fit: f(c) and champ_profile(data, c)['front']
+    if not need: return None
+    return 'У союзников ' + ', '.join(need), [c for c in pool if fit(c)]
 
 def guess_enemy_roles(data, champs):
     """Распределить вражеских чемпионов по ролям, максимизируя частоту по lolalytics."""
@@ -201,7 +255,10 @@ def parse_champ_select(sess, data):
     banned.discard(None)
     locked = any(a.get('actorCellId') == me_cell and a.get('type') == 'pick' and a.get('completed')
                  for grp in sess.get('actions') or [] for a in grp)
-    return {'role': LCU_ROLE.get((mine.get('assignedPosition') or '').lower(), ''),
+    aram = bool(sess.get('benchEnabled'))   # скамейка чемпионов есть только в ARAM-режимах
+    if aram: locked = bool(mine.get('championId'))
+    return {'role': LCU_ROLE.get((mine.get('assignedPosition') or '').lower(), ''), 'aram': aram,
+            'bench': [c for c in (cid(b.get('championId') if isinstance(b, dict) else b) for b in sess.get('benchChampions') or []) if c],
             'me': cid(mine.get('championId')) or cid(mine.get('championPickIntent')),
             'enemies': [c for c in (cid(p.get('championId')) for p in sess.get('theirTeam') or []) if c],
             'unavailable': picked | banned,
@@ -342,6 +399,8 @@ HINTS = [
     ('cs_norm', 'Линия', 'CS отстаёт от твоей нормы (5, 10, 15 мин)', 'text', 0),
     ('lane_gold', 'Линия', 'Разница в предметах с оппонентом', 'text', 90),
     ('levels', 'Линия', 'Уровни 2, 3 и 6: пик силы', 'voice', 0),
+    ('skills', 'Линия', 'Какое умение качать на 1–3 уровне и когда ульту (по Европе)', 'voice', 0),
+    ('bench', 'Линия', 'Контрольные точки 10 и 15 мин: CS и золото против нормы', 'text', 0),
     ('early_deaths', 'Линия', '2 смерти до 14 минуты: играй от варда', 'voice', 0),
     ('base', 'Линия', '1300+ золота: можно на базу', 'beep', 60),
     ('hoard', 'Линия', '2000+ золота не потрачено', 'voice', 120),
@@ -363,6 +422,7 @@ HINTS = [
     ('postgame', 'После игры', 'Итог игры: цели и главная ошибка', 'text', 0),
 ]
 HINT_IDS = [h[0] for h in HINTS]
+SKILL_SAY = {'Q': 'ку', 'W': 'дабл-ю', 'E': 'и', 'R': 'ульту'}
 # Когда срабатывает и зачем — для вкладки «Подсказки».
 HINT_DESC = {
     'scout': 'На 0:03. Твой счёт против этого оппонента по истории игр и золото на 15 минуте. Помечает неудобных врагов.',
@@ -377,6 +437,8 @@ HINT_DESC = {
     'cs_norm': 'На 5, 10 и 15 минуте, если фарм ниже 85% твоей обычной нормы на этом чемпионе.',
     'lane_gold': 'После 3:00, когда разница в предметах с оппонентом 900+ золота. Подсказывает, давить или отходить.',
     'levels': 'Когда ты или оппонент первым берёт 2-й или 3-й уровень: момент для размена или отхода.',
+    'skills': 'На 1, 2 и 3 уровне и при каждом очке ульты: какое умение качать. Порядок — самый выигрышный по Европе (Изумруд+, lolalytics).',
+    'bench': 'На 10:00 и 15:00: твой CS против твоей обычной нормы на чемпионе и темпа Изумруда+, на 15 ещё золото против оппонента.',
     'early_deaths': 'Если до 14:00 ты умер дважды. Совет играть осторожнее, от варда.',
     'base': 'После 2:00, когда у тебя 1300+ золота: можно возвращаться на базу при удобной волне.',
     'hoard': 'После 5:00, если 2000+ золота не потрачено.',
@@ -432,6 +494,9 @@ class Engine:
         self.prev = None
         self.fired = []          # история за игру для итога
         self.spent_at = None     # когда последний раз тратили золото (возвращение на базу)
+        self.skills, self.skill_prio = '', ''   # порядок умений по Европе ('QWEQQRQ…'), задаёт программа при старте игры
+        self.situ = []           # ситуативные предметы из сборки по Европе: [(id, коротко, когда)]
+        self.bench = None        # темп Изумруда+ на чемпионе: {'cs': CS за игру, 'min': минут}
 
     def _once(self, key):
         if key in self.done: return False
@@ -500,7 +565,7 @@ class Engine:
 
         # --- CS и золото
         if g.role != 'UTILITY':
-            for m in (5, 10, 15):
+            for m in ((5,) if self.enabled.get('bench', True) else (5, 10, 15)):   # 10 и 15 покрывает «Контрольная точка»
                 if m * 60 <= t < m * 60 + 5 and norm.get('csm') and self._once(f'cs{m}'):
                     want = norm['cs10'] * m / 10 if m <= 10 and norm.get('cs10') else norm['csm'] * m
                     if me['cs'] < want * .85:
@@ -516,6 +581,25 @@ class Engine:
                     add('levels' if lv < 6 else 'powerspike', f'У тебя {lv}-й уровень раньше оппонента: пик силы, дави', f'{lv} уровень раньше оппонента, дави')
                 if opp['lvl'] >= lv > p.opp['lvl'] and me['lvl'] < lv and self._once(f'olv{lv}'):
                     add('levels' if lv < 6 else 'powerspike', f'У {d.cn(opp["c"])} {lv}-й уровень раньше тебя: отойди', f'У оппонента {lv} уровень, отойди')
+        if self.skills:
+            was = p.me['lvl'] if p and p.me else 0
+            for lv in range(was + 1, min(me['lvl'], len(self.skills)) + 1):
+                k = self.skills[lv - 1]
+                if (lv <= 3 or k == 'R') and self._once(f'sk{lv}'):
+                    prio = f". Дальше максим {' → '.join(self.skill_prio)}" if lv == 3 and self.skill_prio else ''
+                    add('skills', f'Уровень {lv}: качай {k}{prio}', 'Качай ульту' if k == 'R' else f'Качай {SKILL_SAY[k]}')
+        for m in (10, 15):
+            if m * 60 <= t < m * 60 + 5 and g.role != 'UTILITY' and self._once(f'bench{m}'):
+                parts = [f'{m}:00 — {me["cs"]} CS']
+                want = (norm.get('cs10') * m / 10 if m == 10 and norm.get('cs10') else (norm.get('csm') or 0) * m)
+                if want: parts.append(f'твоя норма {want:.0f}')
+                if self.bench and self.bench.get('cs'): parts.append(f'Изумруд+ ~{self.bench["cs"] / self.bench.get("min", 28) * m:.0f}')
+                if m == 15 and opp:
+                    ld = g.lane_diff()
+                    v = self.player.vs(me['c'], opp['c']) if self.player else {}
+                    if ld is not None: parts.append(f'предметы против оппонента {ld:+.0f}' + (f' (обычно {v["g15"]:+.0f})' if v.get('g15') is not None else ''))
+                behind = want and me['cs'] < want * .9
+                add('bench', ', '.join(parts) + ('. Отстаёшь: забирай волны перед уходом' if behind else ''), '')
         early = [e for e in g.events if e.get('EventName') == 'ChampionKill' and e.get('EventTime', 0) < 840 and (g.by_name(e.get('VictimName')) is me)]
         if len(early) >= 2 and t < 840 and self._once('early2'):
             add('early_deaths', 'Уже 2 смерти до 14 минуты: играй от варда и не дерись без лесника', 'Две ранние смерти, играй от варда')
@@ -547,7 +631,12 @@ class Engine:
                 elif ap >= 2 * ad: msg.append(f'у врагов в основном магический урон — бери сопротивление магии')
             if heal >= 3: msg.append('много вампиризма — нужен антихил')
             if msg:
-                self.done.add('enemy_dmg'); add('enemy_dmg', 'Предметы врагов: ' + '; '.join(msg))
+                want = (['против лечения'] if heal >= 3 else []) + (['против AD', 'против бурста', 'против критов', 'против автоатак'] if ad >= 2 * ap else
+                                                                    ['против магов', 'против магов и контроля'] if ap >= 2 * ad else [])
+                have = set(me['items'])
+                pick = [x for x in self.situ if x[1] in want and x[0] not in have]
+                tip = ('. Из твоей сборки: ' + ', '.join(f'{d.iname(i)} ({short})' for i, short, _ in pick[:2])) if pick else ''
+                self.done.add('enemy_dmg'); add('enemy_dmg', 'Предметы врагов: ' + '; '.join(msg) + tip)
         if opp and p and p.opp:
             for i in set(opp['items']) - set(p.opp['items']):
                 if d.items.get(str(i), {}).get('done') and self._once(f'oi{i}'):
@@ -619,7 +708,27 @@ def postgame(engine, g, player):
     gap = lambda r: (1 - r[1] / r[2] if r[2] else 1) if r[0] in MORE else (r[1] - r[2]) / max(1, r[2])
     bad = sorted((r for r in res if not r[3]), key=gap, reverse=True)
     mistakes = [(r[0], r[1], r[2], ADVICE[r[0]](r[1], r[2], mins)) for r in bad[:3]]
-    return {'goals': res, 'main': bad[0][0] if bad else None, 'mistakes': mistakes, 'hints': list(engine.fired), 'me': me, 'min': mins}
+    norm = player.norm(me['c'], g.role) if player else {}
+    return {'goals': res, 'main': bad[0][0] if bad else None, 'mistakes': mistakes, 'hints': list(engine.fired), 'me': me, 'min': mins,
+            'role': g.role, 'norm': norm}
+
+
+# цель итога -> поле нормы игрока (Player.norm) для сравнения «обычно у тебя»
+GOAL_NORM = {'CS в минуту': 'csm', 'Смертей до 14 минуты': 'ed', 'Смертей за игру': 'd', 'Обзор в минуту': 'vsm', 'Участие в убийствах, %': 'kp'}
+
+
+def timeline_marks(tl, game, puuid):
+    """Точки для карты смертей из таймлайна клиента: [(x, y, секунда, 'death' | 'kill')]. Координаты карты 0..15000."""
+    pid = next((x.get('participantId') for x in (game or {}).get('participantIdentities') or []
+                if (x.get('player') or {}).get('puuid') == puuid), None)
+    if not pid: return []
+    out = []
+    for fr in (tl or {}).get('frames') or []:
+        for e in fr.get('events') or []:
+            if e.get('type') != 'CHAMPION_KILL' or not e.get('position'): continue
+            kind = 'death' if e.get('victimId') == pid else 'kill' if e.get('killerId') == pid or pid in (e.get('assistingParticipantIds') or []) else None
+            if kind: out.append((e['position'].get('x', 0), e['position'].get('y', 0), (e.get('timestamp') or 0) // 1000, kind))
+    return out
 
 
 MORE = ('CS в минуту', 'Обзор в минуту', 'Участие в убийствах, %')
@@ -743,6 +852,7 @@ SPELL_RU = {'SummonerFlash': 'Скачок', 'SummonerDot': 'Воспламен�
 
 
 def lola_url(champ, role):
+    if role == 'ARAM': return f"https://lolalytics.com/lol/{LOLA_FIX.get(champ, champ.lower())}/aram/build/?tier=all"
     return (f"https://lolalytics.com/lol/{LOLA_FIX.get(champ, champ.lower())}/build/"
             f"?lane={LOLA_LANE.get(role, 'top')}&tier=emerald_plus&region=euw")
 
@@ -1017,7 +1127,9 @@ def _lola_variant(v):
             'n_runes': ru.get('n'), 'wr_runes': ru.get('wr'),
             'start': list((it.get('start') or {}).get('set') or []), 'core': list(core_.get('set') or []),
             'n_core': core_.get('n'), 'wr_core': core_.get('wr'),
-            'i4': ids(it.get('item4')), 'i5': ids(it.get('item5')), 'i6': ids(it.get('item6'))}
+            'i4': ids(it.get('item4')), 'i5': ids(it.get('item5')), 'i6': ids(it.get('item6')),
+            'skills': ''.join('QWER'[int(ch) - 1] for ch in str((v.get('skillorder') or {}).get('id') or '') if ch in '1234'),
+            'skill_prio': str((v.get('skillpriority') or {}).get('id') or '')}
 
 
 def parse_lola_full(j, data=None):
@@ -1030,6 +1142,8 @@ def parse_lola_full(j, data=None):
     out['pick'], out['win'] = pick, win or pick
     out['games'] = ((j.get('header') or {}).get('n')) or j.get('n')
     out['wr'] = (j.get('header') or {}).get('wr')
+    dm = (j.get('header') or {}).get('damage') or {}
+    if dm: out['dmg'] = {'ad': dm.get('physical', 0), 'ap': dm.get('magic', 0), 'true': dm.get('true', 0)}
     used = set(pick['core']) | set((win or pick)['core'])
     situ = []
     for row in (j.get('boots') or [])[:3] + (j.get('popularItem') or []):
