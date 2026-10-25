@@ -1,6 +1,6 @@
 # Окна LoL Helper: панель управления, виджеты поверх игры, дашборд на втором мониторе, таблица по Tab, итог игры.
 # Внешний вид (тема, акцент, шрифт, иконки) настраивается на вкладке «Вид» и применяется сразу: окна пересобираются.
-import base64, io, json, os, queue, subprocess, sys, threading, time, urllib.request, webbrowser
+import base64, io, json, os, platform, queue, subprocess, sys, threading, time, traceback, urllib.request, webbrowser
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -118,6 +118,32 @@ def app_home():
     d = os.path.join(os.environ.get('APPDATA') or os.path.expanduser('~'), 'LoLHelper')
     os.makedirs(d, exist_ok=True)
     return d
+
+
+# ---------------- Журнал ошибок ----------------
+# В exe нет консоли, поэтому всё, что ломается, пишется в errors.log в папке программы. Одинаковые ошибки — не чаще раза в минуту.
+
+_LAST_ERR = {}
+
+
+def log_error(where, e=None):
+    try:
+        tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__)).strip() if isinstance(e, BaseException) else str(e or '')
+        key = (where, tb.splitlines()[-1] if tb else '')
+        if time.time() - _LAST_ERR.get(key, 0) < 60: return
+        _LAST_ERR[key] = time.time()
+        path = os.path.join(app_home(), 'errors.log')
+        with open(path, 'a', encoding='utf-8') as f: f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [{where}] {tb}\n")
+        if os.path.getsize(path) > 300_000:   # держим последние ~150 КБ
+            txt = open(path, encoding='utf-8', errors='replace').read()
+            open(path, 'w', encoding='utf-8').write(txt[-150_000:])
+    except Exception:
+        pass
+
+
+def tail(path, n):
+    try: return open(path, encoding='utf-8', errors='replace').read().splitlines()[-n:]
+    except Exception: return []
 
 
 DEFAULTS = {
@@ -640,7 +666,7 @@ class Dashboard(tk.Toplevel):
         self.log.pack(fill='both', expand=True)
         self.lanes = tk.Frame(self.low, bg=C['panel'], padx=12, pady=8, highlightthickness=1, highlightbackground=C['line'], width=app.fs(380))
         self.lanes.pack(side='left', fill='y'); self.lanes.pack_propagate(False)
-        self.mode, self.cards, self._save_job, self.draft_sig = None, {}, None, None
+        self.mode, self.cards, self._save_job, self.draft_sig, self.load_sig = None, {}, None, None, None
         self.idle()
 
     def _moved(self, e):
@@ -660,9 +686,9 @@ class Dashboard(tk.Toplevel):
         self.mode = mode
         self.sub.configure(fg=C['mute']); self._objs_sig = self._lanes_sig = None
         for w in self.body.winfo_children(): w.destroy()
-        self.cards, self.draft_sig = {}, None
+        self.cards, self.draft_sig, self.load_sig = {}, None, None
         for i in range(3): self.body.columnconfigure(i, weight=0, uniform='')
-        if mode in ('game', 'draft'):
+        if mode in ('game', 'draft', 'load'):
             self.cols = [tk.Frame(self.body, bg=C['bg']) for _ in range(2)]
             self.mid = tk.Frame(self.body, bg=C['bg']) if mode == 'draft' else None
             place = [self.cols[0], self.mid, self.cols[1]] if self.mid else self.cols
@@ -688,6 +714,35 @@ class Dashboard(tk.Toplevel):
 
     def add_log(self, t, text):
         if self.mode == 'game': self.log.insert('end', f'{core.mmss(t)}   ', 't'); self.log.insert('end', text + '\n'); self.log.see('end')
+
+    # --- экран загрузки: обе команды целиком (в драфте противники скрыты)
+    def show_loading(self, ps):
+        app, d = self.app, self.app.data
+        sig = json.dumps([(p['c'], p['pos'], p['ok'], bool(p['rank'])) for p in ps], default=str)
+        self.clear('load')
+        if sig == self.load_sig: return
+        self.load_sig = sig
+        for col in self.cols:
+            for w in col.winfo_children(): w.destroy()
+        fn, fs = F['font'], app.fs
+        me = next((p for p in ps if p['me']), None)
+        role = me['pos'] if me else ''
+        opp = next((p for p in ps if p['col'] == 1 and role and p['pos'] == role), None)
+        done = sum(p['ok'] for p in ps)
+        self.head.configure(text='Игра загружается · разведка', fg=C['fg'])
+        enemy = [p for p in ps if p['col'] == 1 and p.get('hist')]
+        mains = [d.cn(p['c']) for p in enemy if any('почти только' in t for t in p['hist']['tags'])]
+        tilt = [d.cn(p['c']) for p in enemy if p['hist'].get('tilt')]
+        sub = [f'Загружено {done} из {len(ps)}' if done < len(ps) else 'Все игроки загружены']
+        if opp: sub.append(f"твой оппонент: {d.cn(opp['c'])}")
+        if mains: sub.append('мейны у врагов: ' + ', '.join(mains))
+        if tilt: sub.append('в тильте: ' + ', '.join(tilt))
+        self.sub.configure(text=' · '.join(sub), fg=C['mute'])
+        order = {x: i for i, x in enumerate(core.ROLES)}
+        for col, t, c in ((0, 'Твоя команда', 'blue'), (1, 'Противники', 'red')):
+            tk.Label(self.cols[col], text=t.upper(), bg=C['bg'], fg=C[c], font=(fn, fs(9), 'bold'), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
+            for p in sorted((p for p in ps if p['col'] == col), key=lambda p: order.get(p['pos'], 9)):
+                self.draft_card(col, p, {'role': role}, None)
 
     # --- драфт: тот же вид, что в игре — две колонки карточек
     def show_draft(self, cs, r, bans):
@@ -753,7 +808,10 @@ class Dashboard(tk.Toplevel):
         for key, t in (('runes', 'руны'), ('items', 'предметы'), ('spells', 'заклинания призывателя')):
             ttk.Checkbutton(row2, text=t, variable=app.auto_vars[key], style='D.TCheckbutton',
                             command=lambda key=key: (app.s['auto_parts'].__setitem__(key, app.auto_vars[key].get()), app.s.save())).pack(side='left', padx=(10, 0))
-        self.import_lbl = tk.Label(row2, text=app.import_text, bg=C['deep'], fg=C['mute'], font=(fn, fs(10)), anchor='e')
+        self.import_err = ttk.Button(row2, text='Скопировать ошибку для Claude', command=app.copy_report)
+        bad = 'не получилось' in app.import_text
+        if bad: self.import_err.pack(side='right', padx=(8, 0))
+        self.import_lbl = tk.Label(row2, text=app.import_text, bg=C['deep'], fg=C['bad'] if bad else C['mute'], font=(fn, fs(10)), anchor='e')
         self.import_lbl.pack(side='right')
 
     def matchup_card(self, me, r):
@@ -1083,11 +1141,18 @@ def show_postgame(app, res, result):
     for name, v, th, ok, dec in res['goals']:
         tk.Label(w, text=f"{'✓' if ok else '✗'}  {name}: {v:.{dec}f} (цель {th})", bg=C['bg'], fg=C['good' if ok else 'bad'],
                  font=(fn, fs(12))).pack(anchor='w')
-    if res['main']:
-        tk.Label(w, text=f"Главное на следующую игру: {res['main'].lower()}", bg=C['bg'], fg=C['fg'], font=(fn, fs(12), 'bold'),
-                 wraplength=fs(460), justify='left').pack(anchor='w', pady=(10, 0))
-    tk.Label(w, text=f"Подсказок за игру: {len(res['hints'])}", bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', pady=(6, 0))
-    ttk.Button(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(12, 0))
+    mis = res.get('mistakes') or []
+    tk.Label(w, text='ЧТО ИСПРАВИТЬ В СЛЕДУЮЩЕЙ ИГРЕ' if mis else 'Все цели выполнены, так держать', bg=C['bg'], fg=C['gold'] if mis else C['good'],
+             font=(fn, fs(10 if mis else 12), 'bold')).pack(anchor='w', pady=(12, 2))
+    for i, (name, v, th, tip) in enumerate(mis, 1):
+        tk.Label(w, text=f'{i}. {name}', bg=C['bg'], fg=C['fg'], font=(fn, fs(12), 'bold'), anchor='w').pack(anchor='w', pady=(6, 0))
+        tk.Label(w, text=tip[:1].upper() + tip[1:], bg=C['bg'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(480), justify='left').pack(anchor='w', padx=(18, 0))
+    tk.Label(w, text=f"Подсказок за игру: {len(res['hints'])}", bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', pady=(10, 0))
+    row = tk.Frame(w, bg=C['bg']); row.pack(fill='x', pady=(12, 0))
+    ttk.Button(row, text='Закрыть', command=w.destroy).pack(side='right')
+    if app.player:   # игры Halch и DrVoldemar есть на сайте
+        ttk.Button(row, text='Разбор на сайте', style='A.TButton', command=app.open_last_game).pack(side='right', padx=8)
+        tk.Label(w, text='Игра появляется на сайте через 10–15 минут после конца.', bg=C['bg'], fg=C['mute'], font=(fn, fs(9))).pack(anchor='e', pady=(4, 0))
 
 
 # ---------------- Приложение ----------------
@@ -1108,6 +1173,7 @@ class App:
         self.my_rank = None
         self.ranks = {}
         self.hists = {}
+        self.rank_pu, self.hraw = {}, {}   # звание и история игр по puuid: с экрана загрузки переходят в игру без повторных запросов
         self.pus, self.hist_exp = {}, set()   # puuid по Riot ID; чьи истории раскрыты кликом
         self.role_override = None
         self.lola, self.lola_state = {}, {}
@@ -1125,6 +1191,8 @@ class App:
         self.pending_data = None
         load_fonts()
         self.root = tk.Tk()
+        self.root.report_callback_exception = lambda et, ev, tb: log_error('окно', ev)
+        threading.excepthook = lambda a: log_error(f'поток {a.thread.name if a.thread else ""}', a.exc_value)
         self.auto_vars = {k: tk.BooleanVar(value=v) for k, v in self.s['auto_parts'].items()}
         self.root.title(f'LoL Helper {version}')
         self.root.geometry('1060x740')
@@ -1282,15 +1350,18 @@ class App:
                             self.q.put(('me', me, None, None))
                     if now - last_lcu > 2:
                         last_lcu = now
-                        if self.client.phase() == 'ChampSelect':
+                        ph = self.client.phase()
+                        if ph == 'ChampSelect':
                             sess = self.client.champ_select()
                             if sess:
                                 cs = core.parse_champ_select(sess, self.data)
                                 cs['allies'] = self.draft_allies(sess)
                                 self.q.put(('draft', cs, None, None))
-                        elif self.draft is not None:
-                            self.q.put(('draft', None, None, None))
+                        else:
+                            if self.draft is not None: self.q.put(('draft', None, None, None))
+                            if ph in ('GameStart', 'InProgress'): self.load_scout()
             except Exception as e:
+                log_error('опрос клиента', e)
                 self.q.put(('error', str(e), None, None))
             time.sleep(1)
 
@@ -1301,22 +1372,22 @@ class App:
         """Звание и история последних игр каждого из десяти через клиент (как в профиле). По одному за проход."""
         for p in g.players:
             if p['riot'] in self.ranks: continue
-            pu = self.client.puuid(p['riot'])
-            self.ranks[p['riot']] = self.client.rank(pu) if pu else None
-            raw = self.client.history(pu) if pu else None
-            self.__dict__.setdefault('hraw', {})
+            pu = self.pus.get(p['riot']) or self.client.puuid(p['riot'])
+            if pu and pu in self.hraw: raw, self.ranks[p['riot']] = self.hraw[pu], self.rank_pu.get(pu)   # уже скачано на экране загрузки
+            else:
+                self.ranks[p['riot']] = self.rank_pu[pu] = self.client.rank(pu) if pu else None
+                raw = self.client.history(pu) if pu else None
             if pu: self.hraw[pu], self.pus[p['riot']] = raw, pu
             self.hists[p['riot']] = core.summarize_history(raw, self.cid(p['c']), p['pos']) if pu else None
             return
 
     def draft_allies(self, sess):
         """Союзники в драфте: чемпион (или наведённый), роль, звание и история игр."""
-        self.__dict__.setdefault('hraw', {})
         out = []
         for p in sess.get('myTeam') or []:
             pu = p.get('puuid')
             if pu and pu not in self.hraw:
-                self.ranks[pu] = self.client.rank(pu)
+                self.ranks[pu] = self.rank_pu[pu] = self.client.rank(pu)
                 self.hraw[pu] = self.client.history(pu)
             champ_id = p.get('championId') or p.get('championPickIntent') or 0
             out.append({'c': self.data.ids.get(str(champ_id)), 'pos': core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''),
@@ -1324,6 +1395,31 @@ class App:
                                                                    core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), '')) if pu else None,
                         'me': p.get('cellId') == sess.get('localPlayerCellId'), 'pu': pu})
         return out
+
+    def load_scout(self):
+        """Экран загрузки: все десять из клиента. Звание и история — по одному игроку за проход, как в игре."""
+        ps = self.client.loading()
+        if not ps: return
+        mine = (self.account or {}).get('puuid')
+        my_team = next((p['team'] for p in ps if p['pu'] and p['pu'] == mine), 100)
+        todo = next((p['pu'] for p in ps if p['pu'] and p['pu'] not in self.hraw), None)
+        if todo:
+            self.rank_pu[todo] = self.client.rank(todo)
+            self.hraw[todo] = self.client.history(todo)
+        out = []
+        for p in ps:
+            pu, pos = p['pu'], core.LCU_ROLE.get(p['pos'], '')
+            out.append({'c': self.data.ids.get(str(p['champ'])), 'pos': pos, 'col': 0 if p['team'] == my_team else 1, 'pu': pu,
+                        'me': bool(pu) and pu == mine, 'name': p['name'], 'ok': not pu or pu in self.hraw, 'rank': self.rank_pu.get(pu),
+                        'hist': core.summarize_history(self.hraw.get(pu), p['champ'], pos) if pu else None})
+        self.q.put(('load', out, None, None))
+
+    def on_loading(self, ps):
+        if self.last_game is not None: return
+        if not self.dash: self.open_dash()
+        try: self.dash.show_loading(ps)
+        except Exception as e: log_error('второе окно: загрузка', e)
+        self.status.configure(text='Экран загрузки: разведка во втором окне')
 
     def fetch_scout(self, g):
         try:
@@ -1346,6 +1442,7 @@ class App:
                 elif kind == 'end': self.on_end()
                 elif kind == 'me': self.on_me(a)
                 elif kind == 'draft': self.on_draft(a)
+                elif kind == 'load': self.on_loading(a)
                 elif kind == 'error': self.status.configure(text=f'Ошибка: {a}')
         except queue.Empty:
             pass
@@ -1379,10 +1476,10 @@ class App:
         for k in ('perf', 'lane', 'gold', 'item', 'timers'):
             if not self.s['widgets'].get(k): continue
             try: self.ov[k].show(g)
-            except Exception as e: print('widget', k, e)
+            except Exception as e: log_error(f'виджет {k}', e)
         if self.dash:
             try: self.dash.show(g, self.scout, self.ranks, self.hists)
-            except Exception as e: print('dash', e)
+            except Exception as e: log_error('второе окно: игра', e)
         self.status.configure(text=f'Игра: {core.mmss(g.t)} · {self.data.cn(g.me["c"]) if g.me else ""}')
 
     def on_end(self):
@@ -1391,6 +1488,7 @@ class App:
             res = core.postgame(self.engine, g, self.player)
             if res: show_postgame(self, res, self.result)
         self.last_game, self.result, self.engine, self.scout = None, None, None, {}
+        self.hraw, self.rank_pu = {}, {}   # к следующей игре история у всех уже другая
         if self.pending_data: self.reload_data(self.pending_data)
         self.apply_visibility()
         for w in self.tab.values(): w.withdraw()
@@ -1426,7 +1524,7 @@ class App:
         cnt = {m: core.lola_counters(self.lola_fetch('counter', m, role), d) for m in pool}
         bans = core.ban_suggest(p, cs['unavailable'], 3, role, {m: v for m, v in cnt.items() if v})
         try: self.dash.show_draft(cs, r, bans)
-        except Exception as e: print('dash draft', e)
+        except Exception as e: log_error('второе окно: драфт', e)
         auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
         if auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
 
@@ -1465,7 +1563,7 @@ class App:
                     get = lambda url: urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=20).read().decode('utf-8', 'ignore')
                     if kind == 'build':   # две сборки по Европе из API, иначе одна со страницы сборки
                         try: b = core.parse_lola_full(json.loads(get(core.lola_api('build-full', champ, role, 'euw'))), self.data)
-                        except Exception as e: print('build-full', e); b = None
+                        except Exception as e: log_error(f'lolalytics build-full {champ} {role}', e); b = None
                         b = b or core.parse_lola_build(get(core.lola_url(champ, role)))
                     else: b = json.loads(get(core.lola_api(kind, champ, role)))
                     if kind == 'build-team': b = {'team': b.get('team')} if b.get('team') else None
@@ -1474,7 +1572,7 @@ class App:
                         os.makedirs(os.path.dirname(path), exist_ok=True)
                         json.dump(b, open(path, 'w', encoding='utf-8'))
             except Exception as e:
-                print('lolalytics', kind, champ, role, e)
+                log_error(f'lolalytics {kind} {champ} {role}', e)
                 try: b = json.load(open(path, encoding='utf-8'))   # старый кеш лучше, чем ничего
                 except Exception: b = None
             def done():
@@ -1548,7 +1646,30 @@ class App:
     def set_import_msg(self, text):
         self.import_text = text
         if self.dash and getattr(self.dash, 'import_lbl', None):
-            try: self.dash.import_lbl.configure(text=text)
+            try:
+                self.dash.import_lbl.configure(text=text, fg=C['bad'] if 'не получилось' in text else C['mute'])
+                self.dash.import_err.pack(side='right', padx=(8, 0)) if 'не получилось' in text else self.dash.import_err.pack_forget()
+            except tk.TclError: pass
+
+    def report_text(self):
+        """Отчёт для Claude: версия, система, состояние клиента и последние строки журналов."""
+        h = self.home
+        try: ph = self.client.phase()
+        except Exception: ph = '?'
+        L = [f'LoL Helper {self.version} · {platform.platform()} · Python {platform.python_version()}',
+             f"Экран: {screens()[0] if os.name == 'nt' else '?'} · масштаб {self.s['scale']}% · клиент {'найден' if self.client.port else 'не найден'}, фаза {ph}",
+             f"Аккаунт: {(self.account or {}).get('riot', 'нет')} · статистика: {self.who}", '']
+        for name, n in (('errors.log', 60), ('import.log', 15), ('update.log', 10), ('crash.txt', 40), ('site_error.txt', 20)):
+            lines = tail(os.path.join(h, name), n)
+            if lines: L += [f'--- {name} (последние {len(lines)} строк)'] + lines + ['']
+        if len(L) == 4: L.append('Журналы пустые: ошибок не было.')
+        return '\n'.join(L)
+
+    def copy_report(self):
+        self.root.clipboard_clear(); self.root.clipboard_append(self.report_text())
+        self.status.configure(text='Отчёт скопирован: вставь его в чат с Claude')
+        if getattr(self, 'rep_msg', None):
+            try: self.rep_msg.configure(text='Скопировано. Вставь в чат с Claude (Ctrl+V).')
             except tk.TclError: pass
 
     def do_import(self, parts=('runes', 'items', 'spells')):
@@ -1565,6 +1686,7 @@ class App:
             try: ok = fn()
             except Exception as e: ok = False; self.client.last_error = self.client.last_error or repr(e)
             out.append(f"{name}: {'готово' if ok else 'не получилось' + (f' ({self.client.last_error})' if self.client.last_error else '')}")
+            if not ok: log_error(f'импорт {name}, {me}', self.client.last_error or 'клиент ответил отказом без текста ошибки')
         if 'runes' in parts:
             def runes():
                 if ev: return self.client.set_runes(self.data.cn(me), ev['prim'], ev['sec'], ev['perks'], ev['shards'] if len(ev['shards']) == 3 else None)
@@ -1613,7 +1735,7 @@ class App:
             if not self.keys_prev.get('tab') or time.time() - self.keys_prev.get('tab_t', 0) > 1:
                 for w in self.tab.values():
                     try: w.show(self.last_game); w.deiconify()
-                    except Exception as e: print('tab', e)
+                    except Exception as e: log_error('Tab', e)
                 self.keys_prev['tab_t'] = time.time()
         elif self.keys_prev.get('tab'):
             for w in self.tab.values(): w.withdraw()
@@ -1866,10 +1988,20 @@ class App:
                     if im: tk.Label(its, image=im, bg=bg).pack(side='left', padx=1)
         ttk.Button(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(10, 0))
 
-    def open_site(self):
+    def open_last_game(self):
+        """Сайт сразу на последней игре: её номер берём из истории клиента."""
+        def job():
+            pu = (self.account or {}).get('puuid')
+            h = self.client.history(pu, 1) if pu else None
+            gid = h[0].get('gid') if h else None
+            self.root.after(0, lambda: self.open_site(f'EUW1_{gid}' if gid else None))
+        threading.Thread(target=job, daemon=True).start()
+
+    def open_site(self, game=None):
         """Сайт со статистикой в отдельном окне (WebView2). Отдельный процесс: окно браузера не уживается с Tk в одном потоке."""
         exe = sys.executable
         args = [exe, '--site'] if getattr(sys, 'frozen', False) else [exe, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lolhelper.py'), '--site']
+        if game: args.append(f'--game={game}')
         env = {k: v for k, v in os.environ.items() if not k.startswith(('_PYI', '_MEI'))}
         env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
         try: subprocess.Popen(args, env=env)
@@ -2361,6 +2493,14 @@ class App:
         self.h(f, 'Список изменений')
         self.chlog_box = tk.Frame(f, bg=C['bg']); self.chlog_box.pack(fill='x')
         self.load_changelog()
+        self.h(f, 'Если что-то сломалось')
+        self.note(f, 'Программа записывает ошибки (окна, связь с клиентом, импорт рун, предметов и заклинаний, lolalytics) в журнал. '
+                     'Кнопка копирует отчёт: вставь его в чат с Claude, и по нему можно сразу найти причину.')
+        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
+        ttk.Button(row, text='Скопировать отчёт для Claude', style='A.TButton', command=self.copy_report).pack(side='left')
+        ttk.Button(row, text='Открыть папку с журналами', command=lambda: os.startfile(self.home) if os.name == 'nt' else None).pack(side='left', padx=8)
+        n = len([ln for ln in tail(os.path.join(self.home, 'errors.log'), 400) if ln[:2] == '20'])
+        self.rep_msg = ttk.Label(f, text=f'В журнале записей: {n}' if n else 'Журнал пуст: ошибок не было.', style='M.TLabel'); self.rep_msg.pack(anchor='w')
         self.h(f, 'Сброс')
         self.note(f, 'Вернуть все настройки программы к начальным: подсказки, вид, звук, окна, клавиши, таймеры.')
         self.confirm = None
@@ -2458,7 +2598,7 @@ class App:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 json.dump(lanes, open(path, 'w', encoding='utf-8'))
             except Exception as e:
-                print('lanes', e)
+                log_error('таблица линий', e)
                 try: lanes = json.load(open(path, encoding='utf-8'))
                 except Exception: lanes = {}
         def done():

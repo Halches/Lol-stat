@@ -104,6 +104,10 @@ def test_postgame():
     g = core.Game(snap(1500, me={'cs': 150, 'd': 6, 'ward': 10}), D)
     r = core.postgame(eng, g, eng.player)
     assert r['main'] and len(r['goals']) == 5, r
+    # не выполнено 4 цели из 5: в ошибках три самые сильные недостачи, у каждой совет
+    names = [m[0] for m in r['mistakes']]
+    assert len(r['mistakes']) == 3 and names[0] == r['main'] and all(m[3] for m in r['mistakes']), r['mistakes']
+    assert 'CS в минуту' not in names and r['mistakes'][2][3].startswith('6 смертей'), r['mistakes']
 
 
 def test_lola_full():

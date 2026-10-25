@@ -1,6 +1,6 @@
 # Сайт со статистикой в окне программы (WebView2 через pywebview). Запускается отдельным процессом: LoLHelper.exe --site.
 # Страница и данные берутся с raw.githubusercontent.com: GitHub Pages открывается не у всех.
-import os, urllib.request
+import os, re, urllib.request
 
 RAW = 'https://raw.githubusercontent.com/Halches/Lol-stat/main/'
 # Страница грузит data/*.json относительными ссылками — направляем их на raw, мимо кеша браузера. Свежие игры (live.json) тоже разрешаем.
@@ -40,9 +40,13 @@ class Api:
         return True
 
 
-def run(home):
+def run(home, game=None):
     import webview
     p = page(home)
+    if p and game and re.fullmatch(r'EUW1_\d+', game):   # открыть сразу на этой игре (сайт читает #g-… после загрузки данных)
+        html = open(p, encoding='utf-8').read().replace('<head>', f"<head><script>if(!location.hash)location.hash='#g-{game}'</script>", 1)
+        p = os.path.join(os.path.dirname(p), 'game.html')
+        with open(p, 'w', encoding='utf-8') as f: f.write(html)
     if p:
         webview.create_window('LoL Stat — статистика', url=p, width=1440, height=920, background_color='#010a13', js_api=Api(home))
     else:

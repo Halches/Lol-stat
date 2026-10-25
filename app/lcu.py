@@ -139,6 +139,19 @@ class LCU:
         try: return self.call(f'/lol-match-history/v1/games/{gid}')
         except Exception: return None
 
+    def loading(self):
+        """Составы на экране загрузки (в драфте противники скрыты, здесь уже видны все десять):
+        [{'pu', 'champ' (id), 'pos' ('top'…), 'team' (100/200), 'name'}] или None."""
+        try: s = self.call('/lol-gameflow/v1/session')
+        except Exception: return None
+        gd = (s or {}).get('gameData') or {}
+        out = []
+        for team, key in ((100, 'teamOne'), (200, 'teamTwo')):
+            for p in gd.get(key) or []:
+                out.append({'pu': p.get('puuid') or None, 'champ': p.get('championId') or 0, 'team': team,
+                            'pos': (p.get('selectedPosition') or '').lower(), 'name': p.get('gameName') or p.get('summonerName') or ''})
+        return out or None
+
     def phase(self):
         return self.call('/lol-gameflow/v1/gameflow-phase') or 'None'
 

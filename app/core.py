@@ -615,8 +615,24 @@ def postgame(engine, g, player):
     ]
     if g.role == 'UTILITY': rows = rows[1:]
     res = [(n, v, th, (v >= th) if op == '>=' else (v <= th), dec) for n, v, th, op, dec in rows]
-    worst = min((r for r in res if not r[3]), key=lambda r: (r[1] / r[2] if r[2] else 0) if r[0] in ('CS в минуту', 'Обзор в минуту', 'Участие в убийствах, %') else -r[1], default=None)
-    return {'goals': res, 'main': worst[0] if worst else None, 'hints': list(engine.fired), 'me': me, 'min': mins}
+    # невыполненные цели от самой сильной недостачи: «больше» — насколько не дотянул, «меньше» — насколько перебрал
+    gap = lambda r: (1 - r[1] / r[2] if r[2] else 1) if r[0] in MORE else (r[1] - r[2]) / max(1, r[2])
+    bad = sorted((r for r in res if not r[3]), key=gap, reverse=True)
+    mistakes = [(r[0], r[1], r[2], ADVICE[r[0]](r[1], r[2], mins)) for r in bad[:3]]
+    return {'goals': res, 'main': bad[0][0] if bad else None, 'mistakes': mistakes, 'hints': list(engine.fired), 'me': me, 'min': mins}
+
+
+MORE = ('CS в минуту', 'Обзор в минуту', 'Участие в убийствах, %')
+# Совет к невыполненной цели итога: (значение, цель, минут игры) -> текст
+ADVICE = {
+    'CS в минуту': lambda v, th, m: f'недобрал около {round((th - v) * m)} миньонов, это примерно {round((th - v) * m * 21 / 100) * 100:.0f} золота. '
+                                    'Перед уходом на базу добивай волну, а в середине игры забирай волны на боковых линиях.',
+    'Смертей до 14 минуты': lambda v, th, m: f'{plural(round(v), "смерть", "смерти", "смертей")} на линии. Перед разменом проверь, где лесник врага, '
+                                             'и не дави без варда в реке.',
+    'Смертей за игру': lambda v, th, m: f'{plural(round(v), "смерть", "смерти", "смертей")} за игру. После линии не заходи в туман без обзора и держись ближе к команде.',
+    'Обзор в минуту': lambda v, th, m: f'обзор {v:.1f} в минуту против цели {th}. Покупай контрольный вард каждый заход на базу и ставь тотем, как только он готов.',
+    'Участие в убийствах, %': lambda v, th, m: f'участие {v:.0f}% против цели {th}%. Смотри на мини-карту и приходи на драконов и стычки у реки.',
+}
 
 
 def summarize_history(hist, champ_id, pos=None):

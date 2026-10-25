@@ -212,7 +212,7 @@ def main():
     if '--selftest' in sys.argv: selftest()
     if '--site' in sys.argv:
         try:
-            import sitewin; sitewin.run(home())
+            import sitewin; sitewin.run(home(), next((a[7:] for a in sys.argv if a.startswith('--game=')), None))
         except Exception:
             open(os.path.join(home(), 'site_error.txt'), 'w', encoding='utf-8').write(traceback.format_exc())
             import webbrowser; webbrowser.open('https://halches.github.io/Lol-stat/')
