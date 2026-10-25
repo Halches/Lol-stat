@@ -3,7 +3,7 @@ name: Сборка LoL Helper
 on:
   push:
     branches: [main]
-    paths: ['app/**', '!app/data.json', '!app/silero/**', '.github/workflows/app.yml']
+    paths: ['app/**', '!app/data.json', '!app/silero/**', '!app/dev/**', '.github/workflows/app.yml']
   workflow_dispatch:
 
 permissions:
