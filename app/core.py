@@ -7,7 +7,7 @@ ROLE_RU = {'TOP': 'топ', 'JUNGLE': 'лес', 'MIDDLE': 'мид', 'BOTTOM': '�
 LCU_ROLE = {'top': 'TOP', 'jungle': 'JUNGLE', 'middle': 'MIDDLE', 'bottom': 'BOTTOM', 'utility': 'UTILITY'}
 
 # Время объектов сезона 2026 (секунды). Меняются в настройках, если Riot их поправит.
-OBJ = {'crab': 210, 'dragon_first': 300, 'dragon_respawn': 300, 'elder_respawn': 360, 'grubs': 480, 'herald': 900,
+OBJ = {'crab': 175, 'dragon_first': 300, 'dragon_respawn': 300, 'elder_respawn': 360, 'grubs': 480, 'herald': 900,
        'baron_first': 1200, 'baron_respawn': 360, 'inhib_respawn': 300}
 
 # Лесники: ранние ганкеры и фармеры (для третьего окна ганка)
@@ -41,6 +41,12 @@ class Data:
         self.ids = d['ids']                    # '62' -> 'MonkeyKing'
         self.items = d['items']
         self.lola = d['lola']
+        self.lanes = {}                        # 'Seraphine' -> {'UTILITY': 52000, 'MIDDLE': 9000, ...} — игры на линиях, все чемпионы
+
+    def lane_n(self, c, r):
+        """Сколько игр у чемпиона на линии (Изумруд+): таблица по всем чемпионам, иначе lolalytics из data.json."""
+        n = self.lanes.get(c, {}).get(r)
+        return n if n is not None else self.lola.get(f'{c}|{r}', {}).get('n', 0)
 
     @classmethod
     def load(cls, path):
@@ -66,7 +72,7 @@ class Data:
 
     def role_of_champ(self, c):
         """Самая частая роль чемпиона по lolalytics (сколько игр на каждой)."""
-        best = max(((self.lola.get(f'{c}|{r}', {}).get('n', 0), r) for r in ROLES), default=(0, ''))
+        best = max(((self.lane_n(c, r), r) for r in ROLES), default=(0, ''))
         return best[1] if best[0] else ''
 
 
@@ -144,11 +150,11 @@ def guess_enemy_roles(data, champs):
             if s > best_s: best, best_s = dict(cur), s
             return
         c = champs[i]
-        opts = sorted(ROLES, key=lambda r: -data.lola.get(f'{c}|{r}', {}).get('n', 0))
+        opts = sorted(ROLES, key=lambda r: -data.lane_n(c, r))
         for r in opts:
             if r in used: continue
             cur[c] = r
-            rec(i + 1, used | {r}, cur, s + math.log1p(data.lola.get(f'{c}|{r}', {}).get('n', 0)))
+            rec(i + 1, used | {r}, cur, s + math.log1p(data.lane_n(c, r)))
             del cur[c]
     rec(0, frozenset(), {}, 0)
     return best
@@ -328,7 +334,7 @@ HINTS = [
     ('jungler', 'Загрузка', 'Кто лесник врагов: ранний ганкер или фармер', 'voice', 0),
     ('trinket', 'Загрузка', 'Купи тотем, если слот пуст', 'voice', 60),
     ('early_ward', 'Загрузка', 'Первый вард: когда и куда (своё для роли)', 'text', 0),
-    ('crab', 'Лес', 'Лесник: крабы в 3:30 и на какой стороне сильнее линии', 'voice', 0),
+    ('crab', 'Лес', 'Лесник: крабы в 2:55 и на какой стороне сильнее линии', 'voice', 0),
     ('gank1', 'Линия', 'Ганк 1: лесник взял 3 лагеря', 'voice', 0),
     ('gank2', 'Линия', 'Ганк 2: полная зачистка', 'voice', 0),
     ('gank3', 'Линия', 'Ганк 3: под вражеского лесника', 'voice', 0),
@@ -357,6 +363,40 @@ HINTS = [
     ('postgame', 'После игры', 'Итог игры: цели и главная ошибка', 'text', 0),
 ]
 HINT_IDS = [h[0] for h in HINTS]
+# Когда срабатывает и зачем — для вкладки «Подсказки».
+HINT_DESC = {
+    'scout': 'На 0:03. Твой счёт против этого оппонента по истории игр и золото на 15 минуте. Помечает неудобных врагов.',
+    'jungler': 'На 0:03. Кто лесник врагов и в каком темпе он обычно играет: ранний ганкер, фармер или обычный.',
+    'trinket': 'С 0:30 до 2:00, если слот тотема пуст. Чтобы не выйти на линию без варда.',
+    'early_ward': 'С 0:20 до 0:40, пока идёшь на линию. Куда и когда ставить первый вард, своё для каждой роли.',
+    'crab': 'За 25 с до появления крабов (2:55). Какой краб брать: там, где твои линии сильнее по уровню и фарму.',
+    'gank1': 'За 20 с до окна 2:50–3:20: в это время приходит лесник, взявший 3 лагеря.',
+    'gank2': 'За 20 с до окна 3:20–4:00: лесник после полной зачистки и краба.',
+    'gank3': 'Окно под конкретного лесника врагов: у ранних ганкеров раньше (2:30–3:05), у фармеров позже (3:45–4:40).',
+    'jg_seen': 'С 1:30 до 15:00, когда лесник врагов участвует в убийстве на другой стороне карты: в это время можно давить.',
+    'cs_norm': 'На 5, 10 и 15 минуте, если фарм ниже 85% твоей обычной нормы на этом чемпионе.',
+    'lane_gold': 'После 3:00, когда разница в предметах с оппонентом 900+ золота. Подсказывает, давить или отходить.',
+    'levels': 'Когда ты или оппонент первым берёт 2-й или 3-й уровень: момент для размена или отхода.',
+    'early_deaths': 'Если до 14:00 ты умер дважды. Совет играть осторожнее, от варда.',
+    'base': 'После 2:00, когда у тебя 1300+ золота: можно возвращаться на базу при удобной волне.',
+    'hoard': 'После 5:00, если 2000+ золота не потрачено.',
+    'tp': 'Только топ: за минуту до дракона, если телепорт готов.',
+    'cannon': 'За пару секунд до волны с осадным миньоном. Его легко потерять, если не следить.',
+    'control': 'После возвращения на базу, если ты не купил контрольный тотем.',
+    'lens': 'Только саппорт: на 9 уровне, если ещё стоит Скрытый тотем.',
+    'vision': 'На 10 и 20 минуте, если обзор в минуту ниже твоей цели.',
+    'enemy_dmg': 'После 10:00, один раз. Какой урон у врагов по их предметам и нужен ли антихил.',
+    'enemy_item': 'Когда оппонент по линии собирает законченный предмет: это его пик силы.',
+    'next_item': 'После покупки на базе. Следующий предмет по твоим лучшим играм на этом чемпионе.',
+    'objectives': 'За 60 и 30 с до дракона, личинок, Герольда и барона.',
+    'fight_won': 'Когда за 15 с враги потеряли хотя бы на 2 чемпиона больше: время брать объект.',
+    'team_gold': 'После 15:00, когда команда впереди на 3000+ золота. Совет играть вместе.',
+    'side_lane': 'С 15 до 25 минуты, когда ты впереди по линии: напоминание ставить вард перед сплитом.',
+    'baron_jungle': 'За 30 с до барона: не заходить в лес одному.',
+    'inhib': 'За минуту до восстановления уничтоженного ингибитора.',
+    'powerspike': '6-й, 11-й и 16-й уровень раньше или позже оппонента и твой законченный предмет.',
+    'postgame': 'После игры, если она длилась дольше 5 минут: цели, которые выполнены и нет, и главная ошибка.',
+}
 LANERS = ('TOP', 'MIDDLE', 'BOTTOM', 'UTILITY')
 # Подсказки, которые нужны не всем ролям; у каждой роли свои режимы. Остальные — общие для всех.
 HINT_ROLES = {
@@ -680,6 +720,10 @@ LOLA_LANE = {'TOP': 'top', 'JUNGLE': 'jungle', 'MIDDLE': 'middle', 'BOTTOM': 'bo
 LOLA_FIX = {'MonkeyKing': 'wukong'}
 SPELL_KEY = {1: 'SummonerBoost', 3: 'SummonerExhaust', 4: 'SummonerFlash', 6: 'SummonerHaste', 7: 'SummonerHeal', 11: 'SummonerSmite',
              12: 'SummonerTeleport', 13: 'SummonerMana', 14: 'SummonerDot', 21: 'SummonerBarrier', 32: 'SummonerSnowball'}
+SPELL_ID = {v: k for k, v in SPELL_KEY.items()}
+SPELL_RU = {'SummonerFlash': 'Скачок', 'SummonerDot': 'Воспламенение', 'SummonerTeleport': 'Телепорт', 'SummonerSmite': 'Кара',
+            'SummonerHeal': 'Исцеление', 'SummonerBarrier': 'Барьер', 'SummonerExhaust': 'Изнурение', 'SummonerHaste': 'Призрак',
+            'SummonerBoost': 'Очищение', 'SummonerMana': 'Ясность', 'SummonerSnowball': 'Метка'}
 
 
 def lola_url(champ, role):
@@ -992,3 +1036,13 @@ def lola_item_sets(b, name):
         blocks = [('Старт', v['start']), ('Основа' + n, v['core']), ('Предмет 4', v['i4']), ('Предмет 5', v['i5']), ('Предмет 6', v['i6'])] + tail
         sets.append((f'{name}: {title}', blocks))
     return sets
+
+
+def lola_lanes(lists, data):
+    """Ответы ep=list по пяти линиям {роль LCU: json} -> {чемпион: {роль: игр}} для угадывания линий врагов."""
+    out = {}
+    for role, j in lists.items():
+        for cid, x in ((j or {}).get('cid') or {}).items():
+            c = data.ids.get(str(cid))
+            if c: out.setdefault(c, {})[role] = x.get('games', 0)
+    return out

@@ -145,6 +145,15 @@ class LCU:
     def champ_select(self):
         return self.call('/lol-champ-select/v1/session')
 
+    def set_spells(self, a, b):
+        """Заклинания призывателя в драфте. Скачок остаётся на той клавише, где он у тебя сейчас."""
+        sess = self.call('/lol-champ-select/v1/session') or {}
+        me = next((p for p in sess.get('myTeam') or [] if p.get('cellId') == sess.get('localPlayerCellId')), {})
+        if 4 in (a, b) and me.get('spell2Id') == 4 and a == 4: a, b = b, a
+        if 4 in (a, b) and me.get('spell1Id') == 4 and b == 4: a, b = b, a
+        self.call('/lol-champ-select/v1/session/my-selection', 'PATCH', {'spell1Id': a, 'spell2Id': b})
+        return True
+
     def set_runes(self, name, prim, sec, perks, shards=None):
         """Страница рун «LoL Helper»: правим свою, иначе создаём, иначе перезаписываем текущую редактируемую."""
         body = {'name': f'LoL Helper: {name}'[:25], 'primaryStyleId': prim, 'subStyleId': sec,
