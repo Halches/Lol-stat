@@ -139,6 +139,27 @@ def death_map(marks, size, theme):
     return im.resize((size, size), Image.LANCZOS)
 
 
+def gold_chart(gs, w, h, theme):
+    """Разница золота с оппонентом по минутам: столбики вверх (впереди, зелёные) и вниз (позади, красные), метки 10/15/20/25."""
+    k = 4; W, H = w * k, h * k
+    im = Image.new('RGBA', (W, H), rgb(theme['deep']) + (255,)); d = ImageDraw.Draw(im)
+    diff = [x - y for x, y in zip(gs['me'], gs['opp'])]
+    top = max(500, max(abs(v) for v in diff))
+    mid, pad = H / 2, H * .08
+    sc = (mid - pad) / top
+    bw = W / max(1, len(diff))
+    line = rgb(theme['line']) + (255,)
+    for m in range(5, len(diff), 5):
+        x = m * bw + bw / 2
+        d.line((x, pad / 2, x, H - pad / 2), fill=line, width=k)
+    for i, v in enumerate(diff):
+        x0, x1 = i * bw + bw * .15, (i + 1) * bw - bw * .15
+        y = mid - v * sc
+        d.rectangle((x0, min(y, mid), x1, max(y, mid)), fill=rgb(theme['good' if v >= 0 else 'bad']) + (255,))
+    d.line((0, mid, W, mid), fill=rgb(theme['mute']) + (255,), width=k)
+    return im.resize((w, h), Image.LANCZOS)
+
+
 def rounded_icon(im, size, radius=0.18, gray=False, ring=None):
     """Квадратная иконка со скруглением и, по желанию, цветной рамкой."""
     from PIL import ImageOps

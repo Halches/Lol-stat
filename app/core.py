@@ -374,11 +374,19 @@ class Game:
         return None
 
 
-def gank_windows(game):
-    """Три окна ганка: 3 лагеря, полная зачистка, поправка под вражеского лесника."""
+SIDE = {'TOP': 'TOP', 'MIDDLE': 'MIDDLE', 'BOTTOM': 'BOTTOM', 'UTILITY': 'BOTTOM'}   # роль -> сторона карты для ганков
+LANE_TO = {'TOP': 'топ', 'MIDDLE': 'мид', 'BOTTOM': 'бот'}
+
+
+def gank_windows(game, plan=None):
+    """Три окна ганка: 3 лагеря, полная зачистка, поправка под вражеского лесника (по его прошлым играм, если они есть)."""
     j = game.ejg['c'] if game.ejg else None
     w = [('gank1', 170, 200, 'лесник взял 3 лагеря'), ('gank2', 200, 240, 'полная зачистка и краб')]
-    if j in JG_EARLY: w.append(('gank3', 150, 185, f'{game.data.cn(j)} любит ранние ганки'))
+    if plan and plan.get('lane') and plan.get('t'):
+        t, mine = plan['t'], plan['lane'] == SIDE.get(game.role)
+        who = f"{game.data.cn(j)} в {plan['k']} из {plan['n']} последних игр первым ганкал {LANE_TO[plan['lane']]}"
+        w.append(('gank3', max(90, t - 25), t + 15, who + (', это твоя линия' if mine else ', но держи вард и у себя')))
+    elif j in JG_EARLY: w.append(('gank3', 150, 185, f'{game.data.cn(j)} любит ранние ганки'))
     elif j in JG_FARM: w.append(('gank3', 225, 280, f'{game.data.cn(j)} обычно фармит, ганк позже'))
     else: w.append(('gank3', 190, 230, f'обычный темп для {game.data.cn(j)}' if j else 'обычный темп'))
     return w
@@ -395,6 +403,7 @@ HINTS = [
     ('gank1', 'Линия', 'Ганк 1: лесник взял 3 лагеря', 'voice', 0),
     ('gank2', 'Линия', 'Ганк 2: полная зачистка', 'voice', 0),
     ('gank3', 'Линия', 'Ганк 3: под вражеского лесника', 'voice', 0),
+    ('jg_path', 'Линия', 'Куда лесник врагов ганкал в прошлых играх', 'text', 0),
     ('jg_seen', 'Линия', 'Лесник врагов на другой стороне: можно давить', 'voice', 45),
     ('cs_norm', 'Линия', 'CS отстаёт от твоей нормы (5, 10, 15 мин)', 'text', 0),
     ('lane_gold', 'Линия', 'Разница в предметах с оппонентом', 'text', 90),
@@ -432,7 +441,9 @@ HINT_DESC = {
     'crab': 'За 25 с до появления крабов (2:55). Какой краб брать: там, где твои линии сильнее по уровню и фарму.',
     'gank1': 'За 20 с до окна 2:50–3:20: в это время приходит лесник, взявший 3 лагеря.',
     'gank2': 'За 20 с до окна 3:20–4:00: лесник после полной зачистки и краба.',
-    'gank3': 'Окно под конкретного лесника врагов: у ранних ганкеров раньше (2:30–3:05), у фармеров позже (3:45–4:40).',
+    'gank3': 'Окно под конкретного лесника врагов: по его 2–3 последним играм в лесу (где и когда был первый ганк), '
+             'а без них по чемпиону: у ранних ганкеров раньше (2:30–3:05), у фармеров позже (3:45–4:40).',
+    'jg_path': 'В первые минуты: где лесник врагов был к 3:00 и куда шёл первый ганк в его последних играх (таймлайны из клиента).',
     'jg_seen': 'С 1:30 до 15:00, когда лесник врагов участвует в убийстве на другой стороне карты: в это время можно давить.',
     'cs_norm': 'На 5, 10 и 15 минуте, если фарм ниже 85% твоей обычной нормы на этом чемпионе.',
     'lane_gold': 'После 3:00, когда разница в предметах с оппонентом 900+ золота. Подсказывает, давить или отходить.',
@@ -462,7 +473,7 @@ HINT_DESC = {
 LANERS = ('TOP', 'MIDDLE', 'BOTTOM', 'UTILITY')
 # Подсказки, которые нужны не всем ролям; у каждой роли свои режимы. Остальные — общие для всех.
 HINT_ROLES = {
-    'scout': LANERS, 'crab': ('JUNGLE',), 'gank1': LANERS, 'gank2': LANERS, 'gank3': LANERS, 'jg_seen': LANERS,
+    'scout': LANERS, 'crab': ('JUNGLE',), 'gank1': LANERS, 'gank2': LANERS, 'gank3': LANERS, 'jg_path': LANERS, 'jg_seen': LANERS,
     'cs_norm': ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM'), 'lane_gold': LANERS, 'levels': LANERS, 'tp': ('TOP',),
     'cannon': ('TOP', 'MIDDLE', 'BOTTOM'), 'lens': ('UTILITY',), 'enemy_item': LANERS, 'side_lane': ('TOP', 'MIDDLE'),
     'early_ward': ROLES,
@@ -497,6 +508,7 @@ class Engine:
         self.skills, self.skill_prio = '', ''   # порядок умений по Европе ('QWEQQRQ…'), задаёт программа при старте игры
         self.situ = []           # ситуативные предметы из сборки по Европе: [(id, коротко, когда)]
         self.bench = None        # темп Изумруда+ на чемпионе: {'cs': CS за игру, 'min': минут}
+        self.jg_plan = None      # как лесник врагов начинал последние игры (jungle_plan); {} если данных нет
 
     def _once(self, key):
         if key in self.done: return False
@@ -550,7 +562,9 @@ class Engine:
 
         # --- ганки (только для линии)
         if laner and t < 300:
-            for hid, a, b, why in gank_windows(g):
+            if self.jg_plan and self.jg_plan.get('text') and t < 200 and self._once('jg_path'):
+                add('jg_path', f'Лесник врагов в прошлых играх: {self.jg_plan["text"]}', 'Лесник врагов: ' + self.jg_plan['say'])
+            for hid, a, b, why in gank_windows(g, self.jg_plan):
                 if a - 20 <= t < a and self._once(hid):
                     add(hid, f'Окно ганка {mmss(a)}–{mmss(b)}: {why}. Вард в реку', 'Окно ганка, вард в реку')
         if laner and g.ejg and 90 < t < 900:
@@ -710,17 +724,102 @@ def postgame(engine, g, player):
     mistakes = [(r[0], r[1], r[2], ADVICE[r[0]](r[1], r[2], mins)) for r in bad[:3]]
     norm = player.norm(me['c'], g.role) if player else {}
     return {'goals': res, 'main': bad[0][0] if bad else None, 'mistakes': mistakes, 'hints': list(engine.fired), 'me': me, 'min': mins,
-            'role': g.role, 'norm': norm}
+            'role': g.role, 'norm': norm, 'opp': g.opp['c'] if g.opp else None}
 
 
 # цель итога -> поле нормы игрока (Player.norm) для сравнения «обычно у тебя»
 GOAL_NORM = {'CS в минуту': 'csm', 'Смертей до 14 минуты': 'ed', 'Смертей за игру': 'd', 'Обзор в минуту': 'vsm', 'Участие в убийствах, %': 'kp'}
 
 
+def game_pid(game, puuid):
+    return next((x.get('participantId') for x in (game or {}).get('participantIdentities') or []
+                 if (x.get('player') or {}).get('puuid') == puuid), None)
+
+
+def frame_of(fr, pid):
+    """Кадр игрока в минуте таймлайна (клиент отдаёт словарь по номерам, Riot API — список)."""
+    pf = fr.get('participantFrames') or {}
+    if isinstance(pf, dict): return pf.get(str(pid)) or pf.get(pid) or {}
+    return next((x for x in pf if x.get('participantId') == pid), {})
+
+
+def lane_of(x, y):
+    """Сторона карты по координатам: диагональ — мид, выше — топ, ниже — бот (река считается своей стороной)."""
+    return 'MIDDLE' if abs(x - y) < 2200 else 'TOP' if y > x else 'BOTTOM'
+
+
+def jungle_game(tl, game, puuid):
+    """Начало одной игры лесника: где он к 3:00 и первое убийство или помощь до 6 минут (секунда, сторона)."""
+    pid = game_pid(game, puuid)
+    frames = (tl or {}).get('frames') or []
+    if not pid or len(frames) < 4: return None
+    pos = frame_of(frames[3], pid).get('position') or {}
+    end = ('TOP' if pos['y'] > pos['x'] else 'BOTTOM') if pos.get('x') is not None and pos.get('y') is not None else None
+    first = None
+    for fr in frames[:7]:
+        for e in fr.get('events') or []:
+            if e.get('type') != 'CHAMPION_KILL' or not e.get('position') or (e.get('timestamp') or 0) > 360000: continue
+            if e.get('killerId') == pid or pid in (e.get('assistingParticipantIds') or []):
+                first = first or ((e.get('timestamp') or 0) // 1000, lane_of(e['position'].get('x', 0), e['position'].get('y', 0)))
+    return {'end': end, 'first': first}
+
+
+def jungle_plan(games):
+    """Сводка по 2–3 играм лесника: куда чаще идёт первый ганк и когда. None, если таймлайнов нет."""
+    gs = [g for g in games if g]
+    if not gs: return None
+    n, firsts = len(gs), [g['first'] for g in gs if g['first']]
+    out = {'n': n, 'lane': None, 't': None, 'k': 0, 'text': '', 'say': ''}
+    if firsts:
+        lane = max(LANE_TO, key=lambda l: sum(f[1] == l for f in firsts))
+        k = sum(f[1] == lane for f in firsts)
+        if k * 2 > n or n == 1:
+            ts = sorted(f[0] for f in firsts if f[1] == lane)
+            out.update(lane=lane, k=k, t=ts[len(ts) // 2])
+            out['text'] = f"в {k} из {n} игр первый ганк на {LANE_TO[lane]} около {mmss(out['t'])}"
+            out['say'] = f"первый ганк обычно {LANE_TO[lane]}, около {mmss(out['t'])}"
+    ends = [g['end'] for g in gs if g['end']]
+    if ends:
+        side = max(('TOP', 'BOTTOM'), key=ends.count)
+        if ends.count(side) * 2 > len(ends):
+            s = f"к 3:00 обычно на {'верхней' if side == 'TOP' else 'нижней'} стороне"
+            out['text'] = (out['text'] + ', ' if out['text'] else '') + s
+            out['say'] = out['say'] or s
+    return out if out['text'] else None
+
+
+def gold_series(tl, game, puuid, opp_cid=None):
+    """Золото по минутам: ты и оппонент по линии. Оппонент — по чемпиону из игры, иначе по линии в итогах клиента."""
+    pid = game_pid(game, puuid)
+    ps = (game or {}).get('participants') or []
+    me = next((p for p in ps if p.get('participantId') == pid), None)
+    if not me: return None
+    foes = [p for p in ps if p.get('teamId') != me.get('teamId')]
+    opp = next((p for p in foes if opp_cid and p.get('championId') == opp_cid), None)
+    if not opp:
+        lane = lambda p: ((p.get('timeline') or {}).get('lane'), (p.get('timeline') or {}).get('role') if (p.get('timeline') or {}).get('lane') == 'BOTTOM' else '')
+        c = [p for p in foes if lane(p) == lane(me)]
+        opp = c[0] if len(c) == 1 else None
+    if not opp: return None
+    frames = (tl or {}).get('frames') or []
+    a = [frame_of(f, pid).get('totalGold') or 0 for f in frames]
+    b = [frame_of(f, opp['participantId']).get('totalGold') or 0 for f in frames]
+    return {'me': a, 'opp': b, 'oc': opp.get('championId')} if len(a) > 2 else None
+
+
+def gold_note(gs):
+    """Подпись к графику золота: разница на 10 и 15 минуте, в конце и где было хуже всего."""
+    d = [x - y for x, y in zip(gs['me'], gs['opp'])]
+    out = [f'{m} мин: {d[m]:+}' for m in (10, 15) if len(d) > m]
+    out.append(f'конец: {d[-1]:+}')
+    w = min(range(len(d)), key=d.__getitem__)
+    if d[w] < -500 and w != len(d) - 1: out.append(f'хуже всего {d[w]:+} на {w} мин')
+    return ' · '.join(out)
+
+
 def timeline_marks(tl, game, puuid):
     """Точки для карты смертей из таймлайна клиента: [(x, y, секунда, 'death' | 'kill')]. Координаты карты 0..15000."""
-    pid = next((x.get('participantId') for x in (game or {}).get('participantIdentities') or []
-                if (x.get('player') or {}).get('puuid') == puuid), None)
+    pid = game_pid(game, puuid)
     if not pid: return []
     out = []
     for fr in (tl or {}).get('frames') or []:

@@ -124,6 +124,75 @@ def test_lola_full():
     assert ('Ситуативно: против лечения', [3165]) in sets[0][1]
 
 
+
+def test_skills_parse():
+    v = {'runes': {'set': {'pri': [8010, 9111, 9105, 8299], 'sec': [8453, 8473]}}, 'skillorder': {'id': '132111414144323333'}, 'skillpriority': {'id': 'QWE'}}
+    b = core._lola_variant(v)
+    assert b['skills'] == 'QEWQQQRQRQRREWEEEE' and b['skill_prio'] == 'QWE', b['skills']
+
+
+def test_comp_advice():
+    r = core.comp_advice(D, ['Darius', 'Garen', 'Jinx', 'Caitlyn'], 'MIDDLE', ['Lux', 'Zed'])
+    assert r and 'магический' in r[0] and r[1] == ['Lux'], r
+    assert core.comp_advice(D, ['Darius', 'Lux', 'Jinx', 'Ahri'], 'MIDDLE', ['Lux']) is None
+
+
+def tl_game(kills, pos3=(3000, 9000)):
+    """Таймлайн клиента: 10 кадров, игрок №2 (puuid 'J') — в кадре 3 стоит в pos3; kills: [(секунда, x, y, убийца, жертва)]."""
+    frames = [{'participantFrames': {str(i): {'participantId': i, 'totalGold': 500 + m * (400 if i == 2 else 350), 'position': {'x': 7000, 'y': 7000}}
+                                     for i in range(1, 11)}, 'events': []} for m in range(10)]
+    frames[3]['participantFrames']['2']['position'] = {'x': pos3[0], 'y': pos3[1]}
+    for t, x, y, k, v in kills:
+        frames[t // 60 + 1]['events'].append({'type': 'CHAMPION_KILL', 'timestamp': t * 1000, 'position': {'x': x, 'y': y}, 'killerId': k, 'victimId': v,
+                                              'assistingParticipantIds': []})
+    game = {'participantIdentities': [{'participantId': i, 'player': {'puuid': 'J' if i == 2 else f'p{i}'}} for i in range(1, 11)],
+            'participants': [{'participantId': i, 'teamId': 100 if i <= 5 else 200, 'championId': 100 + i,
+                              'timeline': {'lane': ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'BOTTOM'][(i - 1) % 5],
+                                           'role': ['SOLO', 'NONE', 'SOLO', 'DUO_CARRY', 'DUO_SUPPORT'][(i - 1) % 5]}} for i in range(1, 11)]}
+    return {'frames': frames}, game
+
+
+def test_jungle_plan():
+    gs = [core.jungle_game(*tl_game([(185, 1500, 12000, 2, 6)]), 'J'), core.jungle_game(*tl_game([(200, 2000, 13000, 2, 6)]), 'J'),
+          core.jungle_game(*tl_game([(250, 13000, 1500, 2, 9)], pos3=(9000, 3000)), 'J')]
+    assert gs[0] == {'end': 'TOP', 'first': (185, 'TOP')}, gs[0]
+    p = core.jungle_plan(gs)
+    assert p['lane'] == 'TOP' and p['k'] == 2 and p['n'] == 3 and p['t'] == 200 and 'верхней' in p['text'], p
+    assert core.jungle_plan([None, None]) is None
+    g = core.Game(snap(100), D)
+    w = dict((h, (a, b, why)) for h, a, b, why in core.gank_windows(g, p))
+    assert w['gank3'][:2] == (175, 215) and 'твоя линия' in w['gank3'][2], w
+    eng = core.Engine(D, core.Player(D, 'halch')); eng.jg_plan = p
+    hs = run(eng, [snap(t) for t in range(100, 180, 2)])
+    ids = [h.id for h in hs]
+    assert 'jg_path' in ids and 'gank3' in ids, ids
+
+
+def test_gold_and_marks():
+    tl, game = tl_game([(185, 1500, 12000, 2, 6), (300, 7000, 7000, 7, 2)])
+    gs = core.gold_series(tl, game, 'J', opp_cid=107)
+    assert gs['oc'] == 107 and gs['me'][9] - gs['opp'][9] == 450, gs
+    assert core.gold_series(tl, game, 'J')['oc'] == 107   # без чемпиона: по линии
+    assert '+' in core.gold_note(gs)
+    m = core.timeline_marks(tl, game, 'J')
+    assert [x[3] for x in m] == ['kill', 'death'], m
+
+
+def test_settings_backup():
+    import tempfile, json as js
+    try: import ui
+    except Exception: return   # без tkinter (CI-ранер Linux) пропускаем
+    d = tempfile.mkdtemp()
+    s = ui.Settings(d); s['scale'] = 130; s['phone_token'] = 'secret'
+    b = js.loads(js.dumps(s.export('v-test')))
+    assert 'phone_token' not in b['settings']
+    s2 = ui.Settings(tempfile.mkdtemp())
+    n = s2.load_backup(b)
+    assert s2['scale'] == 130 and n > 5, n
+    try: s2.load_backup({'x': 1}); assert False
+    except ValueError: pass
+
+
 if __name__ == '__main__':
     n = 0
     for k, f in list(globals().items()):

@@ -2,7 +2,7 @@
 # Внешний вид (тема, акцент, шрифт, иконки) настраивается на вкладке «Вид» и применяется сразу: окна пересобираются.
 import base64, io, json, os, platform, queue, subprocess, sys, threading, time, traceback, urllib.request, webbrowser
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import core, lcu, phone
 
@@ -188,6 +188,26 @@ class Settings(dict):
             v = DEFAULTS[k]
             self[k] = json.loads(json.dumps(v))
         self.save()
+
+    BACKUP_SKIP = ('phone_token', 'design2')   # адрес телефона у каждого свой
+
+    def export(self, version=''):
+        """Копия настроек в файл: окна, клавиши, подсказки и их тексты, вид, звук, таймеры."""
+        return {'app': 'LoL Helper', 'version': version, 'settings': {k: v for k, v in self.items() if k not in self.BACKUP_SKIP}}
+
+    def load_backup(self, d):
+        """Применить копию настроек. Неизвестные ключи пропускаются, недостающие остаются как были. Возвращает число разделов."""
+        if not isinstance(d, dict) or d.get('app') != 'LoL Helper' or not isinstance(d.get('settings'), dict):
+            raise ValueError('это не файл настроек LoL Helper')
+        n = 0
+        for k, v in d['settings'].items():
+            if k not in DEFAULTS or k in self.BACKUP_SKIP: continue
+            dv = DEFAULTS[k]
+            if isinstance(dv, dict) != isinstance(v, dict): continue
+            self[k] = {**dv, **v} if isinstance(dv, dict) else v
+            n += 1
+        self.save()
+        return n
 
     def save(self):
         tmp = self.path + '.tmp'
@@ -1362,7 +1382,7 @@ class App:
         self.my_rank = None
         self.ranks = {}
         self.hists = {}
-        self.rank_pu, self.hraw = {}, {}   # звание и история игр по puuid: с экрана загрузки переходят в игру без повторных запросов
+        self.rank_pu, self.hraw, self.jg_cache = {}, {}, {}   # звание и история игр по puuid: с экрана загрузки переходят в игру без повторных запросов
         self.pus, self.hist_exp = {}, set()   # puuid по Riot ID; чьи истории раскрыты кликом
         self.role_override = None
         self.lola, self.lola_state = {}, {}
@@ -1548,6 +1568,7 @@ class App:
                         last_scout = now
                         self.scout = self.fetch_scout(g)
                     if len(self.ranks) < len(g.players): self.fetch_people(g)
+                    elif g.ejg and self.engine.jg_plan is None and g.t < 240: self.scout_jungler(g)
                     self.q.put(('game', g, hints, res))
                 else:
                     if in_game:
@@ -1575,6 +1596,20 @@ class App:
                 log_error('опрос клиента', e)
                 self.q.put(('error', str(e), None, None))
             time.sleep(1)
+
+    def scout_jungler(self, g):
+        """Лесник врагов: как он начинал 2–3 последние игры в лесу (для окна ганка и подсказки)."""
+        pu = self.pus.get(g.ejg['riot'])
+        if not pu or pu not in self.hraw: self.engine.jg_plan = {}; return
+        try: self.engine.jg_plan = self.jg_plan_for(pu) or {}
+        except Exception as e: log_error('разведка лесника', e); self.engine.jg_plan = {}
+
+    def jg_plan_for(self, pu):
+        if pu in self.jg_cache: return self.jg_cache[pu]
+        games = [h for h in (self.hraw.get(pu) or []) if h.get('lane') == 'JUNGLE' and h.get('gid')][:3]
+        plan = core.jungle_plan([core.jungle_game(self.client.timeline(h['gid']), self.client.game(h['gid']), pu) for h in games])
+        self.jg_cache[pu] = plan
+        return plan
 
     def cid(self, key):
         return next((i for i, c in self.data.ids.items() if c == key), None)
@@ -1617,6 +1652,11 @@ class App:
         if todo:
             self.rank_pu[todo] = self.client.rank(todo)
             self.hraw[todo] = self.client.history(todo)
+        else:   # все истории есть: заранее смотрим, как начинает лесник врагов
+            jg = next((p['pu'] for p in ps if p['pu'] and p['team'] != my_team and p['pos'] == 'jungle'), None)
+            if jg and jg not in self.jg_cache:
+                try: self.jg_plan_for(jg)
+                except Exception as e: log_error('разведка лесника', e); self.jg_cache[jg] = None
         out = []
         for p in ps:
             pu, pos = p['pu'], core.LCU_ROLE.get(p['pos'], '')
@@ -1699,7 +1739,7 @@ class App:
             res = core.postgame(self.engine, g, self.player)
             if res: show_postgame(self, res, self.result)
         self.last_game, self.result, self.engine, self.scout = None, None, None, {}
-        self.hraw, self.rank_pu = {}, {}   # к следующей игре история у всех уже другая
+        self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}   # к следующей игре история у всех уже другая
         if self.pending_data: self.reload_data(self.pending_data)
         self.apply_visibility()
         for w in self.tab.values(): w.withdraw()
@@ -2340,13 +2380,17 @@ class App:
         pic = tk.Label(box, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), text='жду таймлайн игры из клиента…', width=26, height=10)
         pic.pack(anchor='w')
         note = tk.Label(box, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), justify='left'); note.pack(anchor='w')
+        gbox = tk.Frame(box, bg=C['bg']); gbox.pack(anchor='w', pady=(8, 0))
         pu, started = (self.account or {}).get('puuid'), time.time()
         def job(tries):
-            marks, gid = None, None
+            marks, gid, gs = None, None, None
             h = self.client.history(pu, 1) if pu else None
             if h and h[0].get('t', 0) / 1000 > started - 3600 * 2 and h[0]['champ'] == int(self.cid(res['me']['c']) or 0):
                 gid = h[0]['gid']
-                marks = core.timeline_marks(self.client.timeline(gid), self.client.game(gid), pu)
+                tl, gm = self.client.timeline(gid), self.client.game(gid)
+                marks = core.timeline_marks(tl, gm, pu)
+                try: gs = core.gold_series(tl, gm, pu, int(self.cid(res.get('opp')) or 0) if res.get('opp') else None)
+                except Exception as e: log_error('итог: золото', e)
             def done():
                 if not pic.winfo_exists(): return
                 if marks is None or Image is None:
@@ -2356,8 +2400,19 @@ class App:
                 pic.configure(image=ph, text='', width=0, height=0)
                 dd = [m for m in marks if m[3] == 'death']
                 note.configure(text=f"✕ смерти: {len(dd)}, до 14 мин: {sum(m[2] < 840 for m in dd)}\n● убийства и помощь: {len(marks) - len(dd)}")
+                if gs: self.gold_box(gbox, gs)
             self.root.after(0, done)
         self.root.after(15000, lambda: threading.Thread(target=job, args=(0,), daemon=True).start())
+
+    def gold_box(self, box, gs):
+        """График «золото против оппонента по линии» под картой смертей."""
+        fn, fs = F['font'], self.fs
+        tk.Label(box, text=f"ЗОЛОТО: ТЫ И {self.data.cn(self.data.ids.get(str(gs['oc']))).upper()}", bg=C['bg'], fg=C['gold'],
+                 font=(fn, fs(9), 'bold')).pack(anchor='w')
+        ph = ImageTk.PhotoImage(render.gold_chart(gs, self.fs(220), self.fs(90), C)); self.keep(ph)
+        tk.Label(box, image=ph, bg=C['bg']).pack(anchor='w')
+        tk.Label(box, text=core.gold_note(gs) + '\nвертикальные линии: каждые 5 минут', bg=C['bg'], fg=C['mute'], font=(fn, fs(9)),
+                 justify='left', wraplength=self.fs(230)).pack(anchor='w')
 
     def open_last_game(self):
         """Сайт сразу на последней игре: её номер берём из истории клиента."""
@@ -2901,6 +2956,12 @@ class App:
         ttk.Button(row, text='Открыть папку с журналами', command=lambda: os.startfile(self.home) if os.name == 'nt' else None).pack(side='left', padx=8)
         n = len([ln for ln in tail(os.path.join(self.home, 'errors.log'), 400) if ln[:2] == '20'])
         self.rep_msg = ttk.Label(f, text=f'В журнале записей: {n}' if n else 'Журнал пуст: ошибок не было.', style='M.TLabel'); self.rep_msg.pack(anchor='w')
+        self.h(f, 'Копия настроек')
+        self.note(f, 'Сохрани настройки в файл (раскладка окон, клавиши, подсказки и их тексты, вид, звук, таймеры), '
+                     'чтобы перенести на другой компьютер или отдать другу. Загрузка из файла заменит текущие настройки.')
+        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
+        ttk.Button(row, text='Сохранить в файл', command=self.backup_save).pack(side='left')
+        ttk.Button(row, text='Загрузить из файла', command=self.backup_load).pack(side='left', padx=8)
         self.h(f, 'Сброс')
         self.note(f, 'Вернуть все настройки программы к начальным: подсказки, вид, звук, окна, клавиши, таймеры.')
         self.confirm = None
@@ -2912,6 +2973,26 @@ class App:
             self.sync_voice(); core.OBJ.update(self.s['obj']); self.rebuild()
             self.status.configure(text='Все настройки сброшены')
         ttk.Button(f, text='Сбросить все настройки', command=reset_all).pack(anchor='w', pady=6)
+
+    def backup_save(self):
+        path = filedialog.asksaveasfilename(parent=self.root, title='Сохранить настройки', defaultextension='.json',
+                                            initialfile='LoLHelper-настройки.json', filetypes=[('Настройки LoL Helper', '*.json')])
+        if not path: return
+        try:
+            json.dump(self.s.export(self.version), open(path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            self.status.configure(text=f'Настройки сохранены: {os.path.basename(path)}')
+        except Exception as e:
+            log_error('копия настроек: сохранение', e); messagebox.showerror('LoL Helper', f'Не удалось сохранить: {e}')
+
+    def backup_load(self):
+        path = filedialog.askopenfilename(parent=self.root, title='Загрузить настройки', filetypes=[('Настройки LoL Helper', '*.json')])
+        if not path: return
+        try:
+            n = self.s.load_backup(json.load(open(path, encoding='utf-8')))
+        except Exception as e:
+            log_error('копия настроек: загрузка', e); messagebox.showerror('LoL Helper', f'Не удалось загрузить: {e}'); return
+        self.sync_voice(); core.OBJ.update(self.s['obj']); self.rebuild()
+        self.status.configure(text=f'Настройки загружены из файла ({n} разделов)')
 
     def load_changelog(self):
         """Изменения по версиям из релизов GitHub; без сети показывает сохранённый список."""
