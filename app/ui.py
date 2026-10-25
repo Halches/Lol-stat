@@ -588,6 +588,23 @@ class TabTop(TabOverlay):
         self.put(c)
 
 
+def no_flicker(win, fn):
+    """Пересобрать содержимое окна без мигания. В Windows каждая метка — своё окно и рисуется сразу при создании,
+    поэтому на время пересборки окно не рисуется (WM_SETREDRAW), а потом показывается целиком одним кадром."""
+    hwnd = None
+    if os.name == 'nt':
+        try: hwnd = int(win.wm_frame(), 16)
+        except Exception: hwnd = None
+    if hwnd: U32.SendMessageW(hwnd, 0x000B, 0, 0)
+    try:
+        fn()
+        win.update_idletasks()
+    finally:
+        if hwnd:
+            U32.SendMessageW(hwnd, 0x000B, 1, 0)
+            U32.RedrawWindow(hwnd, None, None, 0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400)   # INVALIDATE ERASE ALLCHILDREN UPDATENOW FRAME
+
+
 # ---------------- Дашборд на втором мониторе ----------------
 # Во время выбора чемпионов показывает драфт в реальном времени, в игре — карточки всех десяти.
 
@@ -722,6 +739,10 @@ class Dashboard(tk.Toplevel):
         self.clear('load')
         if sig == self.load_sig: return
         self.load_sig = sig
+        no_flicker(self, lambda: self._show_loading(ps))
+
+    def _show_loading(self, ps):
+        app, d = self.app, self.app.data
         for col in self.cols:
             for w in col.winfo_children(): w.destroy()
         fn, fs = F['font'], app.fs
@@ -755,6 +776,12 @@ class Dashboard(tk.Toplevel):
         self.clear('draft')
         if sig == self.draft_sig: return
         self.draft_sig = sig
+        y = self.cv.yview()[0]
+        no_flicker(self, lambda: self._show_draft(cs, r, bans, me, eu))
+        self.cv.yview_moveto(y)   # прокрутка остаётся на месте
+
+    def _show_draft(self, cs, r, bans, me, eu):
+        app, d = self.app, self.app.data
         for col in self.cols + [self.mid]:
             for w in col.winfo_children(): w.destroy()
         fn, fs = F['font'], app.fs
@@ -1578,12 +1605,20 @@ class App:
             def done():
                 if b: self.lola[k] = b
                 self.lola_state[k] = 'ok' if b else 'fail'
-                self.draft_sig = None
-                if self.dash: self.dash.draft_sig = None
-                if self.draft: self.on_draft(self.draft)
+                self.redraw_draft()
             self.root.after(0, done)
         threading.Thread(target=job, daemon=True).start()
         return None
+
+    def redraw_draft(self):
+        """Перерисовать драфт один раз, даже если несколько загрузок lolalytics закончились подряд (иначе окно моргает)."""
+        if getattr(self, '_redraw_job', None): return
+        def go():
+            self._redraw_job = None
+            self.draft_sig = None
+            if self.dash: self.dash.draft_sig = None
+            if self.draft: self.on_draft(self.draft)
+        self._redraw_job = self.root.after(400, go)
 
     def matchup_lines(self, p, col, allies, r):
         """Строки под чемпионом в драфте: у врага — кто его контрит (и кто из твоего пула), у союзника — синергия с командой."""
@@ -2603,9 +2638,7 @@ class App:
                 except Exception: lanes = {}
         def done():
             self.data.lanes = lanes or {}
-            self.draft_sig = None
-            if self.dash: self.dash.draft_sig = None
-            if self.draft: self.on_draft(self.draft)
+            self.redraw_draft()
         self.root.after(0, done)
 
     def reload_data(self, data):
