@@ -42,6 +42,8 @@ WIDGETS = {'hints': 'Подсказки', 'perf': 'Показатели (CS, з�
 SHOW = {'portraits': 'Портреты чемпионов', 'items': 'Иконки предметов (иначе названия)', 'ranks': 'Эмблемы и звания',
         'spells': 'Заклинания призывателя', 'runes': 'Ключевые руны', 'scout': 'Разведка врагов (серия, игры на чемпионе)'}
 RAW = 'https://raw.githubusercontent.com/Halches/Lol-stat/main/'
+RIOT_NOTE = ("LoL Helper isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved "
+             "in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.")
 TIER_RU = {'IRON': 'Железо', 'BRONZE': 'Бронза', 'SILVER': 'Серебро', 'GOLD': 'Золото', 'PLATINUM': 'Платина', 'EMERALD': 'Изумруд',
            'DIAMOND': 'Алмаз', 'MASTER': 'Мастер', 'GRANDMASTER': 'Грандмастер', 'CHALLENGER': 'Претендент'}
 
@@ -1639,7 +1641,9 @@ class App:
         """Союзники в драфте: чемпион (или наведённый), роль, звание и история игр."""
         out = []
         for p in sess.get('myTeam') or []:
-            pu = p.get('puuid')
+            # Riot запрещает раскрывать игроков, которых игра скрыла: у скрытых союзников не берём ни звание, ни историю
+            hidden = p.get('nameVisibilityType') == 'HIDDEN' and p.get('cellId') != sess.get('localPlayerCellId')
+            pu = None if hidden else p.get('puuid')
             if pu and pu not in self.hraw:
                 self.ranks[pu] = self.rank_pu[pu] = self.client.rank(pu)
                 self.hraw[pu] = self.client.history(pu)
@@ -2514,6 +2518,8 @@ class App:
         cb.bind('<<ComboboxSelected>>', pick)
         self.data_lbl = tk.Label(side, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), anchor='w', wraplength=fs(300), justify='left')
         self.data_lbl.pack(anchor='w', pady=(4, 0))
+        tk.Label(side, text="LoL Helper isn't endorsed by Riot Games. League of Legends — товарный знак Riot Games, Inc.", bg=C['bg'], fg=C['mute'],
+                 font=(fn, fs(8)), anchor='w', wraplength=fs(300), justify='left').pack(anchor='w', pady=(6, 0))
         self.panel_sync()
 
     TIPS = {'csm': 'Фарм просел к сезону: добивай волну перед каждым возвращением на базу и забирай боковые линии в середине игры.',
@@ -3017,6 +3023,7 @@ class App:
         f = self.tab_upd
         self.h(f, 'Версия')
         ttk.Label(f, text=f'LoL Helper {self.version}').pack(anchor='w')
+        self.note(f, RIOT_NOTE)
         self.upd_msg = ttk.Label(f, text='', style='M.TLabel'); self.upd_msg.pack(anchor='w', pady=4)
         v = tk.BooleanVar(value=self.s['auto_update'])
         ttk.Checkbutton(f, text='Проверять обновления при запуске', variable=v,
