@@ -1,23 +1,17 @@
 <title>Halch и DrVoldemar: разбор игр</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2306101c' stroke='%23c8aa6e' stroke-width='3.5' d='M32 4 56 18v28L32 60 8 46V18Z'/%3E%3Crect fill='%23c8aa6e' x='19' y='18' width='6' height='28' rx='1'/%3E%3Crect fill='%23c8aa6e' x='39' y='18' width='6' height='28' rx='1'/%3E%3Cpath fill='%230ac8b9' d='M25 32 32 26.5 39 32 32 37.5Z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Forum&family=Fira+Sans+Condensed:wght@500;600;700&family=Golos+Text:wght@400;500;600&display=swap">
 <style>
 /* Layout: one column "scouting report" — header with rank plates, player tabs, summary strip, coach notes, tables, then expandable match log */
-:root{
-  --bg:#eef1f6; --panel:#ffffff; --panel2:#f5f7fb; --ink:#141b2b; --muted:#5d6779; --line:#d9dee8;
-  --gold:#a8771c; --xp:#2f8fd8; --blue:#2d6cdf; --red:#d0443e; --win:#2d6cdf; --loss:#d0443e; --good:#1f8a5b; --bad:#c2410c;
-  --winbg:rgba(45,108,223,.08); --lossbg:rgba(208,68,62,.08);
-  --f-disp:"Fira Sans Condensed","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0b1120; --panel:#121a2c; --panel2:#18223a; --ink:#e6eaf2; --muted:#94a0b8; --line:#26314a;
-  --gold:#d8a94a; --xp:#5cb8ff; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
-  --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#0b1120; --panel:#121a2c; --panel2:#18223a; --ink:#e6eaf2; --muted:#94a0b8; --line:#26314a;
-  --gold:#d8a94a; --xp:#5cb8ff; --blue:#5b93ff; --red:#ff6b62; --win:#5b93ff; --loss:#ff6b62; --good:#45c38a; --bad:#ff8a4c;
-  --winbg:rgba(91,147,255,.10); --lossbg:rgba(255,107,98,.10); color-scheme:dark}
+:root{--f-h:"Forum",Georgia,serif;--f-disp:"Fira Sans Condensed","Arial Narrow",system-ui,sans-serif;--f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;--bg:#06101c;--glow:#0f2236;--panel:#0b1a2a;--panel2:#14283c;--line:#1f3347;--ink:#e8dfcc;--muted:#8c9bab;--gold:#c8aa6e;--win:#0ac8b9;--loss:#e2584e;--warn:#e8a33d;--ally:#4fb3ff;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:dark}
+:root{--bg:#06101c;--glow:#0f2236;--panel:#0b1a2a;--panel2:#14283c;--line:#1f3347;--ink:#e8dfcc;--muted:#8c9bab;--gold:#c8aa6e;--win:#0ac8b9;--loss:#e2584e;--warn:#e8a33d;--ally:#4fb3ff;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:dark}
+:root[data-theme="light"]{--bg:#eef1f5;--glow:#ffffff;--panel:#ffffff;--panel2:#e3e9f0;--line:#d3dae3;--ink:#0d1b2a;--muted:#56657a;--gold:#8a6a2b;--win:#0b8f88;--loss:#b8433b;--warn:#b86e12;--ally:#2f7fd0;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:light}
+:root[data-pal="p2"]{--bg:#0d0b1c;--glow:#1d1a3d;--panel:#151230;--panel2:#211d45;--line:#2c2856;--ink:#ece7f6;--muted:#9b94b8;--gold:#e2c27a;--win:#4fb3ff;--loss:#ff5d73;--warn:#f2b84b;--ally:#4fb3ff;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:dark}
+:root[data-pal="p2"][data-theme="light"]{--bg:#f2f0f8;--glow:#ffffff;--panel:#ffffff;--panel2:#e7e3f3;--line:#d4cfe6;--ink:#16122e;--muted:#5f5880;--gold:#86662a;--win:#1f6fc0;--loss:#c2364c;--warn:#b86e12;--ally:#1f6fc0;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:light}
+:root[data-pal="p3"]{--bg:#0e0e0f;--glow:#1d1b18;--panel:#171717;--panel2:#211f1c;--line:#2e2b27;--ink:#f0e9db;--muted:#9d978b;--gold:#d6ab52;--win:#4cc38a;--loss:#e5604f;--warn:#e8a33d;--ally:#5aa9e6;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:dark}
+:root[data-pal="p3"][data-theme="light"]{--bg:#f4f2ee;--glow:#ffffff;--panel:#ffffff;--panel2:#ebe7df;--line:#dcd6cb;--ink:#1c1a17;--muted:#6b665c;--gold:#8a6420;--win:#1f8a5b;--loss:#b9442f;--warn:#b86e12;--ally:#2f7fd0;--xp:var(--ally);--blue:var(--ally);--red:var(--loss);--good:var(--win);--bad:var(--loss);--winbg:color-mix(in srgb,var(--win) 12%,transparent);--lossbg:color-mix(in srgb,var(--loss) 12%,transparent);color-scheme:light}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5}
@@ -306,48 +300,182 @@ button:disabled{opacity:.5;cursor:default}
   .goal .gn b{font-size:16px}
   .goal .gn small{font-size:10px;line-height:1.2}
 }
+
+/* ===== Дизайн 26.10: Хекстек · Римские капители · Плиты (без рамок, детали светлее фона) ===== */
+body{margin:0;background:radial-gradient(1100px 520px at 25% -8%,var(--glow),transparent 70%) no-repeat,var(--bg);font-family:var(--f-body)}
+h1,h2,h3{font-family:var(--f-h);font-weight:400;text-transform:uppercase;letter-spacing:.1em;color:var(--gold)}
+h2{font-size:17px}h3{font-size:14px}
+.app{min-height:100vh}
+.top{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:10px 12px;padding:9px max(16px,env(safe-area-inset-right,0px)) 9px max(16px,env(safe-area-inset-left,0px));background:var(--panel)}
+.brand{display:flex;align-items:center;gap:8px;font:400 16px var(--f-h);letter-spacing:.14em;text-transform:uppercase;color:var(--gold);white-space:nowrap;margin-right:6px}
+.brand svg{width:26px;height:26px;flex:none}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.filters .range{display:none}
+.grow{flex:1}
+.meta{font-size:11.5px;color:var(--muted);padding:6px 8px 0;line-height:1.4}
+.tbtn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;display:block;margin:auto}
+.seg{background:var(--panel);border:0;border-radius:8px;padding:3px;gap:2px}
+.top .seg{background:var(--bg)}
+.seg button{font:500 12.5px var(--f-disp);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:5px 11px;border-radius:6px}
+.seg button[aria-pressed="true"]{background:var(--panel2);color:var(--gold)}
+.seg.sm button{font-size:12px;padding:4px 9px}
+.fbtn{display:none}
+.fbtn,.tbtn,.lnk{font:500 12.5px var(--f-disp);letter-spacing:.06em;text-transform:uppercase;border:0;background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.tbtn{width:32px;height:32px;padding:0;font-size:16px;border-radius:8px;color:var(--gold)}
+.lnk{background:none;color:var(--muted);padding:2px 0;text-transform:none;letter-spacing:0;font:13px var(--f-body)}
+.lnk:hover{color:var(--gold)}
+.thm{position:relative}
+.tpop{position:absolute;right:0;top:calc(100% + 8px);z-index:20;background:var(--panel2);border-radius:8px;padding:10px;display:grid;gap:8px;min-width:200px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.tpop .seg{background:var(--panel)}
+.tpop .seg.col{flex-direction:column;display:flex}
+.tpop .seg button{display:flex;align-items:center;gap:8px;text-align:left}
+.tpop .seg button i{width:12px;height:12px;border-radius:3px;flex:none}
+.k{font:500 11px var(--f-disp);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.body{display:grid;grid-template-columns:200px minmax(0,1fr);align-items:start}
+.side{position:sticky;top:52px;display:grid;gap:14px;padding:16px 10px;max-height:calc(100vh - 52px);overflow-y:auto;scrollbar-width:thin}
+.side .grp{display:grid;gap:1px}.side .k{padding:0 8px 4px}
+.side button{font:13.5px var(--f-body);display:flex;justify-content:space-between;gap:8px;text-align:left;border:0;background:none;color:var(--ink);padding:5px 8px;border-radius:6px;cursor:pointer}
+.side button:hover{background:color-mix(in srgb,var(--panel2) 50%,transparent)}
+.side button[aria-pressed="true"]{background:var(--panel2);color:var(--gold)}
+.side small{font:500 12px var(--f-disp);color:var(--muted)}
+.side button:focus-visible,.tabbar button:focus-visible,.pc:focus-visible,.btn:focus-visible,.mrow2:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.wrap{max-width:1160px;margin:0;padding:18px max(20px,env(safe-area-inset-right,0px)) 60px 20px;gap:16px}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:stretch}
+.hero .plates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pc{font:inherit;color:var(--ink);text-align:left;border:0;cursor:pointer;display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--panel);border-radius:8px;min-width:0}
+.pc .emb{width:52px;height:52px;flex:none}
+.pc .nm{font:400 21px/1.15 var(--f-h);letter-spacing:.06em;color:var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc .ln{font-size:12.5px;color:var(--muted)}.pc .ln b{color:var(--ink);font-weight:600}
+.pc.dim{opacity:.62}.pc.dim .nm{color:var(--ink)}
+.pc>div{min-width:0}
+.herob{display:grid;gap:8px;align-content:center}
+.btn{font:500 12.5px var(--f-disp);letter-spacing:.08em;text-transform:uppercase;padding:8px 14px;border-radius:6px;border:0;background:var(--gold);color:var(--bg);cursor:pointer;white-space:nowrap}
+.btn.g{background:var(--panel2);color:var(--ink)}
+.tiles{gap:8px;background:none;border:0;border-radius:0;overflow:visible}
+.tile{border-radius:8px;padding:10px 12px}
+.tile>span{font:500 11px var(--f-disp);letter-spacing:.09em;text-transform:uppercase}
+.tile b{font-size:28px;font-weight:600}
+.sumcols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;align-items:start}
+.rep{background:var(--panel);border-radius:8px;padding:14px 16px;display:grid;gap:8px}
+.rep .clip::after{background:linear-gradient(transparent,var(--panel))}
+.hd{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sumgames{display:grid;gap:8px}#sumgames{display:grid;gap:6px}
+.mrow2{font:inherit;color:var(--ink);text-align:left;border:0;cursor:pointer;position:relative;display:grid;grid-template-columns:36px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 10px 8px 12px;background:var(--panel);border-radius:8px;min-width:0}
+.mrow2::before,.game>summary::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--win)}
+.mrow2.l::before,.game.l>summary::before{background:var(--loss)}
+.mrow2:hover{background:var(--panel2)}
+.mrow2 .ic.av{width:36px;height:36px;border-radius:50%}
+.mrow2 .mn{min-width:0}.mrow2 .mn b{font-weight:600}.mrow2 .mn small{color:var(--muted)}
+.mrow2 .mn>b,.mrow2 .mn>small{white-space:nowrap}
+.mrow2 .its{display:flex;gap:3px;margin-top:3px}.mrow2 .its .ic.it{width:18px;height:18px;border-radius:4px}
+.mrow2 .kda{font:600 14px var(--f-disp);text-align:right}.mrow2 .kda small{display:block;font:400 11.5px var(--f-body);color:var(--muted)}
+.mrow2 .rs{font:600 12px var(--f-disp);letter-spacing:.06em;text-transform:uppercase;text-align:right;min-width:84px;color:var(--win)}
+.mrow2.l .rs{color:var(--loss)}.mrow2 .rs small{display:block;font:400 11.5px var(--f-body);letter-spacing:0;text-transform:none;color:var(--muted)}
+.ro{display:inline-block;width:13px;height:13px;margin-right:3px;vertical-align:-2px;background:var(--gold);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
+.ro-top{--m:url(https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-top.png)}
+.ro-jungle{--m:url(https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-jungle.png)}
+.ro-middle{--m:url(https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-middle.png)}
+.ro-bottom{--m:url(https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-bottom.png)}
+.ro-utility{--m:url(https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png)}
+/* плиты без рамок */
+.chart,.tbl,.notes,.coach,.goal,.rec,.sk,.deaths,.live,.dcard,.dpick,.plate,.game,.coachoff{border:0}
+.rec:hover{border:0;background:var(--panel2)}
+.game{position:relative}.game.w,.game.l{border-left:0}
+.game>summary{position:relative}
+.game summary .ch>.ic{width:36px;height:36px;border-radius:50%}
+.game .build .ic.it{width:20px;height:20px;border-radius:4px}
+.res{font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:13px}
+.res small{text-transform:none;letter-spacing:0}
+.detail{border-top:0}
+.chip{border:0;background:var(--panel2);border-radius:999px;padding:2px 9px}
+.chip.g{background:color-mix(in srgb,var(--win) 16%,var(--panel2));color:var(--win)}.chip.b{background:color-mix(in srgb,var(--loss) 16%,var(--panel2));color:var(--loss)}
+.lg,.killer{border:0;background:var(--panel2)}
+.quick button,.askbtns button,.cbtn,.presets button{border:0;background:var(--panel2);border-radius:999px}
+.askbtns #asksend,.cbtn.primary{background:var(--gold);color:var(--bg)}
+.more{border:0;background:var(--panel);font:500 13px var(--f-disp);letter-spacing:.08em;text-transform:uppercase}
+.more:hover{background:var(--panel2)}
+th{border-bottom:0;font:500 11px var(--f-disp);letter-spacing:.09em}
+td{border-bottom:0}
+tbody tr:nth-child(even)>td{background:color-mix(in srgb,var(--panel2) 60%,transparent)}
+.itl .sep td,.sb .sep td{border-bottom:0;box-shadow:0 2px 0 var(--bg)}
+.msg.a{border-left-color:var(--gold)}
+.live{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--gold) 50%,transparent)}
+.tabbar{display:none}
+@media (max-width:760px){
+  .top{flex-wrap:wrap;padding-block:10px}
+  .brand{font-size:14px}.brand span{font-size:0}.brand span::after{content:"Разбор игр";font-size:14px}
+  .fbtn{display:inline-block;order:2;margin-left:auto}
+  .thm{order:3}
+  .meta,.grow{display:none}
+  .filters{display:none;order:4;flex-basis:100%}
+  .fopen .filters{display:flex}
+  .body{display:block}
+  .side{position:sticky;top:52px;z-index:7;display:flex;gap:6px;overflow-x:auto;max-height:none;padding:8px 16px;background:var(--bg);scrollbar-width:none}
+  .side::-webkit-scrollbar{display:none}
+  .side .grp{display:contents}.side .k{display:none}
+  .side button{white-space:nowrap;border-radius:999px;background:var(--panel);padding:5px 12px;font-size:13px}
+  .side button[aria-pressed="true"]{background:var(--gold);color:var(--bg)}
+  .side small{display:none}
+  .wrap{padding:12px 16px 90px}
+  .hero{grid-template-columns:1fr}.hero .plates{grid-template-columns:1fr}
+  .pc .emb{width:40px;height:40px}.pc .nm{font-size:18px}
+  .herob{grid-template-columns:1fr 1fr}
+  .tiles{grid-template-columns:repeat(2,1fr)}.tile b{font-size:24px}
+  .sumcols{grid-template-columns:minmax(0,1fr)}
+  .mrow2{grid-template-columns:34px minmax(0,1fr) auto}.mrow2 .kda{display:none}.mrow2 .its{display:none}
+  .tabbar{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;left:0;right:0;bottom:0;z-index:9;background:var(--panel);padding:8px 6px max(10px,env(safe-area-inset-bottom,0px))}
+  .tabbar button{font:10.5px var(--f-body);display:grid;justify-items:center;gap:2px;border:0;background:none;color:var(--muted);cursor:pointer}
+  .tabbar svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .tabbar button[aria-pressed="true"]{color:var(--gold)}
+  .cmptray{bottom:80px}
+}
 </style>
 
-<div class="wrap">
-  <header>
-    <div>
-      <div class="eyebrow">Разбор игр · EUW</div>
-      <h1>Halch и DrVoldemar</h1>
-      <div class="muted" id="meta"></div>
+<div class="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path fill="var(--bg)" stroke="var(--gold)" stroke-width="3.5" d="M32 4 56 18v28L32 60 8 46V18Z"/><rect fill="var(--gold)" x="19" y="18" width="6" height="28" rx="1"/><rect fill="var(--gold)" x="39" y="18" width="6" height="28" rx="1"/><path fill="var(--win)" d="M25 32 32 26.5 39 32 32 37.5Z"/></svg><span>Разбор игр · EUW</span></div>
+    <button type="button" class="fbtn" id="fbtn" aria-expanded="false" aria-controls="filters">Фильтры</button>
+    <div class="filters" id="filters">
+      <div class="seg" id="who" role="group" aria-label="Игрок">
+        <button data-v="halch" aria-pressed="true">Halch</button>
+        <button data-v="drv" aria-pressed="false">DrVoldemar</button>
+        <button data-v="duo" aria-pressed="false">Вместе</button>
+      </div>
+      <div class="seg" id="queue" role="group" aria-label="Очередь">
+        <button data-v="all" aria-pressed="true">Все</button>
+        <button data-v="420" aria-pressed="false">Соло</button>
+        <button data-v="440" aria-pressed="false">Флекс</button>
+        <button data-v="norm" aria-pressed="false">Обычные</button>
+      </div>
+      <div class="seg" id="npre" role="group" aria-label="Сколько игр"><button data-n="20">20</button><button data-n="50">50</button><button data-n="100">100</button><button data-n="0" id="nall">Все</button></div>
+      <div class="seg" id="res" role="group" aria-label="Результат">
+        <button data-r="all" aria-pressed="true">Все игры</button>
+        <button data-r="win" aria-pressed="false">Победы</button>
+        <button data-r="loss" aria-pressed="false">Поражения</button>
+      </div>
+      <div class="range">
+        <label for="ngames">Учитывать</label>
+        <input type="range" id="ngames" min="10" max="100" step="10" value="100">
+        <output id="nlabel" for="ngames"></output>
+      </div>
     </div>
-    <div class="plates" id="plates"></div>
+    <div class="grow"></div>
+    <div class="thm">
+      <button type="button" class="tbtn" id="tbtn" aria-expanded="false" aria-controls="tpop" title="Тема"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
+      <div class="tpop" id="tpop" hidden>
+        <div class="k">Палитра</div>
+        <div class="seg col" id="pal" role="group" aria-label="Палитра"><button data-p="p1"><i style="background:#c8aa6e"></i>Клиент LoL</button><button data-p="p2"><i style="background:#4fb3ff"></i>Пилтовер</button><button data-p="p3"><i style="background:#4cc38a"></i>Тёмное золото</button></div>
+        <div class="seg" id="tod" role="group" aria-label="Время суток"><button data-t="dark">Ночь</button><button data-t="light">День</button></div>
+      </div>
+    </div>
   </header>
-
-  <div class="controls">
-    <div class="seg" id="who" role="group" aria-label="Игрок">
-      <button data-v="halch" aria-pressed="true">Halch</button>
-      <button data-v="drv" aria-pressed="false">DrVoldemar</button>
-      <button data-v="duo" aria-pressed="false">Вместе</button>
-    </div>
-    <div class="seg" id="queue" role="group" aria-label="Очередь">
-      <button data-v="all" aria-pressed="true">Все</button>
-      <button data-v="420" aria-pressed="false">Соло</button>
-      <button data-v="440" aria-pressed="false">Флекс</button>
-      <button data-v="norm" aria-pressed="false">Обычные</button>
-    </div>
-    <div class="seg" id="res" role="group" aria-label="Результат">
-      <button data-r="all" aria-pressed="true">Все игры</button>
-      <button data-r="win" aria-pressed="false">Победы</button>
-      <button data-r="loss" aria-pressed="false">Поражения</button>
-    </div>
-    <div class="range">
-      <label for="ngames">Учитывать</label>
-      <input type="range" id="ngames" min="10" max="100" step="10" value="100">
-      <output id="nlabel" for="ngames"></output>
-      <div class="presets" id="npre"><button data-n="20">20</button><button data-n="50">50</button><button data-n="100">100</button><button data-n="0">все</button></div>
-    </div>
+  <div class="body">
+  <nav class="side" id="view" aria-label="Разделы"><div class="grp"><div class="k">Обзор</div><button data-view="stats" data-tab="sum">Сводка<small id="cnt-sum"></small></button><button data-view="stats" data-tab="week">Отчёт тренера<small id="cnt-week"></small></button><button data-view="stats" data-tab="goals">Цели<small id="cnt-goals"></small></button><button data-view="stats" data-tab="rating">Рейтинг<small id="cnt-rating"></small></button><button data-view="stats" data-tab="notes">Выводы<small id="cnt-notes"></small></button></div><div class="grp"><div class="k">Игра</div><button data-view="stats" data-tab="lane">Линия<small id="cnt-lane"></small></button><button data-view="stats" data-tab="impact">Вклад<small id="cnt-impact"></small></button><button data-view="stats" data-tab="deaths">Смерти<small id="cnt-deaths"></small></button><button data-view="stats" data-tab="ganks">Ганки<small id="cnt-ganks"></small></button><button data-view="stats" data-tab="streak">Серии<small id="cnt-streak"></small></button></div><div class="grp"><div class="k">Чемпионы</div><button data-view="stats" data-tab="champs">Чемпионы<small id="cnt-champs"></small></button><button data-view="stats" data-tab="mup">Матчапы<small id="cnt-mup"></small></button><button data-view="stats" data-tab="builds">Билды<small id="cnt-builds"></small></button><button data-view="stats" data-tab="mast">Мастерство<small id="cnt-mast"></small></button><button data-view="stats" data-tab="em">Изумруд+<small id="cnt-em"></small></button></div><div class="grp"><div class="k">История</div><button data-view="stats" data-tab="games">Матчи<small id="cnt-games"></small></button><button data-view="stats" data-tab="wl">Победы и поражения<small id="cnt-wl"></small></button><button data-view="stats" data-tab="recs">Рекорды<small id="cnt-recs"></small></button><button data-view="stats" data-tab="act">Активность<small id="cnt-act"></small></button></div><div class="grp"><div class="k">Помощь</div><button data-view="draft">Драфт</button><button data-view="coach">Тренер</button></div><div class="meta" id="meta"></div></nav>
+  <div class="wrap">
+  <div class="hero" id="hero">
+    <div class="plates" id="plates"></div>
+    <div class="herob"><button type="button" class="btn" id="lastbtn">Разбор последней игры</button><button type="button" class="btn g" id="draftbtn">Открыть драфт</button></div>
   </div>
-
-  <nav class="tabs" id="view" aria-label="Разделы">
-    <button data-view="stats" data-tab="over">Обзор</button><button data-view="stats" data-tab="lane">Линия</button><button data-view="stats" data-tab="fight">Бои и смерти</button><button data-view="stats" data-tab="champ">Чемпионы</button><button data-view="stats" data-tab="habit">Привычки</button><button data-view="stats" data-tab="games">Игры</button>
-    <span class="sep"></span><button data-view="draft">Драфт</button><button data-view="coach">Тренер</button>
-  </nav>
-
   <section id="draftview" hidden>
     <div class="coach">
       <div class="coach-head"><h2>Драфт</h2><div class="muted">Кого взять на свою роль, по твоим играм за сезон</div></div>
@@ -385,6 +513,11 @@ button:disabled{opacity:.5;cursor:default}
 
   <div id="statsview">
   <div class="tiles" id="tiles"></div>
+
+  <div class="sumcols" id="sumcols">
+    <div class="rep" id="sumweek"></div>
+    <div class="sumgames"><div class="hd"><h2>Последние игры</h2><button type="button" class="lnk" data-view="stats" data-tab="games" id="allgames">все игры →</button></div><div id="sumgames"></div></div>
+  </div>
 
   <section id="livesec" hidden>
     <div class="ctitle"><h2>Сейчас в игре</h2><span class="muted" id="liveage" style="font-size:12px"></span></div>
@@ -516,6 +649,9 @@ button:disabled{opacity:.5;cursor:default}
   </div>
 
   <p class="foot" id="foot"></p>
+  </div>
+  </div>
+  <nav class="tabbar" id="tabbar" aria-label="Главные разделы"><button data-view="stats" data-tab="sum"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z"/></svg>Сводка</button><button data-view="stats" data-tab="games"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>Игры</button><button data-view="stats" data-tab="champs"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Чемпионы</button><button data-view="coach"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Тренер</button></nav>
   <div class="cmptray" id="cmptray" hidden></div>
 </div>
 
@@ -525,9 +661,19 @@ const IC=/*ICONS*/;
 const META=/*META*/;
 const ROLE={TOP:'Топ',JUNGLE:'Лес',MIDDLE:'Мид',BOTTOM:'Бот',UTILITY:'Саппорт','':'—',Invalid:'—'};
 const NAME={halch:'Halch',drv:'DrVoldemar'};
-const st={who:'halch',queue:'all',n:0,view:'stats',res:'all',tab:'over'};
+const st={who:'halch',queue:'all',n:0,view:'stats',res:'all',tab:'sum'};
 try{const s=JSON.parse(localStorage.getItem('lolsite')||'{}');Object.assign(st,s)}catch(e){}
 const $=id=>document.getElementById(id);
+const TH={pal:'p1',tod:'dark'};try{Object.assign(TH,JSON.parse(localStorage.getItem('loltheme')||'{}'))}catch(e){}
+function applyTheme(){const r=document.documentElement;r.dataset.pal=TH.pal;r.dataset.theme=TH.tod;
+  document.querySelectorAll('#pal button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.p===TH.pal));document.querySelectorAll('#tod button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t===TH.tod));
+  try{localStorage.setItem('loltheme',JSON.stringify(TH))}catch(e){}}
+applyTheme();
+$('tbtn').onclick=()=>{const p=$('tpop');p.hidden=!p.hidden;$('tbtn').setAttribute('aria-expanded',!p.hidden)};
+document.addEventListener('click',e=>{if(!e.target.closest('.thm'))$('tpop').hidden=true});
+$('pal').onclick=e=>{const b=e.target.closest('[data-p]');if(b){TH.pal=b.dataset.p;applyTheme()}};
+$('tod').onclick=e=>{const b=e.target.closest('[data-t]');if(b){TH.tod=b.dataset.t;applyTheme()}};
+$('fbtn').onclick=()=>{const o=document.querySelector('.app').classList.toggle('fopen');$('fbtn').setAttribute('aria-expanded',o)};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const cn=c=>IC.names[c]||c;
 const cimg=(c,cls='')=>IC.c[c]?`<img class="ic ${cls}" src="${IC.c[c]}" alt="${esc(cn(c))}" title="${esc(cn(c))}">`:`<span class="ic ${cls}"></span>`;
@@ -537,6 +683,8 @@ const sgn=(n,d=0)=>n==null||isNaN(n)?'—':(+Math.abs(n).toFixed(d)===0?'':n>0?'
 const cls=n=>n>0?'pos':n<0?'neg':'';
 const avg=a=>{a=a.filter(x=>x!=null&&!isNaN(x));return a.length?a.reduce((s,x)=>s+x,0)/a.length:null};
 const kda=(k,d,a)=>(k+a)/Math.max(1,d);
+const RO={TOP:'top',JUNGLE:'jungle',MIDDLE:'middle',BOTTOM:'bottom',UTILITY:'utility'};
+const roleIc=p=>RO[p]?`<i class="ro ro-${RO[p]}" aria-hidden="true"></i>`:'';
 const date=t=>new Date(t).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 const qok=g=>st.queue==='all'||(st.queue==='norm'?![420,440].includes(g.q):g.q==+st.queue);
 const laner=p=>['TOP','MIDDLE','BOTTOM'].includes(p);
@@ -1154,7 +1302,7 @@ function gameRow(r){
   const rune=[m.keystone,m.sec].map(r=>IC.r[r]?`<img class="ic sm" src="${IC.r[r]}" alt="" title="${esc(IC.rnames[r]||'')}">`:'').join('');
   return `<details class="game ${m.win?'w':'l'}" id="g-${g.id}"><summary>
     <div class="res">${m.win?'Победа':'Поражение'}<small>${g.qn} · ${fmt(g.dur,0)} мин<br>${date(g.start)}</small></div>
-    <div class="ch">${cimg(m.c)}<div><b>${esc(cn(m.c))}</b><div class="few">${ROLE[m.pos]||''}</div><div class="build">${sums}${rune}</div></div></div>
+    <div class="ch">${cimg(m.c)}<div><b>${esc(cn(m.c))}</b><div class="few">${roleIc(m.pos)}${ROLE[m.pos]||''}</div><div class="build">${sums}${rune}</div></div></div>
     <div class="kda">${m.k}/${m.d}/${m.a}<small>KDA ${fmt(kda(m.k,m.d,m.a),2)} · ${m.cs} CS (${fmt(m.csm,1)})</small></div>
     <div class="vs">${m.opp?`против ${cimg(m.opp.c,'sm')} ${esc(cn(m.opp.c))} ${m.opp.k}/${m.opp.d}/${m.opp.a}`:''}<div class="chips">${chips.join('')}</div>${duo}</div>
     <div class="build">${m.items.map(iimg).join('')}</div>
@@ -1193,13 +1341,16 @@ function render(){
   document.querySelectorAll('#res button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===st.res));
   const list=rows();
   const sl=$('ngames');sl.max=Math.max(10,Math.ceil(TOTAL/10)*10);sl.value=st.n&&st.n<TOTAL?st.n:sl.max;nlab();
-  $('meta').textContent=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} ${({all:'игр',win:'побед',loss:'поражений'})[st.res]} в выборке · обновлено ${META.updated} · патч ${META.patch}`;
+  $('meta').textContent=`обновлено ${META.updated} · патч ${META.patch}`;$('meta').title=`${list.length===TOTAL?`Все ${TOTAL}`:`Последние ${list.length} из ${TOTAL}`} ${({all:'игр',win:'побед',loss:'поражений'})[st.res]} в выборке`;
   $('recsec').hidden=$('peersec').hidden=$('deathsec').hidden=$('buildsec').hidden=$('goalsec').hidden=$('skillsec').hidden=$('lpsec').hidden=$('ganksec').hidden=$('emsec').hidden=$('tiltsec').hidden=$('mupsec').hidden=$('mastsec').hidden=$('badsec').hidden=st.who==='duo';$('duosec').hidden=st.who!=='duo';
-  if(st.who==='duo')$('weeksec').hidden=true;
+  if(st.who==='duo'){$('weeksec').hidden=true;weekly()}
   if(st.who==='duo'){duoNotes(list);duo(list);trend(list);champs(list);lanes(list);activity(list)}
   else{tiles(list);skills(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);badEnemies(list);weekly();mastery()}
   impact(list);winloss();patches(list);
-  CUR=list;showGames();showView();
+  CUR=list;showGames();sumGames();plates();
+  $('nall').textContent=`Все ${TOTAL}`;$('cnt-games').textContent=list.length;$('cnt-champs').textContent=new Set(list.map(r=>r.m.c)).size;
+  $('fbtn').textContent=`Фильтры · ${list.length===TOTAL?'все '+TOTAL:list.length+' игр'}`;
+  showView();
 }
 $('games').addEventListener('toggle',async e=>{const d=e.target.querySelector('.detail');if(e.target.open&&d&&!d.childElementCount){const r=DETAIL[d.dataset.id];
   if(!r.g.loaded){d.innerHTML='<div class="empty">Загружаю подробности игры…</div>';try{await loadChunk(r.g.ck)}catch(err){d.innerHTML='<div class="empty">Не удалось загрузить подробности. Обнови страницу.</div>';return}}
@@ -1226,7 +1377,7 @@ $('drolef').onchange=()=>{dRole=$('drolef').value;dChamp='';deaths(rows())};
 $('dchampf').onchange=()=>{dChamp=$('dchampf').value;deaths(rows())};
 $('dfilt').addEventListener('click',e=>{const b=e.target.closest('[data-d]');if(!b)return;dfilt=b.dataset.d;$('dfilt').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));deaths(rows())});
 $('bchamps').addEventListener('click',e=>{const b=e.target.closest('[data-bc]');if(!b)return;bchamp=b.dataset.bc;builds(rows())});
-$('recs').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(!b)return;if(!$('g-'+b.dataset.go)){const i=CUR.findIndex(r=>r.g.id===b.dataset.go);if(i>=LIM){LIM=i+1;showGames()}}const d=$('g-'+b.dataset.go);if(!d)return;d.open=true;d.scrollIntoView({behavior:'smooth',block:'start'});d.classList.add('flash');setTimeout(()=>d.classList.remove('flash'),1600)});
+$('recs').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b)openGame(b.dataset.go)});
 function nlab(){const v=+$('ngames').value;$('nlabel').textContent=v>=TOTAL?`все ${TOTAL} игр`:`последние ${v} игр`;
   $('npre').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.n===(st.n&&st.n<TOTAL?st.n:0)))}
 let ntimer;
@@ -1235,13 +1386,18 @@ $('npre').addEventListener('click',e=>{const b=e.target.closest('[data-n]');if(!
 $('games').addEventListener('click',e=>{const b=e.target.closest('[data-cr]');if(b){reviewGame(b.dataset.cr);return}const s=e.target.closest('[data-crstop]');if(s)CR[s.dataset.crstop]?.ctl?.abort()});
 $('games').addEventListener('input',e=>{const r=e.target.closest('[data-tmr]');if(!r)return;const el=r.closest('.tmap');TM[el.dataset.id].t=+r.value;drawTM(el)});
 $('games').addEventListener('click',e=>{const p=e.target.closest('[data-tmplay]');if(p){tmPlay(p.closest('.tmap'));return}const md_=e.target.closest('[data-tmm]');if(md_){const el=md_.closest('.tmap');TM[el.dataset.id].mode=md_.dataset.tmm;drawTM(el)}});
-const TABS={over:['tiles','skillsec','livesec','weeksec','notesec','goalsec','lpsec'],lane:['trendsec','lanesec','mupsec','badsec','ganksec','emsec'],fight:['impsec','wlsec','deathsec'],
-  champ:['champsec','buildsec','mastsec','patchsec'],habit:['tiltsec','actsec','recsec','duosec'],games:['gamesec','cmp']};
-$('view').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;st.view=b.dataset.view;if(b.dataset.tab)st.tab=b.dataset.tab;showView();try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(err){}
-  const top=$('view').getBoundingClientRect().top+window.scrollY;if(window.scrollY>top)window.scrollTo({top})});
-function showView(){const v=st.view;$('coachview').hidden=v!=='coach';$('draftview').hidden=v!=='draft';$('statsview').hidden=v!=='stats';if(!TABS[st.tab])st.tab='over';
+const TABS={sum:['tiles','sumcols','livesec','skillsec'],week:['weeksec'],goals:['goalsec'],rating:['lpsec'],notes:['notesec'],
+  lane:['trendsec','lanesec'],impact:['impsec','duosec'],deaths:['deathsec'],ganks:['ganksec'],streak:['tiltsec','patchsec'],
+  champs:['champsec'],mup:['mupsec','badsec'],builds:['buildsec'],mast:['mastsec'],em:['emsec'],
+  games:['gamesec','cmp'],wl:['wlsec'],recs:['recsec'],act:['actsec']};
+const OLDTAB={over:'sum',fight:'deaths',champ:'champs',habit:'streak'};
+function goView(b){st.view=b.dataset.view;if(b.dataset.tab)st.tab=b.dataset.tab;showView();try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(err){}
+  window.scrollTo({top:0})}
+document.addEventListener('click',e=>{const b=e.target.closest('#view [data-view],#tabbar [data-view],.lnk[data-view]');if(b)goView(b)});
+function showView(){const v=st.view;$('coachview').hidden=v!=='coach';$('draftview').hidden=v!=='draft';$('statsview').hidden=v!=='stats';$('hero').classList.toggle('offtab',v!=='stats'||st.tab!=='sum');
+  if(OLDTAB[st.tab])st.tab=OLDTAB[st.tab];if(!TABS[st.tab])st.tab='sum';
   Object.entries(TABS).forEach(([k,ids])=>ids.forEach(id=>{const e=$(id);if(e)e.classList.toggle('offtab',k!==st.tab)}));
-  $('view').querySelectorAll('button').forEach(b=>{const on=v==='stats'?b.dataset.tab===st.tab:b.dataset.view===v;b.setAttribute('aria-pressed',on);if(on&&b.scrollIntoView&&$('view').scrollWidth>$('view').clientWidth)$('view').scrollLeft=b.offsetLeft-40});coachScope();coachAvail();if(v==='draft'&&GAMES.length)draft()}
+  document.querySelectorAll('#view button,#tabbar button').forEach(b=>{const on=v==='stats'?b.dataset.tab===st.tab:b.dataset.view===v;b.setAttribute('aria-pressed',on);const nv=b.parentNode.closest('#view');if(on&&nv&&nv.scrollWidth>nv.clientWidth)nv.scrollLeft=b.offsetLeft-40});coachScope();coachAvail();if(v==='draft'&&GAMES.length)draft()}
 $('quick').addEventListener('click',e=>{const b=e.target.closest('button');if(b)ask(b.textContent)});
 $('askform').addEventListener('submit',e=>{e.preventDefault();ask($('askq').value)});
 $('askq').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask($('askq').value)}});
@@ -1253,14 +1409,21 @@ document.querySelectorAll('#queue button').forEach(b=>b.onclick=()=>{st.queue=b.
 document.querySelectorAll('#res button').forEach(b=>b.onclick=()=>{st.res=b.dataset.r;render()});
 const TCOL={'Железо':'#8a7f7a','Бронза':'#a86f4c','Серебро':'#9fb0bd','Золото':'#d4a84a','Платина':'#3fb6a8','Изумруд':'#2fbf71','Алмаз':'#7b8cf0','Мастер':'#b05cd6','Грандмастер':'#e2504a','Претендент':'#f0c45a'};
 const tc=q=>TCOL[q.r.split(' ')[0]]?`color-mix(in srgb,${TCOL[q.r.split(' ')[0]]} 78%,var(--ink))`:'var(--gold)';
-$('plates').innerHTML=META.ranks.map(r=>{
-  const [solo,...rest]=r.q,tier=q=>q.r.split(' ')[0],em=(q,c)=>IC.emb&&IC.emb[tier(q)]?`<img class="${c}" src="${IC.emb[tier(q)]}" alt="${esc(tier(q))}">`:'';
-  if(!solo)return `<div class="plate"><div class="who">${esc(r.name)}</div><div class="rk">без ранга</div></div>`;
-  const [rk,lp]=solo.r.split(' · '),m=solo.wl.match(/(\d+)–(\d+) \((\d+)%\)/);
-  return `<div class="plate">${em(solo,'emb')}<div class="pl-body"><div class="who">${esc(r.name)}</div>
-    <div class="tier" style="color:${tc(solo)}">${esc(rk)}<span>${esc(lp||'')}</span></div>
-    <div class="rk">${solo.t} · ${m?`${m[1]}–${m[2]} · ${m[3]}% побед`:esc(solo.wl)}</div>
-    ${rest.map(q=>`<div class="rk sub">${em(q,'emb-s')}${q.t}: <b style="color:${tc(q)}">${esc(q.r)}</b> · ${esc(q.wl)}</div>`).join('')}</div></div>`}).join('');
+const PW=r=>/^halch/i.test(r.name)?'halch':'drv';
+function plates(){
+  $('plates').innerHTML=META.ranks.map(r=>{
+    const em=q=>IC.emb&&q&&IC.emb[q.r.split(' ')[0]]?`<img class="emb" src="${IC.emb[q.r.split(' ')[0]]}" alt="${esc(q.r.split(' ')[0])}">`:'';
+    const dim=st.who!=='duo'&&st.who!==PW(r)?' dim':'';
+    return `<button type="button" class="pc${dim}" data-pw="${PW(r)}">${em(r.q[0])}<div><div class="nm">${esc(r.name)}</div>${r.q.length?r.q.map(q=>`<div class="ln">${q.t} <b style="color:${tc(q)}">${esc(q.r)}</b> · ${esc(q.wl)}</div>`).join(''):'<div class="ln">без ранга</div>'}</div></button>`}).join('');
+}
+$('plates').onclick=e=>{const b=e.target.closest('[data-pw]');if(b){st.who=b.dataset.pw;render()}};
+function openGame(id){st.view='stats';st.tab='games';showView();if(!$('g-'+id)){const i=CUR.findIndex(r=>r.g.id===id);if(i>=LIM){LIM=i+1;showGames()}}
+  const d=$('g-'+id);if(!d)return;d.open=true;d.scrollIntoView({behavior:'smooth',block:'start'});d.classList.add('flash');setTimeout(()=>d.classList.remove('flash'),1600)}
+$('lastbtn').onclick=()=>{if(CUR[0])openGame(CUR[0].g.id)};
+$('draftbtn').onclick=()=>{st.view='draft';showView();window.scrollTo({top:0})};
+$('sumgames').onclick=e=>{const b=e.target.closest('[data-go]');if(b)openGame(b.dataset.go)};
+function miniRow({g,m}){return `<button type="button" class="mrow2 ${m.win?'w':'l'}" data-go="${g.id}">${cimg(m.c,'av')}<div class="mn"><b>${esc(cn(m.c))}</b> <small>· ${roleIc(m.pos)}${(ROLE[m.pos]||'').toLowerCase()}${m.opp?` · против ${esc(cn(m.opp.c))}`:''}</small><div class="its">${m.items.filter(Boolean).slice(0,6).map(iimg).join('')}</div></div><div class="kda">${m.k} / ${m.d} / ${m.a}<small>CS ${fmt(m.csm,1)}</small></div><div class="rs">${m.win?'Победа':'Поражение'}<small>${fmt(g.dur,0)} мин · ${date(g.start)}</small></div></button>`}
+function sumGames(){$('sumgames').innerHTML=CUR.slice(0,5).map(miniRow).join('')||'<div class="empty">Нет игр в этом фильтре.</div>'}
 $('foot').textContent=`Данные: Riot API (все игры сезона с 8 января, рейтинговые и обычные, только Ущелье призывателей, игры короче 10 минут не считаются). Разница с оппонентом считается против игрока той же роли во вражеской команде. «Мало» в таблицах: меньше 5 игр, винрейт ненадёжен. Иконки и названия: Data Dragon ${META.dd}.`;
 /* ---------- Цели ---------- */
 const GOALS=[
@@ -1607,7 +1770,10 @@ addEventListener('hashchange',openFromHash);
 let WEEK=null;
 $('week').addEventListener('click',e=>{if(e.target.id!=='weekmore')return;const b=$('weekbody');b.classList.toggle('clip');e.target.textContent=b.classList.contains('clip')?'Читать отчёт полностью':'Свернуть'});
 function weekly(){
-  const s=$('weeksec');if(!WEEK||!WEEK[st.who]){s.hidden=true;return}
+  const s=$('weeksec'),sw=$('sumweek');
+  sw.innerHTML=WEEK&&WEEK[st.who]?`<div class="hd"><h2>Отчёт тренера за неделю</h2><span class="chip">до ${esc(WEEK.date||'')}</span></div><div class="msg a clip">${md(WEEK[st.who])}</div><button type="button" class="lnk" data-view="stats" data-tab="week">читать полностью →</button>`
+    :`<div class="hd"><h2>Отчёт тренера за неделю</h2></div><div class="muted">${st.who==='duo'?'Отчёт пишется для каждого игрока отдельно: выбери Halch или DrVoldemar.':'Новый отчёт приходит по понедельникам.'}</div>`;
+  if(!WEEK||!WEEK[st.who]){s.hidden=true;return}
   s.hidden=false;$('week').innerHTML=`<div class="msg a clip" id="weekbody">${md(WEEK[st.who])}</div><button type="button" class="cbtn" id="weekmore" style="margin-top:6px">Читать отчёт полностью</button><div class="legend"><span>Отчёт тренера за неделю до ${esc(WEEK.date||'')}. Новый приходит по понедельникам.</span></div>`;
 }
 fetch('data/weekly.json').then(r=>r.ok?r.json():null).then(j=>{WEEK=j;if(GAMES.length)weekly()}).catch(()=>{});
