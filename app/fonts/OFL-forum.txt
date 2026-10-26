@@ -1,4 +1,5 @@
-Copyright 2018 The Manrope Project Authors (https://github.com/googlefonts/manrope)
+Copyright (c) 2011, Denis Masharov <denis.masharov@gmail.com>,
+with Reserved Font Name "Forum".
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

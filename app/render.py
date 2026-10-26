@@ -10,8 +10,11 @@ FONT_FILES = {   # шрифты Windows: обычный и полужирный
     'Verdana': ('verdana.ttf', 'verdanab.ttf'), 'Consolas': ('consola.ttf', 'consolab.ttf'),
 }
 HERE = getattr(sys, '_MEIPASS', None) or os.path.dirname(os.path.abspath(__file__))
-for _n in ('Manrope', 'Oswald'):   # свои шрифты лежат рядом в fonts/
-    FONT_FILES[_n] = tuple(os.path.join(HERE, 'fonts', f'{_n}-{w}.ttf') for w in ('Regular', 'Bold'))
+_ff = lambda n: os.path.join(HERE, 'fonts', n + '.ttf')   # свои шрифты лежат рядом в fonts/
+FONT_FILES.update({'Golos Text': (_ff('GolosText-Regular'), _ff('GolosText-SemiBold')),
+                   'Fira Sans Condensed Medium': (_ff('FiraSansCondensed-Medium'), _ff('FiraSansCondensed-SemiBold')),
+                   'Fira Sans Condensed SemiBold': (_ff('FiraSansCondensed-SemiBold'), _ff('FiraSansCondensed-SemiBold')),
+                   'Forum': (_ff('Forum-Regular'), _ff('Forum-Regular'))})
 FALLBACK = ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
 _cache = {}
 
@@ -50,12 +53,15 @@ def wrap(text, f, width):
 
 
 class Card:
-    """Строки из сегментов: ('text', str, цвет, размер, жирный) | ('img', PIL.Image) | ('gap', px) | ('bar', доля, цвет1, цвет2, ширина)."""
+    """Строки из сегментов: ('text', str, цвет, размер, жирный) | ('cell', str, цвет, размер, жирный, ширина, 'l'|'r') — ячейка
+    фиксированной ширины для ровных столбцов | ('img', PIL.Image) | ('gap', px) | ('bar', доля, цвет1, цвет2, ширина).
+    Плашка — фон без рамки, акцент — полоска слева; без плашки текст с тонкой тёмной обводкой. title — подпись капсом сверху."""
 
-    def __init__(self, theme, font_name, scale=1.0, plate=True, accent=None, width=None):
+    def __init__(self, theme, font_name, scale=1.0, plate=True, accent=None, width=None, title=None):
         self.t, self.fn, self.k, self.plate = theme, font_name, scale, plate
         self.accent, self.width = accent, width
         self.rows = []
+        if title: self.row(('text', title.upper(), 'gold', 9, True, CAPS), pad=4)
 
     def px(self, n): return max(1, round(n * self.k))
 
@@ -69,18 +75,24 @@ class Card:
             self.row(('text', ln, color, size, bold), pad=2)
         return self
 
+    def _font(self, s):
+        return font(s[5] if s[0] == 'text' and len(s) > 5 else self.fn, self.px(s[3]), s[4])
+
     def _seg_size(self, s):
         if s[0] == 'text':
-            f = font(self.fn, self.px(s[3]), s[4])
-            return int(f.getlength(s[1])), self.px(s[3]) + self.px(5)
+            return int(self._font(s).getlength(s[1])), self.px(s[3]) + self.px(5)
+        if s[0] == 'cell': return self.px(s[5]), self.px(s[3]) + self.px(5)
         if s[0] == 'img': return s[1].width, s[1].height
         if s[0] == 'gap': return self.px(s[1]), 1
-        if s[0] == 'bar': return self.px(s[4]), self.px(8)
+        if s[0] == 'bar': return self.px(s[4]), self.px(7)
         return 0, 0
 
+    def _color(self, c):
+        return rgb(c if c.startswith('#') else self.t.get(c, c))
+
     def render(self):
-        padx, pady = self.px(12), self.px(8)
-        stripe = 0
+        stripe = self.px(3) + self.px(6) if self.accent and self.plate else 0
+        padx, pady = self.px(12), self.px(9)
         sizes = [[self._seg_size(s) for s in segs] for segs, _ in self.rows]
         widths = [sum(w for w, h in r) + self.px(6) * max(0, len(r) - 1) for r in sizes]
         heights = [max([h for w, h in r] or [0]) for r in sizes]
@@ -88,30 +100,111 @@ class Card:
         H = sum(heights) + sum(self.px(p) for _, p in self.rows[1:]) + 2 * pady
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
-        r = self.px(10)
-        if self.plate:   # акцент — цветная рамка всей карточки
-            line = rgb(self.t[self.accent]) if self.accent else rgb(self.t.get('edge', self.t['line']))
-            d.rounded_rectangle((0, 0, W - 1, H - 1), r, fill=rgb(self.t['panel']) + (255,), outline=line + (255,), width=self.px(2) if self.accent else 1)
+        if self.plate:
+            d.rounded_rectangle((0, 0, W - 1, H - 1), self.px(8), fill=rgb(self.t['bg']) + (255,))
+            if self.accent: d.rectangle((self.px(6), pady, self.px(6) + self.px(3) - 1, H - pady), fill=self._color(self.accent) + (255,))
         y = pady
         for (segs, pad), sz, h in zip(self.rows, sizes, heights):
             x = padx + stripe
             for s, (w, sh) in zip(segs, sz):
-                if s[0] == 'text':
-                    f = font(self.fn, self.px(s[3]), s[4])
-                    col = rgb(self.t.get(s[2], s[2]) if not s[2].startswith('#') else s[2])
+                if s[0] in ('text', 'cell'):
+                    f = self._font(s) if s[0] == 'text' else font(self.fn, self.px(s[3]), s[4])
+                    col = self._color(s[2]) + (255,)
+                    tx = x + (w - int(f.getlength(s[1])) if s[0] == 'cell' and s[6] == 'r' else 0)
                     ty = y + (h - sh) // 2
-                    if self.plate: d.text((x, ty), s[1], font=f, fill=col + (255,))
-                    else: d.text((x, ty), s[1], font=f, fill=col + (255,), stroke_width=self.px(2), stroke_fill=(0, 0, 0, 255))
+                    if self.plate: d.text((tx, ty), s[1], font=f, fill=col)
+                    else: d.text((tx, ty), s[1], font=f, fill=col, stroke_width=max(1, round(self.k)), stroke_fill=OUTLINE)
                 elif s[0] == 'img':
                     im.alpha_composite(s[1].convert('RGBA'), (x, y + (h - sh) // 2))
                 elif s[0] == 'bar':
-                    frac, c1, c2 = s[1], rgb(self.t[s[2]]), rgb(self.t[s[3]])
+                    frac, c1, c2 = s[1], self._color(s[2]), self._color(s[3])
                     by = y + (h - sh) // 2
                     d.rounded_rectangle((x, by, x + w, by + sh), sh // 2, fill=c2 + (255,))
                     d.rounded_rectangle((x, by, x + max(sh, int(w * frac)), by + sh), sh // 2, fill=c1 + (255,))
                 x += w + self.px(6)
             y += h + self.px(pad)
         return im
+
+
+CAPS = 'Fira Sans Condensed SemiBold'   # подписи капсом и цифры
+OUTLINE = (5, 10, 16, 255)              # обводка текста без плашки: #050a10
+
+
+def tint(im, color, size):
+    """Значок по альфа-каналу, перекрашенный в один цвет (значки ролей в золото)."""
+    a = im.getchannel('A').resize((size, size), Image.LANCZOS)
+    out = Image.new('RGBA', (size, size), rgb(color) + (0,)); out.putalpha(a)
+    return out
+
+
+def tab_plates(rect, rows, top, theme, k, frame=False):
+    """Таблички стоимости предметов у внешних краёв таблицы Tab. rect = (x, y, w, h) таблицы внутри картинки,
+    rows = 5 пар (союзник, враг): {'v': стоимость, 'd': разница с оппонентом} или None; top = (наши, их) или None.
+    frame — режим подгонки: золотая пунктирная рамка с уголками по краям таблицы."""
+    X, Y, TW, TH = rect
+    PW, gap = int(112 * k), int(8 * k)
+    W, H = int(TW + 2 * (PW + gap) + 2), int(TH + Y + 2)
+    im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    t = lambda c: rgb(theme[c]) + (255,)
+    rh = TH / 5
+    ph = max(int(22 * k), int(rh * .62))
+    big, small = font(CAPS, max(11, int(19 * k))), font(CAPS, max(9, int(13 * k)))
+    for i, (a, e) in enumerate(rows):
+        cy = int(Y + i * rh + rh / 2)
+        for side, p in (('a', a), ('e', e)):
+            if not p: continue
+            x0 = X - gap - PW if side == 'a' else X + TW + gap
+            d.rounded_rectangle((x0, cy - ph // 2, x0 + PW, cy + ph // 2), int(6 * k), fill=t('bg'))
+            edge = (x0, x0 + int(3 * k)) if side == 'a' else (x0 + PW - int(3 * k), x0 + PW)
+            d.rectangle((edge[0], cy - ph // 2 + int(5 * k), edge[1], cy + ph // 2 - int(5 * k)), fill=t('blue' if side == 'a' else 'red'))
+            val = f"{p['v'] / 1000:.1f}k".replace('.', ',')
+            if side == 'a':
+                d.text((x0 + int(12 * k), cy), val, font=big, fill=t('fg'), anchor='lm')
+                dd = p.get('d')
+                if dd is not None:
+                    col = 'mute' if abs(dd) < 100 else 'good' if dd > 0 else 'bad'
+                    d.text((x0 + PW - int(9 * k), cy), f'{dd:+.0f}' if abs(dd) >= 100 else '0', font=small, fill=t(col), anchor='rm')
+            else:
+                d.text((x0 + PW - int(12 * k), cy), val, font=big, fill=t('fg'), anchor='rm')
+    if top:
+        ours, theirs = top
+        diff = ours - theirs
+        bw, bh = int(360 * k), int(30 * k)
+        bx, by = int(X + TW / 2 - bw / 2), int(Y - bh - 8 * k)
+        d.rounded_rectangle((bx, by, bx + bw, by + bh), int(6 * k), fill=t('bg'))
+        cy = by + bh // 2
+        d.text((bx + int(12 * k), cy), f'{ours / 1000:.1f}k'.replace('.', ','), font=small, fill=t('blue'), anchor='lm')
+        d.text((bx + bw - int(12 * k), cy), f'{theirs / 1000:.1f}k'.replace('.', ','), font=small, fill=t('red'), anchor='rm')
+        lx0, lx1 = bx + int(62 * k), bx + bw - int(62 * k)
+        frac = ours / max(1, ours + theirs)
+        d.rounded_rectangle((lx0, cy - int(3 * k), lx1, cy + int(3 * k)), int(3 * k), fill=t('red'))
+        d.rounded_rectangle((lx0, cy - int(3 * k), lx0 + max(int(6 * k), int((lx1 - lx0) * frac)), cy + int(3 * k)), int(3 * k), fill=t('blue'))
+        lbl = f'{diff:+.0f}' if diff else '0'
+        tw = int(small.getlength(lbl)) + int(12 * k)
+        mx = (lx0 + lx1) // 2
+        d.rounded_rectangle((mx - tw // 2, cy - int(10 * k), mx + tw // 2, cy + int(10 * k)), int(5 * k), fill=t('bg'))
+        d.text((mx, cy), lbl, font=small, fill=t('good' if diff > 0 else 'bad' if diff < 0 else 'mute'), anchor='mm')
+    if frame:   # полупрозрачная заливка: в Windows пиксели цвета-ключа пропускают клики, а рамку нужно ловить мышью
+        d.rectangle((X, Y, X + TW - 1, Y + TH - 1), fill=rgb(theme['bg']) + (110,))
+        g, L = t('gold'), int(18 * k)
+        x0, y0, x1, y1 = X, Y, X + TW - 1, Y + TH - 1
+        dash = int(8 * k)
+        for xx in range(int(x0), int(x1), dash * 2):
+            d.line((xx, y0, min(xx + dash, x1), y0), fill=g, width=2); d.line((xx, y1, min(xx + dash, x1), y1), fill=g, width=2)
+        for yy in range(int(y0), int(y1), dash * 2):
+            d.line((x0, yy, x0, min(yy + dash, y1)), fill=g, width=2); d.line((x1, yy, x1, min(yy + dash, y1)), fill=g, width=2)
+        for cx, cy, sx, sy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)):
+            d.line((cx, cy, cx + sx * L, cy), fill=g, width=int(4 * k) or 2); d.line((cx, cy, cx, cy + sy * L), fill=g, width=int(4 * k) or 2)
+        for i in range(1, 5):
+            yy = int(Y + i * rh)
+            for xx in range(int(x0), int(x1), dash * 2): d.line((xx, yy, min(xx + dash // 2, x1), yy), fill=t('gold') [:3] + (140,), width=1)
+        f = font(CAPS, max(10, int(13 * k)))
+        msg = 'ПОДГОНКА: ТЯНИ ЗА КРАЯ И УГЛЫ, ВНУТРИ — ПЕРЕНОС'
+        mw = int(f.getlength(msg)) + int(16 * k)
+        d.rounded_rectangle((X + TW / 2 - mw / 2, Y + TH / 2 - 14 * k, X + TW / 2 + mw / 2, Y + TH / 2 + 14 * k), int(6 * k), fill=t('bg'))
+        d.text((X + TW / 2, Y + TH / 2), msg, font=f, fill=g, anchor='mm')
+    return im
 
 
 def death_map(marks, size, theme):
@@ -158,6 +251,19 @@ def gold_chart(gs, w, h, theme):
         d.rectangle((x0, min(y, mid), x1, max(y, mid)), fill=rgb(theme['good' if v >= 0 else 'bad']) + (255,))
     d.line((0, mid, W, mid), fill=rgb(theme['mute']) + (255,), width=k)
     return im.resize((w, h), Image.LANCZOS)
+
+
+def logo(size, theme):
+    """Монограмма: буква H в шестиугольнике, перекладина — бирюзовый кристалл (как logo-dark.svg, сетка 64×64)."""
+    k = 4; S = size * k; im = Image.new('RGBA', (S, S), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    P = lambda pts: [(x / 64 * S, y / 64 * S) for x, y in pts]
+    hexa = P([(32, 4), (56, 18), (56, 46), (32, 60), (8, 46), (8, 18)])
+    gold = rgb(theme['gold']) + (255,)
+    d.polygon(hexa, fill=rgb(theme['bg']) + (255,))
+    d.line(hexa + hexa[:1], fill=gold, width=max(2, round(3.5 / 64 * S)), joint='curve')
+    for x in (19, 39): d.rounded_rectangle(P([(x, 18), (x + 6, 46)]), radius=S / 64, fill=gold)
+    d.polygon(P([(25, 32), (32, 26.5), (39, 32), (32, 37.5)]), fill=rgb(theme['good']) + (255,))
+    return im.resize((size, size), Image.LANCZOS)
 
 
 def rounded_icon(im, size, radius=0.18, gray=False, ring=None):

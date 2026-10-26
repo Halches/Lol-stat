@@ -47,7 +47,10 @@ for st in load('dd/runes.json'):
 for en, ru in TIERS.items():
     jobs.append(('emb', ru, f'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{en.lower()}.png', 128, True))
 
-out = {'v': V, 'champ': {}, 'item': {}, 'spell': {}, 'rune': {}, 'emb': {}}
+for r, n in (('TOP', 'top'), ('JUNGLE', 'jungle'), ('MIDDLE', 'middle'), ('BOTTOM', 'bottom'), ('UTILITY', 'utility')):   # значки ролей
+    jobs.append(('role', r, f'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-{n}.png', 64, False))
+
+out = {'v': V, 'champ': {}, 'item': {}, 'spell': {}, 'rune': {}, 'emb': {}, 'role': {}}
 with ThreadPoolExecutor(16) as ex:
     for (grp, key, url, size, crop), raw in zip(jobs, ex.map(lambda j: fetch(j[2]), jobs)):
         if raw: out[grp][key] = png(raw, size, crop)

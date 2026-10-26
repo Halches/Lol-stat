@@ -73,7 +73,7 @@ jobs:
           pip install --quiet pyinstaller==6.11.1 pillow edge-tts==7.3.1 pywebview==5.3.2
           pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app --hidden-import PIL._tkinter_finder `
             --collect-all edge_tts --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data certifi --hidden-import clr --hidden-import sitewin `
-            --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." --add-data "app/fonts;fonts" `
+            --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." --add-data "app/fonts;fonts" --add-data "app/icon.png;." --icon app/icon.ico `
             --add-data "piper;piper" --add-data "voices;voices" app/lolhelper.py
           Get-Item dist/LoLHelper.exe | Select-Object Name, Length
 

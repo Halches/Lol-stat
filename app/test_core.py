@@ -193,6 +193,13 @@ def test_settings_backup():
     except ValueError: pass
 
 
+def test_items_value():
+    d = D
+    # сапоги + законченный предмет считаются, зелья (даже 3 шт.), контрольный вард и тотем — нет
+    assert d.items_value([3006, 3031, 2003, 2055, 3340]) == d.igold(3006) + d.igold(3031)
+    assert d.items_value([]) == 0
+
+
 if __name__ == '__main__':
     n = 0
     for k, f in list(globals().items()):

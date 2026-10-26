@@ -64,6 +64,11 @@ class Data:
         it = self.items.get(str(iid))
         return it['g'] if it else 0
 
+    def items_value(self, ids):
+        """Стоимость предметов как в таблице Tab: все слоты, включая особый слот сапог; без зелий, вардов и тотемов."""
+        skip = {'Consumable', 'Trinket'}
+        return sum(it['g'] for i in ids for it in [self.items.get(str(i))] if it and not skip & set(it.get('tags') or []))
+
     def who_by_riot(self, riot):
         r = (riot or '').lower()
         for w, p in self.d['players'].items():
@@ -263,6 +268,7 @@ def parse_champ_select(sess, data):
             'enemies': [c for c in (cid(p.get('championId')) for p in sess.get('theirTeam') or []) if c],
             'unavailable': picked | banned,
             'phase': (sess.get('timer') or {}).get('phase', ''), 'locked': locked,
+            'left': ((sess.get('timer') or {}).get('adjustedTimeLeftInPhase') or 0) / 1000,
             'my_ids': {cid(p.get('championId')): p.get('championId') for p in my if p.get('championId')}}
 
 
@@ -309,7 +315,7 @@ class Game:
             riot = p.get('riotId') or (f"{p.get('riotIdGameName', '')}#{p.get('riotIdTagLine', '')}" if p.get('riotIdGameName') else p.get('summonerName', ''))
             self.players.append({
                 'riot': riot, 'c': champ_key(p, data), 'team': p.get('team'), 'pos': p.get('position') or '', 'lvl': p.get('level', 1),
-                'items': its, 'igold': sum(data.igold(i) * max(1, x.get('count', 1)) for i, x in zip(its, p.get('items') or [])),
+                'items': its, 'igold': data.items_value(its),
                 'k': sc.get('kills', 0), 'd': sc.get('deaths', 0), 'a': sc.get('assists', 0), 'cs': sc.get('creepScore', 0), 'ward': sc.get('wardScore', 0),
                 'dead': p.get('isDead', False), 'respawn': p.get('respawnTimer', 0), 'smite': 'Smite' in spells, 'tp': 'Teleport' in spells,
                 'spells': re.findall(r'(Summoner(?!Spell)[A-Za-z]+?)(?:_|\b)', spells),
@@ -1017,6 +1023,17 @@ def lola_build_items(b):
 
 
 # ---------------- Контрпики, синергия и баны (lolalytics, Изумруд+) ----------------
+
+def parse_lola_avg(html):
+    """Средние за игру со страницы сборки lolalytics: убийства, смерти, помощь, золото, CS (миньоны + лес)."""
+    t = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', html))
+    f = lambda p: float(re.search(p, t).group(1).replace(',', ''))
+    try:
+        return {'k': f(r'Kills: ([\d.]+)'), 'd': f(r'Deaths: ([\d.]+)'), 'a': f(r'Assists: ([\d.]+)'), 'g': f(r'Gold: ([\d,]+)'),
+                'cs': f(r'Minions Killed: ([\d.]+)') + f(r'Jungle CS: ([\d.]+)')}
+    except Exception:
+        return None
+
 
 def lola_api(ep, champ, role, region='all'):
     """JSON lolalytics: ep='counter' — винрейт champ против каждого на линии, ep='build-team' — с каждым союзником,

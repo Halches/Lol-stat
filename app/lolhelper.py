@@ -177,7 +177,7 @@ def selftest():
         out.append(f'ui ok, portraits {n}, pillow {ui.Image is not None}')
         import render
         fdir = os.path.join(HERE, 'fonts')
-        out.append(f"fonts {sorted(os.listdir(fdir)) if os.path.isdir(fdir) else 'нет папки'}; pil {render.font('Manrope', 14).getname()}")
+        out.append(f"fonts {sorted(os.listdir(fdir)) if os.path.isdir(fdir) else 'нет папки'}; pil {render.font('Golos Text', 14).getname()}")
         if FROZEN and not os.path.isdir(fdir): ok = False
         if FROZEN and (n < 150 or ui.Image is None): ok = False
         try:
