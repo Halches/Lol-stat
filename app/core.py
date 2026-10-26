@@ -267,7 +267,7 @@ def parse_champ_select(sess, data):
             'me': cid(mine.get('championId')) or cid(mine.get('championPickIntent')),
             'enemies': [c for c in (cid(p.get('championId')) for p in sess.get('theirTeam') or []) if c],
             'unavailable': picked | banned,
-            'phase': (sess.get('timer') or {}).get('phase', ''), 'locked': locked,
+            'phase': (sess.get('timer') or {}).get('phase', ''), 'locked': locked, 'arena': False,
             'left': ((sess.get('timer') or {}).get('adjustedTimeLeftInPhase') or 0) / 1000,
             'my_ids': {cid(p.get('championId')): p.get('championId') for p in my if p.get('championId')}}
 
@@ -303,6 +303,7 @@ class Game:
         gd = raw.get('gameData') or {}
         self.t = float(gd.get('gameTime') or 0)
         self.mode = gd.get('gameMode', '')
+        self.arena = self.mode == 'CHERRY'   # Арена: нет линий, лесников и объектов Ущелья
         ap = raw.get('activePlayer') or {}
         self.my_riot = ap.get('riotId') or ap.get('summonerName') or ''
         self.gold = float(ap.get('currentGold') or 0)
@@ -1023,6 +1024,45 @@ def lola_build_items(b):
 
 
 # ---------------- Контрпики, синергия и баны (lolalytics, Изумруд+) ----------------
+
+def parse_lola_arena(html):
+    """Чемпион в Арене со страницы lolalytics: винрейт и число игр. Винрейты аугментов и предметов Арены Riot показывать запрещает."""
+    t = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', html))
+    wr, n = re.search(r'([\d.]+) ?% Win Rate', t), re.search(r'([\d,]+) Games', t)
+    return {'wr': float(wr.group(1)), 'n': int(n.group(1).replace(',', ''))} if wr and n else None
+
+
+def arena_stats(games, champ=None):
+    """Сводка игр Арены (из arena.json): игр, среднее место, доля топ-4, побед, средний урон."""
+    gs = [g for g in games if g.get('place') and (champ is None or g['c'] == champ)]
+    if not gs: return None
+    n = len(gs)
+    return {'n': n, 'avg': sum(g['place'] for g in gs) / n, 'top4': sum(g['place'] <= 4 for g in gs) / n * 100,
+            'wins': sum(g['place'] == 1 for g in gs), 'dmg': sum(g.get('dmg') or 0 for g in gs) / n}
+
+
+def arena_best(games, n=3, min_games=3):
+    """Твои лучшие чемпионы Арены по среднему месту (от min_games игр)."""
+    by = {}
+    for g in games:
+        if g.get('place'): by.setdefault(g['c'], []).append(g)
+    rows = [(c, arena_stats(gs)) for c, gs in by.items() if len(gs) >= min_games]
+    return sorted(rows, key=lambda x: (x[1]['avg'], -x[1]['n']))[:n]
+
+
+def arena_result(game, puuid):
+    """Итог игры Арены из истории клиента: место, урон, счёт, чемпион и чемпион напарника."""
+    pid = game_pid(game, puuid)
+    ps = (game or {}).get('participants') or []
+    p = next((x for x in ps if x.get('participantId') == pid), None)
+    if not p: return None
+    st = p.get('stats') or {}
+    sub = st.get('playerSubteamId')
+    mate = next((x for x in ps if x is not p and sub and (x.get('stats') or {}).get('playerSubteamId') == sub), None)
+    return {'place': st.get('subteamPlacement') or st.get('placement'), 'dmg': st.get('totalDamageDealtToChampions', 0),
+            'k': st.get('kills', 0), 'd': st.get('deaths', 0), 'a': st.get('assists', 0), 'c': p.get('championId'),
+            'mate': mate.get('championId') if mate else None}
+
 
 def parse_lola_avg(html):
     """Средние за игру со страницы сборки lolalytics: убийства, смерти, помощь, золото, CS (миньоны + лес)."""

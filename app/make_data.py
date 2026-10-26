@@ -8,6 +8,7 @@ def load(p): return json.load(open(os.path.join(T, p), encoding='utf-8'))
 games = load('games.json')
 icons = load('icons.json')
 lola = load('lola.json')
+arena = load('arena.json') if os.path.exists(os.path.join(T, 'arena.json')) else []
 champs = load('dd/champion.json')['data']
 items = load('dd/item.json')['data']
 patch = open(os.path.join(T, 'dd/ver')).read().strip()
@@ -55,6 +56,7 @@ out = {
     'champs': {k: {'tags': v.get('tags', []), 'atk': v['info']['attack'], 'mag': v['info']['magic'], 'def': v['info']['defense']}
                for k, v in champs.items()},
     'pools': POOLS, 'players': players,
+    'arena': {w: [g for g in arena if g['who'] == w][:200] for w in players},   # игры Арены: место, чемпион, напарник
 }
 p = os.path.join(HERE, 'data.json')
 json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))

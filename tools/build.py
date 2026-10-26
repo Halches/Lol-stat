@@ -40,7 +40,8 @@ for x in snap:
   last=next((h for h in reversed(lp) if h['who']==x['who'] and h['q']==x['q']),None)
   if not last or any(last[k]!=x[k] for k in ('tier','div','lp','w','l')): lp.append({'t':int(datetime.datetime.now().timestamp()*1000),**x})
 json.dump(lp,open('lp_history.json','w'),ensure_ascii=False,separators=(',',':'))
-meta=dict(ranks=ranks,updated=msk.strftime('%d.%m %H:%M')+' МСК',patch=patch,dd=open('dd/ver').read().strip(),lp=lp,mastery=mastery,lola=json.load(open('lola.json')) if os.path.exists('lola.json') else {})
+meta=dict(ranks=ranks,updated=msk.strftime('%d.%m %H:%M')+' МСК',patch=patch,dd=open('dd/ver').read().strip(),lp=lp,mastery=mastery,lola=json.load(open('lola.json')) if os.path.exists('lola.json') else {},
+  arena=json.load(open('arena.json')) if os.path.exists('arena.json') else [])
 OUT=os.environ.get('OUT','..')
 os.makedirs(f'{OUT}/data',exist_ok=True)
 for f in os.listdir(f'{OUT}/data'):

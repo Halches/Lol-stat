@@ -53,6 +53,10 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @media (max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
 .tile b{font-family:var(--f-disp);font-size:24px;font-weight:600;line-height:1.1}
 .tile i{font-style:normal;font-size:12px;color:var(--muted)}
+.aplaces{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;height:150px;margin:14px 0;align-items:end}
+.ap{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:3px;font-size:12px}
+.ap u{display:block;width:100%;min-height:3px;border-radius:4px 4px 0 0;background:var(--loss,#e2584e)}.ap u.w{background:var(--win,#0ac8b9)}
+.ap small{color:var(--muted)}#arenasec .good{color:var(--good)}#arenasec .bad{color:var(--bad)}
 .pos{color:var(--good)} .neg{color:var(--bad)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
 @media (max-width:820px){.grid2{grid-template-columns:1fr}}
@@ -470,7 +474,7 @@ tbody tr:nth-child(even)>td{background:color-mix(in srgb,var(--panel2) 60%,trans
     </div>
   </header>
   <div class="body">
-  <nav class="side" id="view" aria-label="Разделы"><div class="grp"><div class="k">Обзор</div><button data-view="stats" data-tab="sum">Сводка<small id="cnt-sum"></small></button><button data-view="stats" data-tab="week">Отчёт тренера<small id="cnt-week"></small></button><button data-view="stats" data-tab="goals">Цели<small id="cnt-goals"></small></button><button data-view="stats" data-tab="rating">Рейтинг<small id="cnt-rating"></small></button><button data-view="stats" data-tab="notes">Выводы<small id="cnt-notes"></small></button></div><div class="grp"><div class="k">Игра</div><button data-view="stats" data-tab="lane">Линия<small id="cnt-lane"></small></button><button data-view="stats" data-tab="impact">Вклад<small id="cnt-impact"></small></button><button data-view="stats" data-tab="deaths">Смерти<small id="cnt-deaths"></small></button><button data-view="stats" data-tab="ganks">Ганки<small id="cnt-ganks"></small></button><button data-view="stats" data-tab="streak">Серии<small id="cnt-streak"></small></button></div><div class="grp"><div class="k">Чемпионы</div><button data-view="stats" data-tab="champs">Чемпионы<small id="cnt-champs"></small></button><button data-view="stats" data-tab="mup">Матчапы<small id="cnt-mup"></small></button><button data-view="stats" data-tab="builds">Билды<small id="cnt-builds"></small></button><button data-view="stats" data-tab="mast">Мастерство<small id="cnt-mast"></small></button><button data-view="stats" data-tab="em">Изумруд+<small id="cnt-em"></small></button></div><div class="grp"><div class="k">История</div><button data-view="stats" data-tab="games">Матчи<small id="cnt-games"></small></button><button data-view="stats" data-tab="wl">Победы и поражения<small id="cnt-wl"></small></button><button data-view="stats" data-tab="recs">Рекорды<small id="cnt-recs"></small></button><button data-view="stats" data-tab="act">Активность<small id="cnt-act"></small></button></div><div class="grp"><div class="k">Помощь</div><button data-view="draft">Драфт</button><button data-view="coach">Тренер</button></div><div class="meta" id="meta"></div></nav>
+  <nav class="side" id="view" aria-label="Разделы"><div class="grp"><div class="k">Обзор</div><button data-view="stats" data-tab="sum">Сводка<small id="cnt-sum"></small></button><button data-view="stats" data-tab="week">Отчёт тренера<small id="cnt-week"></small></button><button data-view="stats" data-tab="goals">Цели<small id="cnt-goals"></small></button><button data-view="stats" data-tab="rating">Рейтинг<small id="cnt-rating"></small></button><button data-view="stats" data-tab="notes">Выводы<small id="cnt-notes"></small></button></div><div class="grp"><div class="k">Игра</div><button data-view="stats" data-tab="lane">Линия<small id="cnt-lane"></small></button><button data-view="stats" data-tab="impact">Вклад<small id="cnt-impact"></small></button><button data-view="stats" data-tab="deaths">Смерти<small id="cnt-deaths"></small></button><button data-view="stats" data-tab="ganks">Ганки<small id="cnt-ganks"></small></button><button data-view="stats" data-tab="streak">Серии<small id="cnt-streak"></small></button></div><div class="grp"><div class="k">Чемпионы</div><button data-view="stats" data-tab="champs">Чемпионы<small id="cnt-champs"></small></button><button data-view="stats" data-tab="mup">Матчапы<small id="cnt-mup"></small></button><button data-view="stats" data-tab="builds">Билды<small id="cnt-builds"></small></button><button data-view="stats" data-tab="mast">Мастерство<small id="cnt-mast"></small></button><button data-view="stats" data-tab="em">Изумруд+<small id="cnt-em"></small></button></div><div class="grp"><div class="k">История</div><button data-view="stats" data-tab="games">Матчи<small id="cnt-games"></small></button><button data-view="stats" data-tab="wl">Победы и поражения<small id="cnt-wl"></small></button><button data-view="stats" data-tab="recs">Рекорды<small id="cnt-recs"></small></button><button data-view="stats" data-tab="act">Активность<small id="cnt-act"></small></button><button data-view="stats" data-tab="arena">Арена<small id="cnt-arena"></small></button></div><div class="grp"><div class="k">Помощь</div><button data-view="draft">Драфт</button><button data-view="coach">Тренер</button></div><div class="meta" id="meta"></div></nav>
   <div class="wrap">
   <div class="hero" id="hero">
     <div class="plates" id="plates"></div>
@@ -600,6 +604,15 @@ tbody tr:nth-child(even)>td{background:color-mix(in srgb,var(--panel2) 60%,trans
   <section id="buildsec">
     <h2>Билды и руны</h2>
     <div class="chart"><div class="lgs" id="bchamps"></div><div class="builds" id="builds"></div></div>
+  </section>
+
+  <section id="arenasec">
+    <h2>Арена</h2>
+    <div class="tiles" id="atiles"></div>
+    <div class="aplaces" id="aplaces"></div>
+    <div class="grid2"><section><h3>Чемпионы</h3><div class="tbl" id="achamps"></div></section><section><h3>Напарники</h3><div class="tbl" id="amates"></div></section></div>
+    <h3>Последние игры</h3><div class="tbl" id="agames"></div>
+    <p class="foot">Место 1–8 среди пар. Винрейты аугментов и предметов Арены не показываем: Riot это запрещает.</p>
   </section>
 
   <section id="recsec">
@@ -981,6 +994,23 @@ function activity(list){
   <h3 style="margin-top:12px">Винрейт за последние 10 игр</h3>${svg||'<div class="empty">Нужно хотя бы 11 игр.</div>'}`;
 }
 
+function arena(){
+  const A=META.arena||[];
+  let gs=st.who==='duo'?A.filter(g=>g.who==='halch'&&A.some(x=>x.id===g.id&&x.who==='drv')):A.filter(g=>g.who===st.who);
+  const c=$('cnt-arena');if(c)c.textContent=gs.length||'';
+  if(!gs.length){$('atiles').innerHTML='<div class="empty">Игр Арены пока нет. Они появятся после ближайшего обновления данных.</div>';['aplaces','achamps','amates','agames'].forEach(id=>$(id).innerHTML='');return}
+  const avg=x=>x.reduce((s,g)=>s+g.place,0)/x.length,top=x=>x.filter(g=>g.place<=4).length/x.length*100;
+  $('atiles').innerHTML=[['Игр',gs.length,''],['Среднее место',fmt(avg(gs),1),'из 8'],['Топ-4',fmt(top(gs),0)+'%','места 1–4'],['Побед',gs.filter(g=>g.place===1).length,'1-е место']]
+    .map(([l,v,i])=>`<div class="tile"><span>${l}</span><b>${v}</b><i>${i}</i></div>`).join('');
+  const cnt=[1,2,3,4,5,6,7,8].map(p=>gs.filter(g=>g.place===p).length),mx=Math.max(1,...cnt);
+  $('aplaces').innerHTML=cnt.map((n,i)=>`<div class="ap"><u style="height:${n/mx*100}%" class="${i<4?'w':'l'}"></u><b>${n}</b><small>${i+1}</small></div>`).join('');
+  const by=(key)=>{const o={};gs.forEach(g=>{const k=key(g);if(k)(o[k]=o[k]||[]).push(g)});return Object.entries(o).sort((a,b)=>b[1].length-a[1].length||avg(a[1])-avg(b[1]))};
+  table('achamps',['Чемпион','Игры','Ср. место','Топ-4'],by(g=>g.c).slice(0,10).map(([k,x])=>`<tr><td>${cimg(k,'xs')} ${esc(cn(k))}</td><td>${x.length}</td><td>${fmt(avg(x),1)}${x.length<5?' <span class="few">мало</span>':''}</td><td>${fmt(top(x),0)}%</td></tr>`));
+  table('amates',['Напарник','Игры','Ср. место','Его чемпионы'],by(g=>g.pn).slice(0,10).map(([k,x])=>{const [n,t]=k.split('#');const ch=[...new Set(x.map(g=>g.pc))].slice(0,3).map(c=>cimg(c,'xs')).join('');
+    return `<tr><td>${esc(n)}<span class="few">#${esc(t||'')}</span></td><td>${x.length}</td><td>${fmt(avg(x),1)}</td><td><span class="build">${ch}</span></td></tr>`}));
+  table('agames',['Чемпион','Место','KDA','Урон','Напарник','Дата'],gs.slice(0,15).map(g=>`<tr><td>${cimg(g.c,'xs')} ${esc(cn(g.c))}</td><td><b class="${g.place<=4?'good':'bad'}">${g.place}</b></td><td>${g.k}/${g.d}/${g.a}</td><td>${fmt(g.dmg)}</td><td>${g.pc?cimg(g.pc,'xs'):''} ${esc((g.pn||'').split('#')[0])}</td><td>${date(g.t*1000)}</td></tr>`));
+}
+
 function peers(list){
   const by={};
   list.forEach(({g,m})=>g.parts.forEach(p=>{if(p.team!==m.team||(p.me&&p.me===m.who))return;const k=p.n+'#'+p.t;(by[k]=by[k]||{n:p.n,t:p.t,g:0,w:0,c:{}});by[k].g++;if(m.win)by[k].w++;by[k].c[p.c]=(by[k].c[p.c]||0)+1}));
@@ -1346,7 +1376,7 @@ function render(){
   if(st.who==='duo'){$('weeksec').hidden=true;weekly()}
   if(st.who==='duo'){duoNotes(list);duo(list);trend(list);champs(list);lanes(list);activity(list)}
   else{tiles(list);skills(list);notes(list);trend(list);champs(list);lanes(list);records(list);activity(list);peers(list);deaths(list);builds(list);goals();lpChart();ganks(list);emerald(list);tilt(list);matchups(list);badEnemies(list);weekly();mastery()}
-  impact(list);winloss();patches(list);
+  impact(list);winloss();patches(list);arena();
   CUR=list;showGames();sumGames();plates();
   $('nall').textContent=`Все ${TOTAL}`;$('cnt-games').textContent=list.length;$('cnt-champs').textContent=new Set(list.map(r=>r.m.c)).size;
   $('fbtn').textContent=`Фильтры · ${list.length===TOTAL?'все '+TOTAL:list.length+' игр'}`;
@@ -1389,7 +1419,7 @@ $('games').addEventListener('click',e=>{const p=e.target.closest('[data-tmplay]'
 const TABS={sum:['tiles','sumcols','livesec','skillsec'],week:['weeksec'],goals:['goalsec'],rating:['lpsec'],notes:['notesec'],
   lane:['trendsec','lanesec'],impact:['impsec','duosec'],deaths:['deathsec'],ganks:['ganksec'],streak:['tiltsec','patchsec'],
   champs:['champsec'],mup:['mupsec','badsec'],builds:['buildsec'],mast:['mastsec'],em:['emsec'],
-  games:['gamesec','cmp'],wl:['wlsec'],recs:['recsec'],act:['actsec']};
+  games:['gamesec','cmp'],wl:['wlsec'],recs:['recsec'],act:['actsec'],arena:['arenasec']};
 const OLDTAB={over:'sum',fight:'deaths',champ:'champs',habit:'streak'};
 function goView(b){st.view=b.dataset.view;if(b.dataset.tab)st.tab=b.dataset.tab;showView();try{localStorage.setItem('lolsite',JSON.stringify(st))}catch(err){}
   window.scrollTo({top:0})}

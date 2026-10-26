@@ -200,6 +200,30 @@ def test_items_value():
     assert d.items_value([]) == 0
 
 
+def test_arena_mode():
+    s = snap(300)
+    assert not core.Game(s, D).arena
+    s['gameData']['gameMode'] = 'CHERRY'
+    assert core.Game(s, D).arena
+
+
+def test_arena_stats():
+    gs = [{'c': 'Sett', 'place': 1, 'dmg': 30000}, {'c': 'Sett', 'place': 5, 'dmg': 10000}, {'c': 'Sett', 'place': 3, 'dmg': 20000},
+          {'c': 'Lux', 'place': 8, 'dmg': 5000}, {'c': 'Lux', 'place': 7, 'dmg': 5000}, {'c': 'Lux', 'place': 6, 'dmg': 5000}]
+    st = core.arena_stats(gs, 'Sett')
+    assert st['n'] == 3 and st['avg'] == 3 and round(st['top4']) == 67 and st['wins'] == 1 and st['dmg'] == 20000
+    assert [c for c, _ in core.arena_best(gs)] == ['Sett', 'Lux']
+    assert core.arena_stats([]) is None
+    game = {'participantIdentities': [{'participantId': 1, 'player': {'puuid': 'me'}}, {'participantId': 2, 'player': {'puuid': 'x'}}],
+            'participants': [{'participantId': 1, 'championId': 875, 'stats': {'playerSubteamId': 3, 'subteamPlacement': 2, 'kills': 5, 'deaths': 2,
+                                                                               'assists': 4, 'totalDamageDealtToChampions': 41000}},
+                             {'participantId': 2, 'championId': 99, 'stats': {'playerSubteamId': 3}}]}
+    r = core.arena_result(game, 'me')
+    assert r['place'] == 2 and r['mate'] == 99 and r['dmg'] == 41000
+    html = '<div>55.29 % Win Rate</div><b>8,718 Games</b>'
+    assert core.parse_lola_arena(html) == {'wr': 55.29, 'n': 8718}
+
+
 if __name__ == '__main__':
     n = 0
     for k, f in list(globals().items()):

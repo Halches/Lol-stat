@@ -28,7 +28,7 @@ rebuild() {
 
 publish() {
   (cd .. &&
-   git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json app/data.json &&
+   git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json tools/arena.json app/data.json &&
    { git commit -q -m "Новые игры: $1" || exit 0; } &&
    for i in 1 2 3; do git pull --rebase --autostash -q origin main && git push -q && exit 0; sleep 5; done; exit 1) || return 1
   gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" > /dev/null || true
@@ -38,9 +38,11 @@ publish() {
 while :; do
   out=$(mktemp)
   GITHUB_OUTPUT=$out python fetch.py
-  new=$(sed -n 's/^new=//p' "$out" | tail -1); rm -f "$out"
-  echo "$(date -u +%H:%M) новых игр: ${new:-?}"
-  if [ -n "$new" ] && [ "$new" != "0" ]; then
+  GITHUB_OUTPUT=$out python arena.py || echo "::warning::Не удалось собрать игры Арены"
+  new=$(sed -n 's/^new=//p' "$out" | tail -1); ar=$(sed -n 's/^arena=//p' "$out" | tail -1); rm -f "$out"
+  echo "$(date -u +%H:%M) новых игр: ${new:-?}, Арена: ${ar:-?}"
+  new=$(( ${new:-0} + ${ar:-0} ))
+  if [ "$new" != "0" ]; then
     # версию в Claude обновляем только по просьбе в чате, автоматически не запускаем
     rebuild && publish "$new" || echo "::error::Не удалось пересобрать или опубликовать $new игр"
   fi

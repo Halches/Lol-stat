@@ -38,7 +38,7 @@ KEY = '#010203'   # цвет-ключ для виджетов без фона
 
 MODES = {'off': 'Выкл', 'text': 'Текст', 'beep': 'Сигнал', 'voice': 'Голос'}
 WIDGETS = {'hints': 'Подсказки', 'perf': 'Показатели (CS, золото, KDA…)', 'lane': 'Оппонент на линии', 'gold': 'Золото по линиям',
-           'item': 'Золото до предмета', 'timers': 'Таймеры объектов'}
+           'item': 'Золото до предмета', 'timers': 'Таймеры объектов', 'arena': 'Арена: счёт и золото'}
 SHOW = {'portraits': 'Портреты чемпионов', 'items': 'Иконки предметов (иначе названия)', 'ranks': 'Эмблемы и звания',
         'spells': 'Заклинания призывателя', 'runes': 'Ключевые руны', 'scout': 'Разведка врагов (серия, игры на чемпионе)'}
 RAW = 'https://raw.githubusercontent.com/Halches/Lol-stat/main/'
@@ -344,7 +344,7 @@ class Overlay(tk.Toplevel):
         click_through(self, not on)
         self.configure(highlightthickness=2 if on else 0, highlightbackground=C['gold'])
 
-    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'gold': 'Золото по линиям', 'item': 'До предмета', 'timers': 'Таймеры'}
+    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'gold': 'Золото по линиям', 'item': 'До предмета', 'timers': 'Таймеры', 'arena': 'Арена'}
 
     def card(self, accent=None, width=None, title=True):
         return render.Card(C, F['font'], self.app.s['scale'] / 100, plate=self.app.s['widget_bg'] != 'none', accent=accent, width=width,
@@ -525,6 +525,30 @@ class ItemOverlay(Overlay):
         c.row(*(([('img', it)] if it else []) + ([('img', cp)] if cp and plan['comp'] != plan['item'] else []) + segs))
         line = d.iname(plan['comp']) if plan['comp'] == plan['item'] else f"{d.iname(plan['comp'])} → {d.iname(plan['item'])}, всего ещё {int(plan['need'])}"
         c.row(('text', line, 'mute', 10, False))
+        self.put(c)
+
+
+class ArenaOverlay(Overlay):
+    """Арена: счёт, золото и стоимость предметов, плюс твоё среднее место на этом чемпионе. Урона и места в лобби игра во время матча не отдаёт."""
+    def __init__(self, app, xy):
+        super().__init__(app, 'arena', xy)
+
+    def show(self, g):
+        me = g.me
+        if not me: return
+        c = self.card()
+        c.row(('cell', 'счёт', 'mute', 11, False, 80, 'l'), ('cell', f"{me['k']}/{me['d']}/{me['a']}", 'fg', 15, True, 80, 'r'))
+        c.row(('cell', 'золото', 'mute', 11, False, 80, 'l'), ('cell', f'{int(g.gold)}', 'gold' if g.gold >= 1000 else 'fg', 15, True, 80, 'r'))
+        c.row(('cell', 'в предметах', 'mute', 11, False, 80, 'l'), ('cell', f"{me['igold']:.0f}", 'fg', 12, False, 80, 'r'))
+        st = core.arena_stats(self.app.arena_games(), me['c'])
+        if st: c.row(('text', f"на {self.app.data.cn(me['c'])}: среднее место {st['avg']:.1f} за {st['n']} игр".replace('.', ','), 'mute', 10, False))
+        self.put(c)
+
+    def demo(self):
+        c = self.card()
+        c.row(('cell', 'счёт', 'mute', 11, False, 80, 'l'), ('cell', '7/3/5', 'fg', 15, True, 80, 'r'))
+        c.row(('cell', 'золото', 'mute', 11, False, 80, 'l'), ('cell', '1350', 'gold', 15, True, 80, 'r'))
+        c.row(('cell', 'в предметах', 'mute', 11, False, 80, 'l'), ('cell', '6200', 'fg', 12, False, 80, 'r'))
         self.put(c)
 
 
@@ -830,6 +854,62 @@ class Dashboard(tk.Toplevel):
             tk.Label(self.cols[1], text='  ' + d.cn(c), image=app.img('champ', c, 1.0) or '', compound='left', bg=C['bg'], fg=C['fg'],
                      font=(fn, fs(11), 'bold'), anchor='w').pack(anchor='w', pady=2)
         if not cs.get('bench'): tk.Label(self.cols[1], text='пусто', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
+
+    def show_arena(self, cs):
+        app = self.app
+        me = cs.get('me')
+        lo = app.lola_fetch('arena', me, 'ARENA') if me else None
+        sig = json.dumps(['arena', me, bool(lo), [(a['c'], bool(a.get('rank')), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
+        self.clear('draft')
+        if sig == self.draft_sig: return
+        self.draft_sig = sig
+        no_flicker(self, lambda: self._show_arena(cs, me, lo))
+
+    def _show_arena(self, cs, me, lo):
+        """Драфт Арены: ты и напарник, твой чемпион в Арене (lolalytics и твои игры) и твои лучшие чемпионы Арены."""
+        app, d, fn, fs = self.app, self.app.data, F['font'], self.app.fs
+        for col in self.cols + [self.mid]:
+            for w in col.winfo_children(): w.destroy()
+        for w in self.bar.winfo_children(): w.destroy()
+        self.bar.pack_forget()
+        self.head.configure(text='Арена' + (f' · ты: {d.cn(me)}' if me else ''))
+        self.sub.configure(text='Место считается среди пар. Винрейты аугментов и предметов Арены не показываем: Riot это запрещает.')
+        games = app.arena_games()
+        head = lambda col, t: tk.Label(col, text=t.upper(), bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
+        head(self.cols[0], 'Ты и напарник')
+        for p in cs.get('allies') or []: self.draft_card(0, dict(p, pos=''), {'role': ''}, None)
+        head(self.mid, 'Чемпион в Арене')
+        box = tk.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(12)); box.pack(fill='x', pady=3)
+        if not me: tk.Label(box, text='Выбери чемпиона: здесь будет его винрейт в Арене и твои игры на нём.', bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(360), justify='left').pack(anchor='w')
+        else:
+            row = tk.Frame(box, bg=C['panel']); row.pack(fill='x')
+            tk.Label(row, image=app.img('champ', me, 1.4) or '', bg=C['panel']).pack(side='left', padx=(0, 12))
+            t = tk.Frame(row, bg=C['panel']); t.pack(side='left', fill='x')
+            tk.Label(t, text=d.cn(me), bg=C['panel'], fg=C['gold'], font=(fn, fs(13), 'bold')).pack(anchor='w')
+            st = app.lola_state.get(('arena', me, 'ARENA'))
+            txt = (f"Изумруд+: {lo['wr']:.1f}% побед · {lo['n']:,} игр".replace(',', ' ').replace('.', ',') if lo else
+                   'не удалось загрузить lolalytics' if st == 'fail' else 'загружаю lolalytics…')
+            tk.Label(t, text=txt, bg=C['panel'], fg=C['fg'], font=(fn, fs(10))).pack(anchor='w')
+            my = core.arena_stats(games, me)
+            tk.Label(t, text=(f"Ты: {my['n']} игр · среднее место {my['avg']:.1f} · топ-4 {my['top4']:.0f}%".replace('.', ',') if my else 'Ты на нём в Арене ещё не играл'),
+                     bg=C['panel'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
+        best = core.arena_best(games)
+        head(self.mid, 'Твои лучшие в Арене')
+        if not best: tk.Label(self.mid, text='Нужно хотя бы 3 игры на чемпионе в Арене.', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', padx=4)
+        row = tk.Frame(self.mid, bg=C['bg']); row.pack(fill='x')
+        for i, (c, s) in enumerate(best):
+            bg = C['raise'] if i == 0 else C['panel']
+            f = tk.Frame(row, bg=bg, padx=fs(10), pady=fs(8)); f.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0)); row.columnconfigure(i, weight=1, uniform='a')
+            tk.Label(f, image=app.img('champ', c, 1.1) or '', bg=bg).pack(anchor='w')
+            tk.Label(f, text=d.cn(c), bg=bg, fg=C['gold'] if i == 0 else C['fg'], font=(fn, fs(11), 'bold')).pack(anchor='w', pady=(4, 0))
+            tk.Label(f, text=f"место {s['avg']:.1f} · {s['n']} игр".replace('.', ','), bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w')
+        head(self.cols[1], 'Последние игры Арены')
+        for g in games[:8]:
+            r = tk.Frame(self.cols[1], bg=C['panel'], padx=fs(10), pady=fs(5)); r.pack(fill='x', pady=2)
+            tk.Label(r, text=str(g['place']), bg=C['panel'], fg=C['good'] if g['place'] <= 4 else C['bad'], font=(F['numb'], fs(14)), width=2).pack(side='left')
+            tk.Label(r, image=app.img('champ', g['c'], .8) or '', bg=C['panel']).pack(side='left', padx=6)
+            tk.Label(r, text=f"{d.cn(g['c'])} · {g['k']}/{g['d']}/{g['a']}" + (f" · с {d.cn(g['pc'])}" if g.get('pc') else ''), bg=C['panel'], fg=C['fg'], font=(fn, fs(10))).pack(side='left')
+        if not games: tk.Label(self.cols[1], text='Игр Арены в статистике пока нет', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', padx=4)
 
     # --- экран загрузки: обе команды целиком (в драфте противники скрыты)
     def show_loading(self, ps):
@@ -1329,6 +1409,26 @@ def scout_text(p):
 
 # ---------------- Итог игры ----------------
 
+def show_arena_post(app, res):
+    """Окно итога Арены: место, урон и счёт рядом с твоими средними по Арене."""
+    d, fs, fn = app.data, app.fs, F['font']
+    c = d.ids.get(str(res['c']))
+    st = core.arena_stats(app.arena_games()) or {}
+    w = tk.Toplevel(app.root); w.title('LoL Helper — итог Арены'); w.configure(bg=C['bg'], padx=18, pady=14); w.attributes('-topmost', True)
+    pl = res.get('place') or 0
+    tk.Label(w, text=f"  {pl}-е место · {d.cn(c)}" + (f" с {d.cn(d.ids.get(str(res['mate'])))}" if res.get('mate') else ''), image=app.img('champ', c, 1.4) or '',
+             compound='left', bg=C['bg'], fg=C['good'] if pl and pl <= 4 else C['bad'], font=(F['head'], fs(18))).pack(anchor='w', pady=(0, 10))
+    rows = [('Место', f'{pl}', f"обычно {st['avg']:.1f}".replace('.', ',') if st else '', bool(st) and pl <= st['avg']),
+            ('Урон по чемпионам', f"{res['dmg']:,}".replace(',', ' '), f"обычно {st['dmg']:,.0f}".replace(',', ' ') if st else '', bool(st) and res['dmg'] >= st['dmg']),
+            ('Счёт', f"{res['k']}/{res['d']}/{res['a']}", '', None)]
+    for name, v, norm, good in rows:
+        r = tk.Frame(w, bg=C['panel'], padx=12, pady=6); r.pack(fill='x', pady=2)
+        tk.Label(r, text=name, bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), width=18, anchor='w').pack(side='left')
+        tk.Label(r, text=v, bg=C['panel'], fg=C['fg'] if good is None else C['good'] if good else C['warn'], font=(F['numb'], fs(15))).pack(side='left')
+        if norm: tk.Label(r, text=norm, bg=C['panel'], fg=C['mute'], font=(fn, fs(10))).pack(side='right')
+    ttk.Button(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(10, 0))
+
+
 def show_postgame(app, res, result):
     w = tk.Toplevel(app.root); w.title('LoL Helper — итог игры'); w.configure(bg=C['bg'], padx=18, pady=14)
     w.attributes('-topmost', True)
@@ -1438,7 +1538,8 @@ class App:
         sig, (pw, ph), _ = screens()
         self.ov = {'hints': HintsOverlay(self, (40, int(ph * .30))), 'perf': PerfOverlay(self, (pw - 330, 80)),
                    'lane': LaneOverlay(self, (pw - 330, 300)), 'gold': GoldOverlay(self, (40, int(ph * .55))),
-                   'item': ItemOverlay(self, (pw - 330, 400)), 'timers': TimersOverlay(self, (pw - 330, 490))}
+                   'item': ItemOverlay(self, (pw - 330, 400)), 'timers': TimersOverlay(self, (pw - 330, 490)),
+                   'arena': ArenaOverlay(self, (pw - 330, 80))}
         self.tab = {'tab': TabPlates(self)}
         self.dash = Dashboard(self) if self.s['dashboard'] else None
         self.draft_sig = None
@@ -1548,12 +1649,24 @@ class App:
     def hint_flags(self, role):
         return {h: self.hint_mode(h, role) != 'off' for h in core.HINT_IDS}
 
+    SR_ONLY = ('lane', 'gold', 'timers', 'perf', 'item')   # виджеты только для Ущелья: в Арене их нет
+
     def apply_visibility(self):
+        arena = bool(self.last_game and self.last_game.arena)
         for k, w in self.ov.items():
             if k == 'hints': continue
-            if self.hidden or not self.s['widgets'].get(k) or not self.last_game: w.withdraw()
+            if self.hidden or not self.s['widgets'].get(k) or not self.last_game or (arena and k in self.SR_ONLY) or (k == 'arena' and not arena): w.withdraw()
             else: w.deiconify()
         if self.hidden: self.ov['hints'].withdraw()
+
+    def arena_tick(self, g):
+        """Арена: напоминание о покупке, когда скопилось 1000+ золота (раз в минуту, режим как у подсказки «Следующий предмет»)."""
+        mode = self.hint_mode('next_item')
+        if mode == 'off' or g.gold < 1000 or time.time() - getattr(self, '_arena_buy', 0) < 60: return
+        self._arena_buy = time.time()
+        self.ov['hints'].push(f'Есть {int(g.gold)} золота: купи предмет до начала раунда'); self.ov['hints'].show()
+        if mode == 'beep': self.voice.beep()
+        elif mode == 'voice': self.voice.say('Есть золото, купи предмет')
 
     def toast(self, text, color='gold'):
         self.ov['hints'].push(text, color); self.ov['hints'].show()
@@ -1572,13 +1685,13 @@ class App:
                     if self.engine is None: self.new_engine()
                     if g.me and not getattr(self.engine, 'prepped', False): self.prep_engine(g)
                     self.engine.enabled = self.hint_flags(g.role)
-                    hints = self.engine.tick(g)
+                    hints = [] if g.arena else self.engine.tick(g)   # подсказки Ущелья в Арене не имеют смысла
                     res = next((e.get('Result') for e in g.events if e.get('EventName') == 'GameEnd'), None)
                     if now - last_scout > 90:
                         last_scout = now
                         self.scout = self.fetch_scout(g)
                     if len(self.ranks) < len(g.players): self.fetch_people(g)
-                    elif g.ejg and self.engine.jg_plan is None and g.t < 240: self.scout_jungler(g)
+                    elif g.ejg and not g.arena and self.engine.jg_plan is None and g.t < 240: self.scout_jungler(g)
                     self.q.put(('game', g, hints, res))
                 else:
                     if in_game:
@@ -1598,6 +1711,7 @@ class App:
                             if sess:
                                 cs = core.parse_champ_select(sess, self.data)
                                 cs['allies'] = self.draft_allies(sess)
+                                cs['arena'] = self.client.queue() == 1700
                                 self.q.put(('draft', cs, None, None))
                         else:
                             if self.draft is not None: self.q.put(('draft', None, None, None))
@@ -1736,18 +1850,35 @@ class App:
             if mode == 'beep': self.voice.beep()
             elif mode == 'voice': self.voice.say(h.say)
         if hints: self.ov['hints'].show()
-        for k in ('perf', 'lane', 'gold', 'item', 'timers'):
-            if not self.s['widgets'].get(k): continue
+        if g.arena: self.arena_tick(g)
+        for k in ('perf', 'lane', 'gold', 'item', 'timers', 'arena'):
+            if not self.s['widgets'].get(k) or (g.arena and k in self.SR_ONLY) or (k == 'arena' and not g.arena): continue
             try: self.ov[k].show(g)
             except Exception as e: log_error(f'виджет {k}', e)
-        if self.dash:
+        if self.dash and g.arena:
+            if first: self.dash.idle(); self.dash.head.configure(text='Арена'); self.dash.sub.configure(text='Окно игры для Арены пока не сделано.')
+        elif self.dash:
             try: self.dash.show(g, self.scout, self.ranks, self.hists)
             except Exception as e: log_error('второе окно: игра', e)
         self.status.configure(text=f'Игра: {core.mmss(g.t)} · {self.data.cn(g.me["c"]) if g.me else ""}')
 
+    def arena_games(self):
+        return (self.data.d.get('arena') or {}).get(self.who or '', [])
+
+    def arena_post(self):
+        """Итог Арены: место, урон и счёт из истории клиента рядом с твоими средними по Арене."""
+        pu = (self.account or {}).get('puuid')
+        def job():
+            hist = self.client.history(pu, 3) if pu else None
+            h = next((x for x in hist or [] if x.get('q') == 1700), None)
+            res = core.arena_result(self.client.game(h['gid']), pu) if h else None
+            if res: self.root.after(0, lambda: show_arena_post(self, res))
+        threading.Thread(target=job, daemon=True).start()
+
     def on_end(self):
         g = self.last_game
-        if g and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
+        if g and g.arena and self.s['postgame'] and self.hint_mode('postgame') != 'off': self.root.after(20000, self.arena_post)
+        if g and not g.arena and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
             res = core.postgame(self.engine, g, self.player)
             if res: show_postgame(self, res, self.result)
         self.last_game, self.result, self.engine, self.scout = None, None, None, {}
@@ -1779,6 +1910,10 @@ class App:
             self.dash.clear('idle')
             self.dash.head.configure(text='Выбор чемпионов', fg=C['gold'])
             self.dash.sub.configure(text='Аккаунта нет в статистике сайта: выбери игрока на вкладке «Статус» основного окна'); return
+        if cs.get('arena'):
+            try: self.dash.show_arena(cs)
+            except Exception as e: log_error('второе окно: Арена', e)
+            return
         role, how = self.draft_role(cs)
         if role == 'ARAM':
             try: self.dash.show_aram(cs)
@@ -1863,6 +1998,8 @@ class App:
                     get = lambda url: urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=20).read().decode('utf-8', 'ignore')
                     if kind == 'build' and role == 'ARAM':   # ARAM: в API нет, только страница сборки (все ранги)
                         b = core.parse_lola_build(get(core.lola_url(champ, role)))
+                    elif kind == 'arena':   # чемпион в Арене: только винрейт и число игр
+                        b = core.parse_lola_arena(get(f"https://lolalytics.com/lol/{core.LOLA_FIX.get(champ, champ.lower())}/arena/build/"))
                     elif kind.startswith('tier_'):   # средние ранга выше со страницы сборки
                         b = core.parse_lola_avg(get(core.lola_url(champ, role).replace('tier=emerald_plus', 'tier=' + kind[5:])))
                     elif kind == 'build':   # две сборки по Европе из API, иначе одна со страницы сборки
@@ -2083,7 +2220,7 @@ class App:
             self.set_unlocked(drag)
             self.keys_prev['drag'] = drag
         if drag: return self.root.after(40, self.keys)
-        tab = self.s['scoreboard'] and self.last_game and not self.hidden and combo_down(k.get('scoreboard')) and game_focused()
+        tab = self.s['scoreboard'] and self.last_game and not self.last_game.arena and not self.hidden and combo_down(k.get('scoreboard')) and game_focused()
         if tab:
             if not self.keys_prev.get('tab') or time.time() - self.keys_prev.get('tab_t', 0) > 1:
                 for w in self.tab.values():

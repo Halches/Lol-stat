@@ -152,6 +152,11 @@ class LCU:
                             'pos': (p.get('selectedPosition') or '').lower(), 'name': p.get('gameName') or p.get('summonerName') or ''})
         return out or None
 
+    def queue(self):
+        """Очередь текущей игры или лобби (1700 — Арена) или None."""
+        try: return ((((self.call('/lol-gameflow/v1/session') or {}).get('gameData') or {}).get('queue') or {}).get('id'))
+        except Exception: return None
+
     def timeline(self, gid):
         """Таймлайн игры из клиента: кадры по минутам с событиями и координатами (для карты смертей)."""
         try: return self.call(f'/lol-match-history/v1/game-timelines/{gid}')
