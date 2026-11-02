@@ -38,6 +38,7 @@ KEY = '#010203'   # цвет-ключ для виджетов без фона
 
 MODES = {'off': 'Выкл', 'text': 'Текст', 'beep': 'Сигнал', 'voice': 'Голос'}
 WIDGETS = {'hints': 'Подсказки', 'perf': 'Показатели (CS, золото, KDA…)', 'lane': 'Оппонент на линии', 'gold': 'Золото по линиям',
+           'inventory': 'Чемпионы по стоимости предметов (от большего к меньшему)',
            'item': 'Золото до предмета', 'timers': 'Таймеры объектов', 'arena': 'Арена: счёт и золото'}
 SHOW = {'portraits': 'Портреты чемпионов', 'items': 'Иконки предметов (иначе названия)', 'ranks': 'Эмблемы и звания',
         'spells': 'Заклинания призывателя', 'runes': 'Ключевые руны', 'scout': 'Разведка врагов (серия, игры на чемпионе)'}
@@ -344,7 +345,8 @@ class Overlay(tk.Toplevel):
         click_through(self, not on)
         self.configure(highlightthickness=2 if on else 0, highlightbackground=C['gold'])
 
-    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'gold': 'Золото по линиям', 'item': 'До предмета', 'timers': 'Таймеры', 'arena': 'Арена'}
+    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'gold': 'Золото по линиям', 'inventory': 'Стоимость инвентаря',
+            'item': 'До предмета', 'timers': 'Таймеры', 'arena': 'Арена'}
 
     def card(self, accent=None, width=None, title=True):
         return render.Card(C, F['font'], self.app.s['scale'] / 100, plate=self.app.s['widget_bg'] != 'none', accent=accent, width=width,
@@ -506,6 +508,38 @@ class GoldOverlay(Overlay):
         self.put(c)
 
 
+class InventoryOverlay(Overlay):
+    """Общий рейтинг чемпионов: стоимость предметов, а не заработанное/наличное золото."""
+    def __init__(self, app, xy):
+        super().__init__(app, 'inventory', xy)
+
+    def show(self, g):
+        self.draw(core.inventory_ranking(g.players), g.my_team, g.me)
+
+    def draw(self, players, my_team, me):
+        c = self.card()
+        c.row(('text', 'С — союзник · В — враг · ты — твой герой', 'mute', 9, False), pad=3)
+        for rank, p in enumerate(players, 1):
+            team = 'С' if p['team'] == my_team else 'В'
+            color = 'gold' if p is me else 'blue' if p['team'] == my_team else 'red'
+            icon = self.app.pimg('champ', p['c'], .65, gray=p.get('dead', False), ring=C[color])
+            segs = [('cell', str(rank), 'mute', 10, False, 16, 'r'),
+                    ('cell', 'ты' if p is me else team, color, 10, True, 18, 'l')]
+            if icon: segs.append(('img', icon))
+            segs += [('cell', self.app.data.cn(p['c']), color, 11, p is me, 120, 'l'),
+                     ('cell', f"{p['igold']:,.0f}".replace(',', ' '), 'fg', 13, True, 62, 'r')]
+            c.row(*segs, pad=3)
+        if not players: c.row(('text', 'Жду данные игры…', 'mute', 11, False))
+        c.row(('text', 'Без зелий, вардов и тотемов', 'mute', 9, False), pad=5)
+        self.put(c)
+
+    def demo(self):
+        champs = ('Sett', 'Jinx', 'Ahri', 'Darius', 'Viktor', 'LeeSin', 'Caitlyn', 'RekSai', 'Lux', 'Rakan')
+        players = [{'riot': f'P{i}', 'c': c, 'team': 'ORDER' if i % 2 == 0 else 'CHAOS',
+                    'igold': gold} for i, (c, gold) in enumerate(zip(champs, (11800, 10560, 10300, 9800, 8950, 7720, 7400, 6200, 5290, 5200)))]
+        self.draw(core.inventory_ranking(players), 'ORDER', players[0])
+
+
 class ItemOverlay(Overlay):
     """Сколько золота до следующего предмета из твоей лучшей сборки."""
     def __init__(self, app, xy):
@@ -578,19 +612,47 @@ class TimersOverlay(Overlay):
         self.draw([('Адский дракон', 45), ('Личинки', -1), ('Барон', 412)], 38)
 
 
-class TabPlates(Overlay):
-    """Таблички стоимости предметов у внешних краёв игровой таблицы Tab: союзники слева (стоимость и разница с оппонентом),
-    враги справа, над рамкой — итог команд. Таблицу рисует игра; её рамка хранится как [left, top, width, height] в долях
-    высоты окна игры (left — от центра окна), поэтому всё идёт за игрой и масштабируется по высоте, в том числе на 21:9.
-    В режиме подгонки (Alt) видна золотая пунктирная рамка: края и углы тянутся, внутри — перенос."""
+def tab_rect_drag(rect, dx, dy, resize=False):
+    """Смещение в долях высоты окна игры; resize сохраняет левый верхний угол."""
+    l, t, w, h = rect
+    if resize: w, h = max(.2, w + dx), max(.1, h + dy)
+    else: l, t = l + dx, t + dy
+    return [round(v, 4) for v in (l, t, w, h)]
 
+
+class TabPlates(Overlay):
+    """Стоимость предметов у краёв Tab. Рамка следует за окном игры.
+
+    Всё большое окно всегда пропускает клики. Только отдельная небольшая ручка
+    принимает мышь в режиме расстановки: перетаскивание — перенос, Shift — размер.
+    """
     def __init__(self, app):
         super().__init__(app, 'tab', (0, 0))
+        self.data, self._geometry_sig = None, None
+        # Не оставлять обработчики переноса на большой поверхности даже вне Windows.
+        for w in (self, self.lbl):
+            for event in ('<ButtonPress-1>', '<B1-Motion>', '<ButtonRelease-1>'): w.unbind(event)
+        self.handle = tk.Toplevel(self)
+        self.handle.withdraw()
+        self.handle.overrideredirect(True)
+        self.handle.attributes('-topmost', True)
+        self.handle.configure(bg=C['gold'])
+        if Image is not None:
+            self._handle_ph = ImageTk.PhotoImage(render.tab_handle(C, F['font'], app.s['scale'] / 100))
+            label = tk.Label(self.handle, image=self._handle_ph, bg=C['gold'], bd=0, padx=0, pady=0, cursor='fleur')
+        else:
+            label = tk.Label(self.handle, text='TAB · тяни | Shift: размер', bg=C['gold'], fg=C['on_gold'], cursor='fleur')
+        label.pack()
+        for w in (self.handle, label):
+            w.bind('<ButtonPress-1>', self._start)
+            w.bind('<B1-Motion>', self._move)
+            w.bind('<ButtonRelease-1>', self._end)
+        self.handle.update_idletasks()
+        click_through(self.handle, False)   # WS_EX_NOACTIVATE: ручка не забирает фокус игры
+        self.handle.attributes('-alpha', app.s['alpha'] / 100)
         self.withdraw()
-        self.data, self.edge = None, None
 
     def rect(self):
-        """Рамка таблицы в долях высоты окна игры. По умолчанию — из старых настроек (место чисел и шаг строк)."""
         r = self.app.s.get('tab_rect')
         if r: return r
         dx, y = self.app.s['tab_pos'].get('tabgold', [-.553, .288])
@@ -600,7 +662,6 @@ class TabPlates(Overlay):
         return game_rect()[3] / 1080 * self.app.s['scale'] / 100
 
     def geom(self):
-        """Рамка таблицы на экране и отступы окна вокруг неё под таблички и итог."""
         gx, gy, gw, gh = game_rect()
         l, t, w, h = self.rect()
         k = self.k()
@@ -613,6 +674,35 @@ class TabPlates(Overlay):
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
         self.geometry(f'{im.width}x{im.height}+{int(X - side)}+{int(Y - tp)}')
+        self._geometry_sig = (game_rect(), tuple(self.rect()), self.app.s['scale'])
+        self._place_handle()
+
+    def refresh_geometry(self):
+        sig = (game_rect(), tuple(self.rect()), self.app.s['scale'])
+        if self.data and sig != self._geometry_sig: self.draw(*self.data)
+
+    def _place_handle(self):
+        if not self.unlocked or not self.winfo_viewable():
+            self.handle.withdraw(); return
+        X, Y, W, H, side, tp = self.geom()
+        self.handle.update_idletasks()
+        vx, vy, vw, vh = screens()[2]
+        hw, hh = self.handle.winfo_reqwidth(), self.handle.winfo_reqheight()
+        x = max(vx, min(int(X), vx + vw - hw))
+        y = max(vy, min(int(Y - tp - hh - 6), vy + vh - hh))
+        self.handle.geometry(f'+{x}+{y}')
+        self.handle.deiconify()
+        self.handle.lift()
+
+    def deiconify(self):
+        super().deiconify()
+        self.update_idletasks()
+        self._place_handle()
+
+    def withdraw(self):
+        handle = self.__dict__.get('handle')
+        if handle: handle.withdraw()
+        super().withdraw()
 
     def show(self, g):
         rows = []
@@ -626,33 +716,24 @@ class TabPlates(Overlay):
     def demo(self):
         vals = ((9800, 8950), (7400, 7720), (10300, 10300), (11800, 10560), (5200, 5290))
         rows = [({'v': a, 'd': a - e}, {'v': e}) for a, e in vals]
-        self.draw(rows, (sum(a for a, _ in vals), sum(e for _, e in vals)))
+        self.data = (rows, (sum(a for a, _ in vals), sum(e for _, e in vals)))
+        self.draw(*self.data)
 
     def unlock(self, on):
+        if not on and self._drag: self._end(None)
         self.unlocked = on
-        click_through(self, not on)
+        click_through(self, True)   # в том числе при Alt: игровая таблица остаётся кликабельной
+        if self.data: self.draw(*self.data)
+        if not on: self.handle.withdraw()
 
     def _start(self, e):
-        X, Y, W, H, side, tp = self.geom()
-        x, y = e.x_root - X, e.y_root - Y
-        m = 14
-        ed = ('l' if abs(x) < m else 'r' if abs(x - W) < m else '') + ('t' if abs(y) < m else 'b' if abs(y - H) < m else '')
-        self.edge = ed or 'move'
-        self._drag = (e.x_root, e.y_root, list(self.rect()))
+        self._drag = (e.x_root, e.y_root, list(self.rect()), max(1, game_rect()[3]), bool(e.state & 0x1))
 
     def _move(self, e):
         if not self._drag: return
-        x0, y0, (l, t, w, h) = self._drag
-        gh = game_rect()[3] or 1
-        dx, dy = (e.x_root - x0) / gh, (e.y_root - y0) / gh
-        if self.edge == 'move': l, t = l + dx, t + dy
-        else:
-            if 'l' in self.edge: l, w = l + dx, w - dx
-            if 'r' in self.edge: w = w + dx
-            if 't' in self.edge: t, h = t + dy, h - dy
-            if 'b' in self.edge: h = h + dy
-        self.app.s['tab_rect'] = [round(l, 4), round(t, 4), round(max(.2, w), 4), round(max(.1, h), 4)]
-        self.draw(*self.data) if self.data else self.demo()
+        x0, y0, rect, gh, resize = self._drag
+        self.app.s['tab_rect'] = tab_rect_drag(rect, (e.x_root - x0) / gh, (e.y_root - y0) / gh, resize)
+        if self.data: self.draw(*self.data)
 
     def _end(self, e):
         if self._drag:
@@ -1539,7 +1620,7 @@ class App:
         self.ov = {'hints': HintsOverlay(self, (40, int(ph * .30))), 'perf': PerfOverlay(self, (pw - 330, 80)),
                    'lane': LaneOverlay(self, (pw - 330, 300)), 'gold': GoldOverlay(self, (40, int(ph * .55))),
                    'item': ItemOverlay(self, (pw - 330, 400)), 'timers': TimersOverlay(self, (pw - 330, 490)),
-                   'arena': ArenaOverlay(self, (pw - 330, 80))}
+                   'arena': ArenaOverlay(self, (pw - 330, 80)), 'inventory': InventoryOverlay(self, (max(40, pw - 650), 80))}
         self.tab = {'tab': TabPlates(self)}
         self.dash = Dashboard(self) if self.s['dashboard'] else None
         self.draft_sig = None
@@ -1657,7 +1738,9 @@ class App:
             if k == 'hints': continue
             if self.hidden or not self.s['widgets'].get(k) or not self.last_game or (arena and k in self.SR_ONLY) or (k == 'arena' and not arena): w.withdraw()
             else: w.deiconify()
-        if self.hidden: self.ov['hints'].withdraw()
+        if self.hidden:
+            self.ov['hints'].withdraw()
+            for w in self.tab.values(): w.withdraw()
 
     def arena_tick(self, g):
         """Арена: напоминание о покупке, когда скопилось 1000+ золота (раз в минуту, режим как у подсказки «Следующий предмет»)."""
@@ -1851,7 +1934,7 @@ class App:
             elif mode == 'voice': self.voice.say(h.say)
         if hints: self.ov['hints'].show()
         if g.arena: self.arena_tick(g)
-        for k in ('perf', 'lane', 'gold', 'item', 'timers', 'arena'):
+        for k in ('perf', 'lane', 'gold', 'item', 'timers', 'arena', 'inventory'):
             if not self.s['widgets'].get(k) or (g.arena and k in self.SR_ONLY) or (k == 'arena' and not g.arena): continue
             try: self.ov[k].show(g)
             except Exception as e: log_error(f'виджет {k}', e)
@@ -2215,13 +2298,19 @@ class App:
                 else:
                     self.hidden = not self.hidden; self.apply_visibility()
             self.keys_prev[name] = down
-        drag = bool(combo_down(k.get('drag')) and self.last_game) or self.demo_on   # Alt двигает виджеты только в игре
+        drag = bool(combo_down(k.get('drag')) and self.last_game and not self.hidden and game_focused()) or self.demo_on   # Alt двигает виджеты только в игре
         if drag != self.keys_prev.get('drag'):
             self.set_unlocked(drag)
             self.keys_prev['drag'] = drag
-        if drag: return self.root.after(40, self.keys)
+        if drag:
+            if self.s['scoreboard']:
+                for w in self.tab.values(): w.refresh_geometry()
+            else:
+                for w in self.tab.values(): w.withdraw()
+            return self.root.after(40, self.keys)
         tab = self.s['scoreboard'] and self.last_game and not self.last_game.arena and not self.hidden and combo_down(k.get('scoreboard')) and game_focused()
         if tab:
+            for w in self.tab.values(): w.refresh_geometry()
             if not self.keys_prev.get('tab') or time.time() - self.keys_prev.get('tab_t', 0) > 1:
                 for w in self.tab.values():
                     try: w.show(self.last_game); w.deiconify()
@@ -2233,7 +2322,8 @@ class App:
         self.root.after(40, self.keys)
 
     def set_unlocked(self, on):
-        """Режим расстановки: все виджеты видны, ловят мышь; без игры показывают пример содержимого."""
+        """Расстановка виджетов; у Tab мышь принимает только отдельная ручка."""
+        if on and self.hidden and not self.demo_on: return
         wins = dict(self.tab if self.s['scoreboard'] else {}, **self.ov)   # рамка Tab снизу, виджеты поверх неё
         for key, w in wins.items():
             w.unlock(on)
@@ -2930,7 +3020,8 @@ class App:
         self.h(f, 'Стоимость предметов по Tab')
         self.note(f, 'Таблички у краёв игровой таблицы: союзники слева (стоимость и разница с оппонентом по линии), враги справа, над рамкой — итог команд. '
                      'Считаются все предметы, кроме зелий, вардов и тотемов. Всё привязано к окну игры и масштабируется по его высоте, в том числе на широких мониторах. '
-                     'Если не совпало: в игре зажми Tab и Alt — появится золотая рамка, подтяни её края к краям таблицы.')
+                     'Если не совпало: зажми Tab и Alt. Тяни небольшую золотую ручку TAB для переноса; Shift + перетаскивание ручки меняет ширину и высоту. '
+                     'Остальная область пропускает клики в игру даже при Alt. Ручка скрывается при отпускании Alt. ')
         ttk.Button(f, text='Вернуть рамку по умолчанию', command=lambda: self.set_tab('tab_rect', None)).pack(anchor='w', pady=(4, 0))
         self.h(f, 'Второй монитор')
         ttk.Button(f, text='Открыть дашборд со всеми чемпионами', command=self.open_dash).pack(anchor='w')
@@ -2962,7 +3053,7 @@ class App:
         half = gw / 2 if kind == 'edges' else min(gw / 2, gh * 16 / 9 / 2)
         L, R = cx - half + 24 * k, cx + half - 340 * k
         pos = {'hints': (L, gy + .30 * gh), 'gold': (L, gy + .55 * gh), 'perf': (R, gy + .10 * gh), 'lane': (R, gy + .30 * gh),
-               'item': (R, gy + .40 * gh), 'timers': (R, gy + .49 * gh)}
+               'item': (R, gy + .40 * gh), 'timers': (R, gy + .49 * gh), 'inventory': (max(gx, R - 310 * k), gy + .10 * gh)}
         lay = self.layout()
         for key, (x, y) in pos.items(): lay[key] = [int(x), int(y)]
         self.s.save(); self.rebuild()

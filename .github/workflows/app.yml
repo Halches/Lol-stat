@@ -25,7 +25,9 @@ jobs:
           python-version: "3.12"
 
       - name: Тесты логики
-        run: python app/test_core.py
+        run: |
+          python app/test_core.py
+          python -m unittest discover -s app -p test_overlays.py
 
       - name: Piper и голос Дмитрий
         shell: pwsh
