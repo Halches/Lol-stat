@@ -171,6 +171,34 @@ def selftest():
         out.append(f'hints {len(hs)}')
         import ui
         app = ui.App(d, VERSION)
+        # Exercise actual Windows extended styles in the packaged application.
+        from unittest.mock import patch
+        widget = app.ov['inventory']
+        saved_pins = dict(app.s['widget_pins'])
+        original_pin = widget.pinned
+        with patch.object(app.s, 'save'):
+            widget.pinned = False
+            widget.demo(); widget.deiconify(); app.root.update()
+            widget.unlock(True)
+            widget.pin_button.invoke()
+            assert widget.pinned
+            if ui.IS_WIN:
+                style = lambda win: ui.U32.GetWindowLongW(ui.U32.GetParent(win.winfo_id()), -20)
+                assert style(widget) & 0x20
+                assert not style(widget.pin_window) & 0x20
+                assert style(widget.pin_window) & 0x08000000
+            widget.unlock(False); widget.unlock(True)
+            if ui.IS_WIN: assert style(widget) & 0x20
+            widget.pin_button.invoke()
+            assert not widget.pinned
+            if ui.IS_WIN: assert not style(widget) & 0x20
+            widget.unlock(False)
+            if ui.IS_WIN: assert style(widget) & 0x20
+            widget.pinned = original_pin
+            app.s['widget_pins'] = saved_pins
+            widget.withdraw()
+        assert app.tab['tab'].pin_window is None
+        out.append('widget pins OK: body click-through with Alt, button interactive, no-activate, unpin restores drag')
         app.root.after(2500, app.root.destroy)
         app.root.mainloop()
         n = len(app.icons.a.get('champ', {}))

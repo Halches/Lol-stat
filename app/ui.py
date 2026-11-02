@@ -37,7 +37,7 @@ F = {'font': 'Golos Text', 'num': 'Fira Sans Condensed Medium', 'numb': 'Fira Sa
 KEY = '#010203'   # цвет-ключ для виджетов без фона
 
 MODES = {'off': 'Выкл', 'text': 'Текст', 'beep': 'Сигнал', 'voice': 'Голос'}
-WIDGETS = {'hints': 'Подсказки', 'perf': 'Показатели (CS, золото, KDA…)', 'lane': 'Оппонент на линии', 'gold': 'Золото по линиям',
+WIDGETS = {'hints': 'Подсказки', 'perf': 'Показатели (CS, золото, KDA…)', 'lane': 'Оппонент на линии',
            'inventory': 'Чемпионы по стоимости предметов (от большего к меньшему)',
            'item': 'Золото до предмета', 'timers': 'Таймеры объектов', 'arena': 'Арена: счёт и золото'}
 SHOW = {'portraits': 'Портреты чемпионов', 'items': 'Иконки предметов (иначе названия)', 'ranks': 'Эмблемы и звания',
@@ -149,6 +149,7 @@ DEFAULTS = {
     'hints_role': {r: {h[0]: h[3] for h in core.HINTS if h[0] in core.HINT_ROLES and r in core.HINT_ROLES[h[0]]} for r in core.ROLES},
     'hint_preset': 'TOP',
     'widgets': {k: True for k in WIDGETS},
+    'widget_pins': {},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
     'phone': False, 'phone_port': 8765, 'phone_token': '',
@@ -163,7 +164,7 @@ DEFAULTS = {
 SECTIONS = {   # что сбрасывает кнопка «По умолчанию» в каждом разделе
     'hints': ['hints', 'hints_role'], 'voice': ['voice', 'volume', 'rate', 'master', 'beep_volume', 'sound'],
     'look': ['theme', 'accent', 'font', 'scale', 'icon', 'alpha', 'widget_bg', 'show'],
-    'windows': ['widgets', 'perf', 'tab_step', 'tab_pos', 'tab_rect', 'tab_auto', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
+    'windows': ['widgets', 'widget_pins', 'perf', 'tab_step', 'tab_pos', 'tab_rect', 'tab_auto', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
 }
 
 
@@ -326,13 +327,33 @@ class Overlay(tk.Toplevel):
         self.attributes('-alpha', app.s['alpha'] / 100)
         if IS_WIN: self.attributes('-transparentcolor', KEY)
         self._drag, self._ph, self.unlocked = None, None, False
+        self.pinned = bool(app.s.get('widget_pins', {}).get(key)) if key != 'tab' else False
+        self.pin_window = None
+        if key != 'tab':
+            # Separate tiny HWND stays interactive while the entire body passes clicks.
+            self.pin_window = tk.Toplevel(self)
+            self.pin_window.withdraw()
+            self.pin_window.overrideredirect(True)
+            self.pin_window.attributes('-topmost', True)
+            self.pin_window.attributes('-alpha', app.s['alpha'] / 100)
+            self.pin_button = tk.Button(self.pin_window, bd=0, highlightthickness=0,
+                                        takefocus=False, cursor='hand2', command=self.toggle_pin)
+            self.pin_button.pack()
+            self.pin_window.update_idletasks()
+            click_through(self.pin_window, False)
+            self._draw_pin()
+            self.bind('<Configure>', self._pin_configure, add='+')
+            self.bind('<Map>', self._pin_configure, add='+')
+            self.bind('<Unmap>', self._pin_configure, add='+')
         for w in (self, self.lbl):
             w.bind('<ButtonPress-1>', self._start); w.bind('<B1-Motion>', self._move); w.bind('<ButtonRelease-1>', self._end)
 
-    def _start(self, e): self._drag = (e.x_root - self.winfo_x(), e.y_root - self.winfo_y())
+    def _start(self, e):
+        if self.unlocked and not self.pinned:
+            self._drag = (e.x_root - self.winfo_x(), e.y_root - self.winfo_y())
 
     def _move(self, e):
-        if self._drag: self.geometry(f'+{e.x_root - self._drag[0]}+{e.y_root - self._drag[1]}')
+        if self._drag and not self.pinned: self.geometry(f'+{e.x_root - self._drag[0]}+{e.y_root - self._drag[1]}')
 
     def _end(self, e):
         if self._drag:
@@ -341,11 +362,48 @@ class Overlay(tk.Toplevel):
             self.app.s.save()
 
     def unlock(self, on):
+        if not on and self._drag: self._end(None)
         self.unlocked = on
-        click_through(self, not on)
-        self.configure(highlightthickness=2 if on else 0, highlightbackground=C['gold'])
+        movable = on and not self.pinned
+        click_through(self, not movable)
+        self.configure(highlightthickness=2 if movable else 0, highlightbackground=C['gold'])
 
-    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'gold': 'Золото по линиям', 'inventory': 'Стоимость инвентаря',
+    def toggle_pin(self):
+        if self._drag: self._end(None)
+        self.pinned = not self.pinned
+        self.app.s.setdefault('widget_pins', {})[self.key] = self.pinned
+        self.app.s.save()
+        self.unlock(self.unlocked)
+        self._draw_pin()
+
+    def _draw_pin(self):
+        self._pin_ph = ImageTk.PhotoImage(render.pin_icon(self.pinned, self.app.s['scale']/100))
+        self.pin_button.configure(image=self._pin_ph, bg='#081b22', activebackground='#162d33',
+                                  text='Открепить' if self.pinned else 'Закрепить')
+
+    def _pin_configure(self, event):
+        if event.widget is self: self._sync_pin()
+
+    def _sync_pin(self):
+        pin = self.pin_window
+        if pin is None: return
+        if not self.winfo_viewable(): pin.withdraw(); return
+        size = self._pin_ph.width()
+        x, y = self.winfo_rootx()+self.winfo_width()-size-3, self.winfo_rooty()+3
+        pin.geometry(f'{size}x{size}{x:+d}{y:+d}')
+        if not pin.winfo_viewable(): pin.deiconify()
+        pin.lift()
+
+    def withdraw(self):
+        pin = getattr(self, 'pin_window', None)
+        if pin is not None: pin.withdraw()
+        super().withdraw()
+
+    def lift(self, aboveThis=None):
+        super().lift(aboveThis)
+        if self.pin_window is not None: self._sync_pin()
+
+    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'inventory': 'Стоимость инвентаря',
             'item': 'До предмета', 'timers': 'Таймеры', 'arena': 'Арена'}
 
     def card(self, accent=None, width=None, title=True):
@@ -473,41 +531,6 @@ class LaneOverlay(Overlay):
         self.put(c)
 
 
-class GoldOverlay(Overlay):
-    """Разница золота по линиям (по стоимости предметов) и полоса золота команд."""
-    def __init__(self, app, xy):
-        super().__init__(app, 'gold', xy)
-
-    def show(self, g):
-        ours, theirs = g.team_gold(g.my_team), sum(p['igold'] for p in g.enemies)
-        diff = ours - theirs
-        c = self.card()
-        c.row(('text', f'{ours / 1000:.1f}k'.replace('.', ','), 'blue', 11, True), ('bar', ours / max(1, ours + theirs), 'blue', 'red', 110),
-              ('text', f'{theirs / 1000:.1f}k'.replace('.', ','), 'red', 11, True))
-        c.row(('cell', 'команда', 'mute', 11, False, 70, 'l'), ('cell', f'{diff:+.0f}' if diff else '0', 'good' if diff > 0 else 'bad' if diff < 0 else 'mute', 13, True, 64, 'r'))
-        for r in core.ROLES:
-            a = next((p for p in g.allies if p['pos'] == r), None)
-            e = next((p for p in g.enemies if p['pos'] == r), None)
-            if not a or not e: continue
-            self.lane_row(c, r, a['igold'] - e['igold'], self.app.pimg('champ', a['c'], .6, gray=a['dead'], ring=C['gold'] if a is g.me else None),
-                          self.app.pimg('champ', e['c'], .6, gray=e['dead']))
-        self.put(c)
-
-    def lane_row(self, c, role, dd, ia=None, ie=None):
-        ri = self.app.role_pil(role, .5)
-        col = 'mute' if abs(dd) < 100 else 'good' if dd >= 300 else 'bad' if dd <= -300 else 'fg'
-        segs = ([('img', ri)] if ri else [('cell', core.ROLE_RU.get(role, ''), 'gold', 10, False, 18, 'l')]) + ([('img', ia)] if ia else [])
-        segs += [('cell', f'{dd:+.0f}' if abs(dd) >= 100 else '0', col, 13, True, 56, 'r')] + ([('img', ie)] if ie else [])
-        c.row(*segs, pad=3)
-
-    def demo(self):
-        c = self.card()
-        c.row(('text', '24,1k', 'blue', 11, True), ('bar', .53, 'blue', 'red', 110), ('text', '21,6k', 'red', 11, True))
-        c.row(('cell', 'команда', 'mute', 11, False, 70, 'l'), ('cell', '+2450', 'good', 13, True, 64, 'r'))
-        for r, dd in zip(core.ROLES, (850, -320, 0, 1240, -90)): self.lane_row(c, r, dd)
-        self.put(c)
-
-
 class InventoryOverlay(Overlay):
     """Общий рейтинг чемпионов: стоимость предметов, а не заработанное/наличное золото."""
     def __init__(self, app, xy):
@@ -527,6 +550,7 @@ class InventoryOverlay(Overlay):
                     ('cell', 'ты' if p is me else team, color, 10, True, 18, 'l')]
             if icon: segs.append(('img', icon))
             segs += [('cell', self.app.data.cn(p['c']), color, 11, p is me, 120, 'l'),
+                     ('bar', p['igold']/max(1,players[0]['igold']), color, 'deep', 36),
                      ('cell', f"{p['igold']:,.0f}".replace(',', ' '), 'fg', 13, True, 62, 'r')]
             c.row(*segs, pad=3)
         if not players: c.row(('text', 'Жду данные игры…', 'mute', 11, False))
@@ -672,13 +696,14 @@ class TabPlates(Overlay):
     def geom(self):
         gx, gy, gw, gh = game_rect()
         l, t, w, h = self.rect()
-        side, top = 0, 0   # the new badges stay inside the table's centre gutter
+        side = 0
+        top = round(h*gh*.35+max(30,46*self.k())) if self.__dict__.get('totals') is not None else 0
         return gx + gw / 2 + l * gh, gy + t * gh, w * gh, h * gh, side, top
 
     def draw(self, rows):
         X, Y, W, H, side, tp = self.geom()
         im = render.tab_plates((side, tp, W, H), rows, C, self.k(), frame=self.unlocked,
-                               left_ally=self._left_ally)
+                               left_ally=self._left_ally, totals=self.__dict__.get('totals'))
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
         self.geometry(f'{im.width}x{im.height}+{int(X - side)}+{int(Y - tp)}')
@@ -718,6 +743,7 @@ class TabPlates(Overlay):
         self._left_ally = not layout or layout.teams[0] == g.my_team
         left = g.allies if self._left_ally else g.enemies
         right = g.enemies if self._left_ally else g.allies
+        self.totals = (sum(p['igold'] for p in left), sum(p['igold'] for p in right)) if left and right else None
         for i, r in enumerate(core.ROLES):
             a = next((p for p in left if (p['c'] == layout.columns[0][i] if layout else p['pos'] == r)), None)
             e = next((p for p in right if (p['c'] == layout.columns[1][i] if layout else p['pos'] == r)), None)
@@ -791,6 +817,7 @@ class TabPlates(Overlay):
     def demo(self):
         self._left_ally = True
         vals = ((9800, 8950), (7400, 7720), (10300, 10300), (11800, 10560), (5200, 5290))
+        self.totals = (sum(a for a,_ in vals),sum(b for _,b in vals))
         rows = [({'v': a}, {'v': e}) for a, e in vals]
         self.data = (rows,)
         self.draw(*self.data)
@@ -1695,7 +1722,7 @@ class App:
         self.nav_sync()
         sig, (pw, ph), _ = screens()
         self.ov = {'hints': HintsOverlay(self, (40, int(ph * .30))), 'perf': PerfOverlay(self, (pw - 330, 80)),
-                   'lane': LaneOverlay(self, (pw - 330, 300)), 'gold': GoldOverlay(self, (40, int(ph * .55))),
+                   'lane': LaneOverlay(self, (pw - 330, 300)),
                    'item': ItemOverlay(self, (pw - 330, 400)), 'timers': TimersOverlay(self, (pw - 330, 490)),
                    'arena': ArenaOverlay(self, (pw - 330, 80)), 'inventory': InventoryOverlay(self, (max(40, pw - 650), 80))}
         self.tab = {'tab': TabPlates(self)}
@@ -1807,7 +1834,7 @@ class App:
     def hint_flags(self, role):
         return {h: self.hint_mode(h, role) != 'off' for h in core.HINT_IDS}
 
-    SR_ONLY = ('lane', 'gold', 'timers', 'perf', 'item')   # виджеты только для Ущелья: в Арене их нет
+    SR_ONLY = ('lane', 'timers', 'perf', 'item')   # виджеты только для Ущелья: в Арене их нет
 
     def apply_visibility(self):
         arena = bool(self.last_game and self.last_game.arena)
@@ -3072,6 +3099,7 @@ class App:
         f = self.tab_win
         self.h(f, 'Виджеты поверх игры')
         self.note(f, f"Клики проходят сквозь виджеты в игру. Чтобы передвинуть, зажми {self.s['keys']['drag'].upper()} и тяни мышью. "
+                     'Булавка в правом верхнем углу закрепляет виджет: даже с модификатором клики проходят сквозь него. Нажми булавку снова, чтобы открепить. '
                      'Позиции запоминаются отдельно для каждого набора мониторов.')
         self.w_vars = {}
         for k, name in WIDGETS.items():
@@ -3116,7 +3144,7 @@ class App:
         self.tab_auto_label.pack(anchor='w', pady=(2, 4))
         self.note(f, 'Между игроками в каждой строке Tab — одно число разницы стоимости предметов. Стрелка указывает на игрока с перевесом. '
                      'Синие цифры — преимущество нашей команды в этой паре, красные — отставание. Серый 0 означает равенство, прочерк — нет данных для сравнения. '
-                     'Общий перевес команд остаётся в отдельном виджете «Золото по линиям». '
+                     'Над таблицей — общая стоимость предметов команд, красно-синяя полоса баланса и число перевеса. '
                      'Считаются все предметы, кроме зелий, вардов и тотемов. Всё привязано к окну игры и масштабируется по его высоте, в том числе на широких мониторах. '
                      'Автоподгонка анализирует изображение игры только при удержании Tab; снимки никуда не отправляются и не сохраняются. '
                      'Работает и в тренировке: ищет рамку таблицы и проверяет её по видимым портретам. Неуверенно распознанные строки не подписываются. '
@@ -3157,7 +3185,7 @@ class App:
         cx = gx + gw / 2
         half = gw / 2 if kind == 'edges' else min(gw / 2, gh * 16 / 9 / 2)
         L, R = cx - half + 24 * k, cx + half - 340 * k
-        pos = {'hints': (L, gy + .30 * gh), 'gold': (L, gy + .55 * gh), 'perf': (R, gy + .10 * gh), 'lane': (R, gy + .30 * gh),
+        pos = {'hints': (L, gy + .30 * gh), 'perf': (R, gy + .10 * gh), 'lane': (R, gy + .30 * gh),
                'item': (R, gy + .40 * gh), 'timers': (R, gy + .49 * gh), 'inventory': (max(gx, R - 310 * k), gy + .10 * gh)}
         lay = self.layout()
         for key, (x, y) in pos.items(): lay[key] = [int(x), int(y)]

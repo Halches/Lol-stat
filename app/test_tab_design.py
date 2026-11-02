@@ -59,5 +59,16 @@ class TabDesignTests(unittest.TestCase):
         im = render.tab_plates((0, 0, 1160, 380), [(None, None)]*5, ui.THEMES['lol'][1], 1.)
         self.assertIsNone(im.getchannel('A').getbbox())
 
+    def test_total_extension_stays_above_game_header_and_in_bounds(self):
+        for k in (.667, 1., 1.5, 2.):
+            height = 380*k
+            top = round(height*.35+max(30,46*k))
+            im = render.tab_plates((0,top,1160*k,height),[(None,None)]*5,ui.THEMES['lol'][1],k,totals=(24050,21600))
+            box = im.getchannel('A').getbbox()
+            self.assertIsNotNone(box)
+            self.assertGreaterEqual(box[1],0)
+            self.assertLessEqual(box[3],top-height*.35+2)
+            self.assertIsNone(im.getchannel('A').crop((0,top,im.width,im.height)).getbbox())
+
 
 if __name__ == '__main__': unittest.main()

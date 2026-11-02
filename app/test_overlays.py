@@ -12,6 +12,48 @@ import tab_detect
 
 
 class OverlayTests(unittest.TestCase):
+    def widget(self):
+        w = object.__new__(ui.Overlay)
+        class Saved(dict):
+            def save(self): pass
+        w.app = SimpleNamespace(s=Saved(widget_pins={}))
+        w.key, w.pinned, w.unlocked, w._drag = 'inventory', False, False, None
+        w.configure, w._draw_pin = Mock(), Mock()
+        return w
+
+    def test_pinned_body_stays_clickthrough_during_alt(self):
+        w = self.widget(); w.pinned = True
+        with patch.object(ui, 'click_through') as through:
+            w.unlock(True); w.unlock(False)
+        self.assertEqual([c.args[1] for c in through.call_args_list], [True, True])
+        w.configure.assert_called_with(highlightthickness=0, highlightbackground=ui.C['gold'])
+
+    def test_pin_toggle_restores_current_alt_state_and_is_independent(self):
+        w = self.widget(); w.unlocked = True
+        with patch.object(ui, 'click_through') as through:
+            w.toggle_pin()
+            self.assertTrue(w.app.s['widget_pins']['inventory'])
+            w.toggle_pin()
+        self.assertEqual([c.args[1] for c in through.call_args_list], [True, False])
+        self.assertNotIn('timers', w.app.s['widget_pins'])
+
+    def test_unpin_without_alt_does_not_capture_body(self):
+        w = self.widget(); w.pinned = True
+        with patch.object(ui, 'click_through') as through: w.toggle_pin()
+        through.assert_called_once_with(w, True)
+
+    def test_pinned_widget_cannot_start_drag(self):
+        w = self.widget(); w.pinned, w.unlocked = True, True
+        w._start(SimpleNamespace(x_root=10, y_root=20))
+        self.assertIsNone(w._drag)
+
+    def test_pin_settings_survive_reload(self):
+        with tempfile.TemporaryDirectory() as home:
+            s = ui.Settings(home)
+            s['widget_pins']['inventory'] = True
+            s.save()
+            self.assertTrue(ui.Settings(home)['widget_pins']['inventory'])
+
     def plate(self):
         w = object.__new__(ui.TabPlates)
         w.app = SimpleNamespace(s=copy.deepcopy(ui.DEFAULTS))

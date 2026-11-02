@@ -2,6 +2,7 @@
 # Tk сам рисует текст грубо, поэтому виджеты поверх игры — это картинки, собранные здесь.
 import os
 import sys
+import copy
 from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 
@@ -62,7 +63,8 @@ class Card:
         self.t, self.fn, self.k, self.plate = theme, font_name, scale, plate
         self.accent, self.width = accent, width
         self.rows = []
-        if title: self.row(('text', title.upper(), 'gold', 9, True, CAPS), pad=4)
+        self.title = title
+        if title: self.row(('text', title.upper(), 'gold', 11, False, 'Forum'), ('gap', 24), pad=7)
 
     def px(self, n): return max(1, round(n * self.k))
 
@@ -77,6 +79,8 @@ class Card:
         return self
 
     def _font(self, s):
+        if s[1] and any(c.isdigit() for c in s[1]) and not any(c.isalpha() and c != 'k' for c in s[1]):
+            return font('Forum', self.px(s[3]+2), False)
         return font(s[5] if s[0] == 'text' and len(s) > 5 else self.fn, self.px(s[3]), s[4])
 
     def _seg_size(self, s):
@@ -89,9 +93,17 @@ class Card:
         return 0, 0
 
     def _color(self, c):
+        if self.plate and c in HUD: return rgb(HUD[c])
         return rgb(c if c.startswith('#') else self.t.get(c, c))
 
     def render(self):
+        card = copy.copy(self)
+        card.k *= 2
+        card.rows = [([('img', s[1].resize((s[1].width*2,s[1].height*2),Image.Resampling.LANCZOS)) if s[0]=='img' else s for s in segs],pad) for segs,pad in self.rows]
+        im = card._render()
+        return im.resize((max(1,im.width//2),max(1,im.height//2)),Image.Resampling.LANCZOS)
+
+    def _render(self):
         stripe = self.px(3) + self.px(6) if self.accent and self.plate else 0
         padx, pady = self.px(12), self.px(9)
         sizes = [[self._seg_size(s) for s in segs] for segs, _ in self.rows]
@@ -102,18 +114,20 @@ class Card:
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         if self.plate:
-            d.rounded_rectangle((0, 0, W - 1, H - 1), self.px(8), fill=rgb(self.t['bg']) + (255,))
+            hud_frame(d, (0, 0, W-1, H-1), self.px(7))
             if self.accent: d.rectangle((self.px(6), pady, self.px(6) + self.px(3) - 1, H - pady), fill=self._color(self.accent) + (255,))
         y = pady
-        for (segs, pad), sz, h in zip(self.rows, sizes, heights):
+        for row_index, ((segs, pad), sz, h) in enumerate(zip(self.rows, sizes, heights)):
             x = padx + stripe
             for s, (w, sh) in zip(segs, sz):
                 if s[0] in ('text', 'cell'):
-                    f = self._font(s) if s[0] == 'text' else font(self.fn, self.px(s[3]), s[4])
+                    f = self._font(s)
                     col = self._color(s[2]) + (255,)
                     tx = x + (w - int(f.getlength(s[1])) if s[0] == 'cell' and s[6] == 'r' else 0)
                     ty = y + (h - sh) // 2
-                    if self.plate: d.text((tx, ty), s[1], font=f, fill=col)
+                    if self.plate:
+                        d.text((tx, ty+1), s[1], font=f, fill=OUTLINE)
+                        d.text((tx, ty), s[1], font=f, fill=col, stroke_width=1 if f.getname()[0]=='Forum' else 0)
                     else: d.text((tx, ty), s[1], font=f, fill=col, stroke_width=max(1, round(self.k)), stroke_fill=OUTLINE)
                 elif s[0] == 'img':
                     im.alpha_composite(s[1].convert('RGBA'), (x, y + (h - sh) // 2))
@@ -124,11 +138,66 @@ class Card:
                     d.rounded_rectangle((x, by, x + max(sh, int(w * frac)), by + sh), sh // 2, fill=c1 + (255,))
                 x += w + self.px(6)
             y += h + self.px(pad)
+            if row_index == 0 and self.title and self.plate:
+                ly, mx, rad = y-self.px(3), W/2, self.px(2)
+                d.line((padx,ly,W-padx,ly),fill='#756243',width=max(1,self.px(.5)))
+                d.polygon([(mx-rad,ly),(mx,ly-rad),(mx+rad,ly),(mx,ly+rad)],fill=HUD['gold'])
         return im
 
 
 CAPS = 'Fira Sans Condensed SemiBold'   # подписи капсом и цифры
 OUTLINE = (5, 10, 16, 255)              # обводка текста без плашки: #050a10
+
+# Game overlays keep the scoreboard's dark materials, even in the daytime app theme.
+HUD = {'deep': '#10272d', 'gold': '#c9a56b', 'fg': '#ede5d2', 'mute': '#9aafa9', 'blue': '#91d8f3',
+       'red': '#ed8b76', 'good': '#91d8f3', 'bad': '#ed8b76', 'warn': '#e4c68b'}
+
+
+def hud_frame(d, box, cut=5):
+    x, y, r, b = box
+    cut = min(cut, (r-x)/3, (b-y)/3)
+    def points(inset):
+        a, c, e, f = x+inset, y+inset, r-inset, b-inset
+        n = max(1, cut-inset)
+        return [(a+n,c),(e-n,c),(e,c+n),(e,f-n),(e-n,f),(a+n,f),(a,f-n),(a,c+n)]
+    d.polygon(points(0), fill='#081b22', outline='#b38b50', width=max(1,round(cut/7)))
+    d.line(points(2)+[points(2)[0]], fill='#304847', width=1)
+    d.line((x+cut,y,r-cut,y), fill='#e4c68b', width=1)
+
+
+def pin_icon(pinned, k):
+    size = max(18, round(22*k)); z = 3
+    im = Image.new('RGBA', (size*z, size*z)); d = ImageDraw.Draw(im)
+    hud_frame(d, (0, 0, size*z-1, size*z-1), 3*z)
+    c = HUD['gold'] if pinned else HUD['mute']
+    def p(x,y): return round(x*size*z/22), round(y*size*z/22)
+    d.polygon([p(7,5),p(15,5),p(14,8),p(14,11),p(17,13),p(5,13),p(8,11),p(8,8)], fill=c)
+    d.line([p(11,13),p(11,19)], fill=c, width=2*z)
+    if not pinned: d.line([p(4,18),p(18,4)], fill='#081b22', width=3*z); d.line([p(4,18),p(18,4)], fill=c, width=z)
+    return im.resize((size,size), Image.Resampling.LANCZOS)
+
+
+def hud_badge(text, direction, color, width, height):
+    z = 4; w, h = width*z, height*z
+    im = Image.new('RGBA', (w,h)); d = ImageDraw.Draw(im)
+    hud_frame(d, (0,0,w-1,h-1), min(w*.24,h*.16))
+    if direction:
+        # A solid, engraved silhouette survives the narrow real scoreboard gutter.
+        pts = [(.16,.27),(.43,.16),(.43,.23),(.84,.25),(.43,.29),(.43,.36)]
+        if direction > 0: pts = [(1-x,y) for x,y in pts]
+        d.polygon([(round(x*w),round(y*h)) for x,y in pts], fill=HUD['gold'])
+    f = font('Forum', round(h*.40))
+    box = f.getbbox(text); tw, th = box[2]-box[0], box[3]-box[1]
+    glyph = Image.new('RGBA',(tw+4*z, th+4*z)); gd = ImageDraw.Draw(glyph)
+    col = HUD.get(color, HUD['mute'])
+    gd.text((2*z-box[0],2*z-box[1]+z//2),text,font=f,fill=OUTLINE)
+    gd.text((2*z-box[0],2*z-box[1]),text,font=f,fill=col,stroke_width=1)
+    # Keep the serif numerals tall; compress horizontally only when needed.
+    gw = min(glyph.width, w-4*z)
+    glyph = glyph.resize((max(1,gw),glyph.height), Image.Resampling.LANCZOS)
+    gy = round(h*(.61 if direction else .50)-glyph.height/2)
+    im.alpha_composite(glyph, ((w-glyph.width)//2,gy))
+    return im.resize((width,height), Image.Resampling.LANCZOS)
 
 
 def tint(im, color, size):
@@ -186,7 +255,7 @@ def tab_badge_geometry(rect, k):
     return X + TW/2, rh, width, height
 
 
-def tab_plates(rect, rows, theme, k, frame=False, left_ally=True):
+def tab_plates(rect, rows, theme, k, frame=False, left_ally=True, totals=None):
     """One compact arrow + difference between each pair of players, no team total.
 
     rect = (x, y, w, h) of the detected table body; rows contain the actual
@@ -203,21 +272,39 @@ def tab_plates(rect, rows, theme, k, frame=False, left_ally=True):
         cy = int(Y + i * rh + rh / 2)
         text, direction, color = tab_advantage(a, e, left_ally)
         x0, y0 = round(cx-bw/2), round(cy-bh/2)
-        # Tiny dark plate stays legible over both the blue and red halves of Tab.
-        # Its width is limited by the scoreboard itself, not just the helper scale.
-        fill = t('deep') if theme.get('dark', True) else t('panel')
-        d.rounded_rectangle((x0, y0, x0+bw-1, y0+bh-1), max(2, round(3*k)), fill=fill)
-        pad = max(1, round(bw*.09))
-        ah = max(3, round(bh*.36))
-        if direction:
-            arrow = advantage_arrow(bw-2*pad, ah, direction)
-            im.alpha_composite(arrow, (round(cx-arrow.width/2), y0+pad))
-        size = max(6, min(round(14*k), round(bh*.45)))
-        number = font(CAPS, size)
-        while size > 5 and number.getlength(text) > bw-2*pad:
-            size -= 1; number = font(CAPS, size)
-        ty = y0+bh-pad
-        d.text((cx, ty), text, font=number, fill=t(color), anchor='ms')
+        im.alpha_composite(hud_badge(text, direction, color, bw, bh), (x0,y0))
+    if totals is not None:
+        left, right = totals
+        ours = left-right if left_ally else right-left
+        width = min(round(TW*.52), round(520*k))
+        height = max(30, round(46*k))
+        bx = round(X+(TW-width)/2)
+        by = max(0, round(Y-TH*.35-height))
+        hud_frame(d, (bx,by,bx+width-1,by+height-1), max(3,round(8*k)))
+        title = font('Forum', max(8,round(10*k)))
+        d.text((bx+width/2,by+3*k), 'ПЕРЕВЕС ПО ПРЕДМЕТАМ',font=title,fill=HUD['gold'],anchor='mt')
+        small = font('Forum', max(9,round(16*k)))
+        lc, rc = (HUD['blue'],HUD['red']) if left_ally else (HUD['red'],HUD['blue'])
+        d.text((bx+10*k,by+height*.58),f'{left/1000:.1f}k'.replace('.',','),font=small,fill=lc,anchor='lm')
+        d.text((bx+width-10*k,by+height*.58),f'{right/1000:.1f}k'.replace('.',','),font=small,fill=rc,anchor='rm')
+        a, b = bx+round(width*.21), bx+round(width*.79)
+        yy = by+height-round(10*k)
+        split = a+round((b-a)*left/max(1,left+right))
+        d.rectangle((a,yy,b,yy+max(3,round(5*k))),fill=rc,outline=HUD['gold'])
+        if split > a: d.rectangle((a+1,yy+1,min(b-1,split),yy+max(2,round(5*k))-1),fill=lc)
+        d.line(((a+b)/2,yy-2,(a+b)/2,yy+7*k),fill=HUD['gold'])
+        label = f'{ours:+,.0f}'.replace(',',' ') if ours else '0'
+        f = font('Forum',max(11,round(19*k)))
+        color = HUD['blue'] if ours>0 else HUD['red'] if ours<0 else HUD['mute']
+        mid = bx+width/2
+        badge_w = f.getlength(label)+32*k
+        hud_frame(d, (mid-badge_w/2,by+height*.27,mid+badge_w/2,by+height*.75),max(2,round(4*k)))
+        d.text((mid+6*k,by+height*.51),label,font=f,fill=color,anchor='mm')
+        if ours:
+            arrow_x = mid-f.getlength(label)/2-7*k
+            direction = -1 if left>right else 1
+            pts = [(-5,0),(0,-3),(0,-1),(6,-1),(6,1),(0,1),(0,3)]
+            d.polygon([(arrow_x+x*k*(-direction),by+height*.51+y*k) for x,y in pts],fill=HUD['gold'])
     if frame:   # Только контур: клики через всю рамку идут в игру, мышь принимает отдельная ручка.
         g, L = t('gold'), int(18 * k)
         x0, y0, x1, y1 = X, Y, X + TW - 1, Y + TH - 1
