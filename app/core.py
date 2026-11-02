@@ -295,6 +295,14 @@ def champ_key(p, data):
     return raw or p.get('championName', '')
 
 
+def inventory_ranking(players):
+    """Все чемпионы по стоимости инвентаря; при равенстве — стабильный порядок по Riot ID.
+
+    Не учитывать наличное золото и не переставлять исходный список игроков/линий.
+    """
+    return sorted(players, key=lambda p: (-p['igold'], p['riot'].casefold(), p['c']))
+
+
 class Game:
     """Снимок allgamedata, разобранный для подсказок и окон."""
 

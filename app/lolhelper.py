@@ -176,6 +176,10 @@ def selftest():
         n = len(app.icons.a.get('champ', {}))
         out.append(f'ui ok, portraits {n}, pillow {ui.Image is not None}')
         import render
+        import cv2, numpy, tab_detect
+        from PIL import Image
+        assert tab_detect.detect(Image.new('RGB', (640, 480)), {}, []) is None
+        out.append(f'tab detection imports OK: OpenCV {cv2.__version__}, NumPy {numpy.__version__}')
         fdir = os.path.join(HERE, 'fonts')
         out.append(f"fonts {sorted(os.listdir(fdir)) if os.path.isdir(fdir) else 'нет папки'}; pil {render.font('Golos Text', 14).getname()}")
         if FROZEN and not os.path.isdir(fdir): ok = False

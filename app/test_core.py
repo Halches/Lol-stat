@@ -200,6 +200,28 @@ def test_items_value():
     assert d.items_value([]) == 0
 
 
+def test_inventory_ranking():
+    raw = snap(640, me={'items': [3006, 3031]}, opp={'items': [3006]})
+    g = core.Game(raw, D)
+    original = list(g.players)
+    ranked = core.inventory_ranking(g.players)
+    assert ranked[0] is g.me and ranked[1] is g.opp
+    assert g.players == original   # рейтинг не переставляет игровые строки Tab
+    raw['allPlayers'][5]['items'].append({'itemID': 3031, 'count': 1})
+    g2 = core.Game(raw, D)
+    first = core.inventory_ranking(g2.players)
+    tied = [p['riot'] for p in first if p['igold'] == first[0]['igold']]
+    assert tied == sorted(tied, key=str.casefold)
+    # Источник может поменять порядок игроков: одинаковая стоимость не вызывает прыжков.
+    assert [p['riot'] for p in first] == [p['riot'] for p in core.inventory_ranking(list(reversed(g2.players)))]
+    raw['activePlayer']['currentGold'] = 99999
+    raw['allPlayers'][5]['items'].append({'itemID': 3031, 'count': 1})
+    g3 = core.Game(raw, D)
+    assert core.inventory_ranking(g3.players)[0] is g3.opp   # наличное золото не участвует
+    assert core.inventory_ranking([]) == []
+    assert len(first) == 10
+
+
 def test_arena_mode():
     s = snap(300)
     assert not core.Game(s, D).arena

@@ -137,16 +137,27 @@ def tint(im, color, size):
     return out
 
 
-def tab_plates(rect, rows, top, theme, k, frame=False):
+def tab_handle(theme, font_name, k):
+    """Небольшая ручка настройки Tab с теми же шрифтами, что у оверлеев."""
+    text = 'TAB · тяни | Shift: размер'
+    f = font(font_name, max(10, round(11 * k)))
+    pad = max(6, round(8 * k))
+    im = Image.new('RGB', (int(f.getlength(text)) + pad * 2, round(18 * k) + pad), rgb(theme['gold']))
+    ImageDraw.Draw(im).text((pad, im.height / 2), text, font=f, fill=rgb(theme['on_gold']), anchor='lm')
+    return im
+
+
+def tab_plates(rect, rows, top, theme, k, frame=False, left_ally=True):
     """Таблички стоимости предметов у внешних краёв таблицы Tab. rect = (x, y, w, h) таблицы внутри картинки,
     rows = 5 пар (союзник, враг): {'v': стоимость, 'd': разница с оппонентом} или None; top = (наши, их) или None.
     frame — режим подгонки: золотая пунктирная рамка с уголками по краям таблицы."""
     X, Y, TW, TH = rect
     PW, gap = int(112 * k), int(8 * k)
-    W, H = int(TW + 2 * (PW + gap) + 2), int(TH + Y + 2)
+    W, H = int(X + TW + PW + gap + 2), int(TH + Y + 2)
     im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     t = lambda c: rgb(theme[c]) + (255,)
+    left_color, right_color = ('blue', 'red') if left_ally else ('red', 'blue')
     rh = TH / 5
     ph = max(int(22 * k), int(rh * .62))
     big, small = font(CAPS, max(11, int(19 * k))), font(CAPS, max(9, int(13 * k)))
@@ -157,13 +168,13 @@ def tab_plates(rect, rows, top, theme, k, frame=False):
             x0 = X - gap - PW if side == 'a' else X + TW + gap
             d.rounded_rectangle((x0, cy - ph // 2, x0 + PW, cy + ph // 2), int(6 * k), fill=t('bg'))
             edge = (x0, x0 + int(3 * k)) if side == 'a' else (x0 + PW - int(3 * k), x0 + PW)
-            d.rectangle((edge[0], cy - ph // 2 + int(5 * k), edge[1], cy + ph // 2 - int(5 * k)), fill=t('blue' if side == 'a' else 'red'))
+            d.rectangle((edge[0], cy - ph // 2 + int(5 * k), edge[1], cy + ph // 2 - int(5 * k)), fill=t(left_color if side == 'a' else right_color))
             val = f"{p['v'] / 1000:.1f}k".replace('.', ',')
             if side == 'a':
                 d.text((x0 + int(12 * k), cy), val, font=big, fill=t('fg'), anchor='lm')
                 dd = p.get('d')
                 if dd is not None:
-                    col = 'mute' if abs(dd) < 100 else 'good' if dd > 0 else 'bad'
+                    col = 'mute' if abs(dd) < 100 else 'good' if (dd > 0) == left_ally else 'bad'
                     d.text((x0 + PW - int(9 * k), cy), f'{dd:+.0f}' if abs(dd) >= 100 else '0', font=small, fill=t(col), anchor='rm')
             else:
                 d.text((x0 + PW - int(12 * k), cy), val, font=big, fill=t('fg'), anchor='rm')
@@ -174,19 +185,18 @@ def tab_plates(rect, rows, top, theme, k, frame=False):
         bx, by = int(X + TW / 2 - bw / 2), int(Y - bh - 8 * k)
         d.rounded_rectangle((bx, by, bx + bw, by + bh), int(6 * k), fill=t('bg'))
         cy = by + bh // 2
-        d.text((bx + int(12 * k), cy), f'{ours / 1000:.1f}k'.replace('.', ','), font=small, fill=t('blue'), anchor='lm')
-        d.text((bx + bw - int(12 * k), cy), f'{theirs / 1000:.1f}k'.replace('.', ','), font=small, fill=t('red'), anchor='rm')
+        d.text((bx + int(12 * k), cy), f'{ours / 1000:.1f}k'.replace('.', ','), font=small, fill=t(left_color), anchor='lm')
+        d.text((bx + bw - int(12 * k), cy), f'{theirs / 1000:.1f}k'.replace('.', ','), font=small, fill=t(right_color), anchor='rm')
         lx0, lx1 = bx + int(62 * k), bx + bw - int(62 * k)
         frac = ours / max(1, ours + theirs)
-        d.rounded_rectangle((lx0, cy - int(3 * k), lx1, cy + int(3 * k)), int(3 * k), fill=t('red'))
-        d.rounded_rectangle((lx0, cy - int(3 * k), lx0 + max(int(6 * k), int((lx1 - lx0) * frac)), cy + int(3 * k)), int(3 * k), fill=t('blue'))
+        d.rounded_rectangle((lx0, cy - int(3 * k), lx1, cy + int(3 * k)), int(3 * k), fill=t(right_color))
+        d.rounded_rectangle((lx0, cy - int(3 * k), lx0 + max(int(6 * k), int((lx1 - lx0) * frac)), cy + int(3 * k)), int(3 * k), fill=t(left_color))
         lbl = f'{diff:+.0f}' if diff else '0'
         tw = int(small.getlength(lbl)) + int(12 * k)
         mx = (lx0 + lx1) // 2
         d.rounded_rectangle((mx - tw // 2, cy - int(10 * k), mx + tw // 2, cy + int(10 * k)), int(5 * k), fill=t('bg'))
-        d.text((mx, cy), lbl, font=small, fill=t('good' if diff > 0 else 'bad' if diff < 0 else 'mute'), anchor='mm')
-    if frame:   # полупрозрачная заливка: в Windows пиксели цвета-ключа пропускают клики, а рамку нужно ловить мышью
-        d.rectangle((X, Y, X + TW - 1, Y + TH - 1), fill=rgb(theme['bg']) + (110,))
+        d.text((mx, cy), lbl, font=small, fill=t('mute' if not diff else 'good' if (diff > 0) == left_ally else 'bad'), anchor='mm')
+    if frame:   # Только контур: клики через всю рамку идут в игру, мышь принимает отдельная ручка.
         g, L = t('gold'), int(18 * k)
         x0, y0, x1, y1 = X, Y, X + TW - 1, Y + TH - 1
         dash = int(8 * k)
@@ -199,11 +209,6 @@ def tab_plates(rect, rows, top, theme, k, frame=False):
         for i in range(1, 5):
             yy = int(Y + i * rh)
             for xx in range(int(x0), int(x1), dash * 2): d.line((xx, yy, min(xx + dash // 2, x1), yy), fill=t('gold') [:3] + (140,), width=1)
-        f = font(CAPS, max(10, int(13 * k)))
-        msg = 'ПОДГОНКА: ТЯНИ ЗА КРАЯ И УГЛЫ, ВНУТРИ — ПЕРЕНОС'
-        mw = int(f.getlength(msg)) + int(16 * k)
-        d.rounded_rectangle((X + TW / 2 - mw / 2, Y + TH / 2 - 14 * k, X + TW / 2 + mw / 2, Y + TH / 2 + 14 * k), int(6 * k), fill=t('bg'))
-        d.text((X + TW / 2, Y + TH / 2), msg, font=f, fill=g, anchor='mm')
     return im
 
 
