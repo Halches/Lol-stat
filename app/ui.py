@@ -621,7 +621,7 @@ def tab_rect_drag(rect, dx, dy, resize=False):
 
 
 class TabPlates(Overlay):
-    """Стоимость предметов у краёв Tab. Рамка следует за окном игры.
+    """Разница стоимости предметов между игроками в строках Tab.
 
     Всё большое окно всегда пропускает клики. Только отдельная небольшая ручка
     принимает мышь в режиме расстановки: перетаскивание — перенос, Shift — размер.
@@ -672,13 +672,12 @@ class TabPlates(Overlay):
     def geom(self):
         gx, gy, gw, gh = game_rect()
         l, t, w, h = self.rect()
-        k = self.k()
-        side, top = int(122 * k) + 2, int(46 * k)
+        side, top = 0, 0   # the new badges stay inside the table's centre gutter
         return gx + gw / 2 + l * gh, gy + t * gh, w * gh, h * gh, side, top
 
-    def draw(self, rows, top):
+    def draw(self, rows):
         X, Y, W, H, side, tp = self.geom()
-        im = render.tab_plates((side, tp, W, H), rows, top, C, self.k(), frame=self.unlocked,
+        im = render.tab_plates((side, tp, W, H), rows, C, self.k(), frame=self.unlocked,
                                left_ally=self._left_ally)
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
@@ -722,10 +721,9 @@ class TabPlates(Overlay):
         for i, r in enumerate(core.ROLES):
             a = next((p for p in left if (p['c'] == layout.columns[0][i] if layout else p['pos'] == r)), None)
             e = next((p for p in right if (p['c'] == layout.columns[1][i] if layout else p['pos'] == r)), None)
-            # Difference remains against the lane opponent, even after row reordering.
-            opp = next((p for p in right if a and a['pos'] and p['pos'] == a['pos']), None)
-            rows.append(({'v': a['igold'], 'd': a['igold'] - opp['igold'] if opp else None} if a else None, {'v': e['igold']} if e else None))
-        self.data = (rows, (sum(p['igold'] for p in left), sum(p['igold'] for p in right)))
+            # Compare the two visible players in this row, including manual reordering.
+            rows.append(({'v': a['igold']} if a else None, {'v': e['igold']} if e else None))
+        self.data = (rows,)
         self.draw(*self.data)
 
     def _stop_detection(self, event):
@@ -793,8 +791,8 @@ class TabPlates(Overlay):
     def demo(self):
         self._left_ally = True
         vals = ((9800, 8950), (7400, 7720), (10300, 10300), (11800, 10560), (5200, 5290))
-        rows = [({'v': a, 'd': a - e}, {'v': e}) for a, e in vals]
-        self.data = (rows, (sum(a for a, _ in vals), sum(e for _, e in vals)))
+        rows = [({'v': a}, {'v': e}) for a, e in vals]
+        self.data = (rows,)
         self.draw(*self.data)
 
     def unlock(self, on):
@@ -3116,7 +3114,9 @@ class App:
                         command=lambda: self.set_tab('tab_auto', av.get())).pack(anchor='w')
         self.tab_auto_label = ttk.Label(f, text='Автоподгонка: ожидаю Tab в игре' if self.s['tab_auto'] else 'Автоподгонка выключена', style='V.TLabel')
         self.tab_auto_label.pack(anchor='w', pady=(2, 4))
-        self.note(f, 'Таблички у краёв игровой таблицы: стоимость предметов и разница с оппонентом по линии, над рамкой — итог команд. '
+        self.note(f, 'Между игроками в каждой строке Tab — одно число разницы стоимости предметов. Стрелка указывает на игрока с перевесом. '
+                     'Синие цифры — преимущество нашей команды в этой паре, красные — отставание. Серый 0 означает равенство, прочерк — нет данных для сравнения. '
+                     'Общий перевес команд остаётся в отдельном виджете «Золото по линиям». '
                      'Считаются все предметы, кроме зелий, вардов и тотемов. Всё привязано к окну игры и масштабируется по его высоте, в том числе на широких мониторах. '
                      'Автоподгонка анализирует изображение игры только при удержании Tab; снимки никуда не отправляются и не сохраняются. '
                      'Работает и в тренировке: ищет рамку таблицы и проверяет её по видимым портретам. Неуверенно распознанные строки не подписываются. '

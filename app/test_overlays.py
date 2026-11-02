@@ -139,10 +139,10 @@ class OverlayTests(unittest.TestCase):
         g = SimpleNamespace(allies=allies, enemies=enemies, my_team='ORDER')
         w.auto_layout = tab_detect.Layout((-.5, .2, 1., .4), (('A3', None, 'A2', 'A4', 'A0'), ('E1', 'E2', 'E3', 'E4', 'E0')), ('ORDER', 'CHAOS'), .9)
         w.show(g)
-        rows, totals = w.data
-        self.assertEqual(rows[0], ({'v': 1003, 'd': -1000}, {'v': 2001}))
+        rows, = w.data
+        self.assertEqual(rows[0], ({'v': 1003}, {'v': 2001}))
         self.assertIsNone(rows[1][0])
-        self.assertEqual(totals, (5010, 10010))
+        self.assertEqual(ui.render.tab_advantage(*rows[0]), ('998', 1, 'red'))
 
 
 if __name__ == '__main__':

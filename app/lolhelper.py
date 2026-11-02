@@ -176,6 +176,9 @@ def selftest():
         n = len(app.icons.a.get('champ', {}))
         out.append(f'ui ok, portraits {n}, pillow {ui.Image is not None}')
         import render
+        arrow = render.advantage_arrow(24, 14, -1)
+        assert arrow.mode == 'RGBA' and arrow.getchannel('A').getbbox()
+        out.append(f'tab arrow asset OK: {arrow.size}')
         import cv2, numpy, tab_detect
         from PIL import Image
         assert tab_detect.detect(Image.new('RGB', (640, 480)), {}, []) is None
