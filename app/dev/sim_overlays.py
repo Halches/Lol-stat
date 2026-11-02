@@ -16,6 +16,8 @@ from PIL import ImageGrab
 import core
 import ui
 import test_core as T
+import test_tab_detect as TD
+import tab_detect
 
 
 class Settings(dict):
@@ -83,6 +85,22 @@ def run():
             print('Tab geometry:', tab.winfo_geometry(), 'label:', tab.lbl.winfo_geometry())
             ImageGrab.grab(xdisplay=os.environ.get('DISPLAY')).save(out / filename)
             print('ok', theme, 'handle move/resize/save/hide; screenshot', out / filename)
+            # Detection output drives the real Tk window, not a second drawing of it.
+            frame, portraits, _ = TD.fixture(1920, 1080, 65)
+            found = tab_detect.detect(frame, portraits, TD.PLAYERS)
+            assert found is not None
+            tab.auto_layout = found
+            players = [dict(p, pos=core.ROLES[i % 5], igold=4000+i*450) for i, p in enumerate(TD.PLAYERS)]
+            g = SimpleNamespace(players=players, allies=players[:5], enemies=players[5:], my_team='ORDER')
+            tab.show(g)
+            tab.deiconify(); tab.lift()
+            root.update()
+            assert not tab.handle.winfo_viewable()  # automatic placement needs no drag target
+            assert tab.data[0][0][0]['v'] == players[2]['igold']
+            X, Y, W, H, side, top = tab.geom()
+            assert abs(Y - (1080 * .28 - 65/2)) < 4
+            ImageGrab.grab(xdisplay=os.environ.get('DISPLAY')).save(out / ('auto_' + filename))
+            print('ok', theme, 'detected row order/geometry and hidden handle')
         finally:
             root.destroy()
             ui.game_rect = original_rect

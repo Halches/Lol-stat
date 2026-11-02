@@ -26,8 +26,10 @@ jobs:
 
       - name: Тесты логики
         run: |
+          pip install --quiet pillow opencv-python-headless==4.11.0.86 numpy==2.2.6
           python app/test_core.py
           python -m unittest discover -s app -p test_overlays.py
+          python -m unittest discover -s app -p test_tab_detect.py
 
       - name: Piper и голос Дмитрий
         shell: pwsh
@@ -72,7 +74,7 @@ jobs:
           $v = "v1.0.${{ github.run_number }}"
           Set-Content app/version.txt $v -NoNewline
           "VERSION=$v" | Out-File $env:GITHUB_ENV -Append
-          pip install --quiet pyinstaller==6.11.1 pillow edge-tts==7.3.1 pywebview==5.3.2
+          pip install --quiet pyinstaller==6.11.1 pillow edge-tts==7.3.1 pywebview==5.3.2 opencv-python-headless==4.11.0.86 numpy==2.2.6
           pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app --hidden-import PIL._tkinter_finder `
             --collect-all edge_tts --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data certifi --hidden-import clr --hidden-import sitewin `
             --add-data "app/data.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." --add-data "app/fonts;fonts" --add-data "app/icon.png;." --icon app/icon.ico `
