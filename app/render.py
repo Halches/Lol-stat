@@ -2,6 +2,7 @@
 # Tk сам рисует текст грубо, поэтому виджеты поверх игры — это картинки, собранные здесь.
 import os
 import sys
+from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 
 FONT_FILES = {   # шрифты Windows: обычный и полужирный
@@ -147,55 +148,76 @@ def tab_handle(theme, font_name, k):
     return im
 
 
-def tab_plates(rect, rows, top, theme, k, frame=False, left_ally=True):
-    """Таблички стоимости предметов у внешних краёв таблицы Tab. rect = (x, y, w, h) таблицы внутри картинки,
-    rows = 5 пар (союзник, враг): {'v': стоимость, 'd': разница с оппонентом} или None; top = (наши, их) или None.
-    frame — режим подгонки: золотая пунктирная рамка с уголками по краям таблицы."""
+@lru_cache(maxsize=1)
+def advantage_arrow_source():
+    """Generated left-pointing sprite. Ignore nearly transparent stray pixels in its bounds."""
+    path = os.path.join(HERE, 'ui_assets', 'tab-advantage-arrow.png')
+    with Image.open(path) as source:
+        im = source.convert('RGBA')
+    box = im.getchannel('A').point(lambda a: 255 if a >= 8 else 0).getbbox()
+    return im.crop(box) if box else im
+
+
+@lru_cache(maxsize=64)
+def advantage_arrow(width, height, direction):
+    """-1 points left, +1 right. Same generated asset, rotated at runtime."""
+    im = advantage_arrow_source().copy()
+    im.thumbnail((max(1, width), max(1, height)), Image.Resampling.LANCZOS)
+    return im.transpose(Image.Transpose.ROTATE_180) if direction > 0 else im
+
+
+def tab_advantage(left, right, left_ally=True):
+    """One magnitude per actual scoreboard row; colour is relative to our team."""
+    if left is None or right is None: return '—', 0, 'mute'
+    diff = left['v'] - right['v']
+    if not diff: return '0', 0, 'mute'
+    value = abs(round(diff))
+    text = str(value) if value < 10_000 else f'{value / 1000:.1f}'.rstrip('0').rstrip('.').replace('.', ',') + 'k'
+    ours = diff if left_ally else -diff
+    return text, -1 if diff > 0 else 1, 'blue' if ours > 0 else 'red'
+
+
+def tab_badge_geometry(rect, k):
+    """Fit inside the narrow centre gutter, even with a large helper UI scale."""
     X, Y, TW, TH = rect
-    PW, gap = int(112 * k), int(8 * k)
-    W, H = int(X + TW + PW + gap + 2), int(TH + Y + 2)
+    rh = TH / 5
+    width = max(10, min(round(24*k), round(rh*.28), round(TW*.018)))
+    height = max(12, min(round(36*k), round(rh*.64)))
+    return X + TW/2, rh, width, height
+
+
+def tab_plates(rect, rows, theme, k, frame=False, left_ally=True):
+    """One compact arrow + difference between each pair of players, no team total.
+
+    rect = (x, y, w, h) of the detected table body; rows contain the actual
+    left/right players' inventory values, or None for an unidentified player.
+    """
+    X, Y, TW, TH = rect
+    W, H = int(X + TW + 2), int(TH + Y + 2)
     im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     t = lambda c: rgb(theme[c]) + (255,)
-    left_color, right_color = ('blue', 'red') if left_ally else ('red', 'blue')
-    rh = TH / 5
-    ph = max(int(22 * k), int(rh * .62))
-    big, small = font(CAPS, max(11, int(19 * k))), font(CAPS, max(9, int(13 * k)))
+    cx, rh, bw, bh = tab_badge_geometry(rect, k)
     for i, (a, e) in enumerate(rows):
+        if a is None and e is None: continue
         cy = int(Y + i * rh + rh / 2)
-        for side, p in (('a', a), ('e', e)):
-            if not p: continue
-            x0 = X - gap - PW if side == 'a' else X + TW + gap
-            d.rounded_rectangle((x0, cy - ph // 2, x0 + PW, cy + ph // 2), int(6 * k), fill=t('bg'))
-            edge = (x0, x0 + int(3 * k)) if side == 'a' else (x0 + PW - int(3 * k), x0 + PW)
-            d.rectangle((edge[0], cy - ph // 2 + int(5 * k), edge[1], cy + ph // 2 - int(5 * k)), fill=t(left_color if side == 'a' else right_color))
-            val = f"{p['v'] / 1000:.1f}k".replace('.', ',')
-            if side == 'a':
-                d.text((x0 + int(12 * k), cy), val, font=big, fill=t('fg'), anchor='lm')
-                dd = p.get('d')
-                if dd is not None:
-                    col = 'mute' if abs(dd) < 100 else 'good' if (dd > 0) == left_ally else 'bad'
-                    d.text((x0 + PW - int(9 * k), cy), f'{dd:+.0f}' if abs(dd) >= 100 else '0', font=small, fill=t(col), anchor='rm')
-            else:
-                d.text((x0 + PW - int(12 * k), cy), val, font=big, fill=t('fg'), anchor='rm')
-    if top:
-        ours, theirs = top
-        diff = ours - theirs
-        bw, bh = int(360 * k), int(30 * k)
-        bx, by = int(X + TW / 2 - bw / 2), int(Y - bh - 8 * k)
-        d.rounded_rectangle((bx, by, bx + bw, by + bh), int(6 * k), fill=t('bg'))
-        cy = by + bh // 2
-        d.text((bx + int(12 * k), cy), f'{ours / 1000:.1f}k'.replace('.', ','), font=small, fill=t(left_color), anchor='lm')
-        d.text((bx + bw - int(12 * k), cy), f'{theirs / 1000:.1f}k'.replace('.', ','), font=small, fill=t(right_color), anchor='rm')
-        lx0, lx1 = bx + int(62 * k), bx + bw - int(62 * k)
-        frac = ours / max(1, ours + theirs)
-        d.rounded_rectangle((lx0, cy - int(3 * k), lx1, cy + int(3 * k)), int(3 * k), fill=t(right_color))
-        d.rounded_rectangle((lx0, cy - int(3 * k), lx0 + max(int(6 * k), int((lx1 - lx0) * frac)), cy + int(3 * k)), int(3 * k), fill=t(left_color))
-        lbl = f'{diff:+.0f}' if diff else '0'
-        tw = int(small.getlength(lbl)) + int(12 * k)
-        mx = (lx0 + lx1) // 2
-        d.rounded_rectangle((mx - tw // 2, cy - int(10 * k), mx + tw // 2, cy + int(10 * k)), int(5 * k), fill=t('bg'))
-        d.text((mx, cy), lbl, font=small, fill=t('mute' if not diff else 'good' if (diff > 0) == left_ally else 'bad'), anchor='mm')
+        text, direction, color = tab_advantage(a, e, left_ally)
+        x0, y0 = round(cx-bw/2), round(cy-bh/2)
+        # Tiny dark plate stays legible over both the blue and red halves of Tab.
+        # Its width is limited by the scoreboard itself, not just the helper scale.
+        fill = t('deep') if theme.get('dark', True) else t('panel')
+        d.rounded_rectangle((x0, y0, x0+bw-1, y0+bh-1), max(2, round(3*k)), fill=fill)
+        pad = max(1, round(bw*.09))
+        ah = max(3, round(bh*.36))
+        if direction:
+            arrow = advantage_arrow(bw-2*pad, ah, direction)
+            im.alpha_composite(arrow, (round(cx-arrow.width/2), y0+pad))
+        size = max(6, min(round(14*k), round(bh*.45)))
+        number = font(CAPS, size)
+        while size > 5 and number.getlength(text) > bw-2*pad:
+            size -= 1; number = font(CAPS, size)
+        ty = y0+bh-pad
+        d.text((cx, ty), text, font=number, fill=t(color), anchor='ms')
     if frame:   # Только контур: клики через всю рамку идут в игру, мышь принимает отдельная ручка.
         g, L = t('gold'), int(18 * k)
         x0, y0, x1, y1 = X, Y, X + TW - 1, Y + TH - 1
