@@ -20,6 +20,7 @@ class OverlayTests(unittest.TestCase):
         w._auto_results, w._auto_cancel = queue.Queue(), threading.Event()
         w._auto_epoch, w._auto_next, w._auto_time = 0, 0., 0.
         w._auto_pending, w._auto_active = False, False
+        w.auto_status = 'Автоподгонка: ожидаю Tab в игре'
         w.handle = Mock()
         w.unlocked = False
         return w
@@ -102,6 +103,33 @@ class OverlayTests(unittest.TestCase):
             w.auto_tick(True, g)
             w.auto_tick(True, g)
         worker.assert_not_called()
+
+    def test_one_player_practice_starts_and_applies_capture(self):
+        w = self.plate()
+        w.app.icons = SimpleNamespace(a={'champ': {'Viktor': 'bundled-portrait'}})
+        w.show, w._detection_status = Mock(), Mock()
+        g = SimpleNamespace(players=[{'riot': 'Practice#1', 'c': 'Viktor', 'team': 'ORDER'}], t=100)
+        layout = tab_detect.Layout((-.5, .3, 1., .4), (('Viktor', None, None, None, None), (None,)*5), ('ORDER', 'CHAOS'), .9, 'frame')
+        with patch.object(ui, 'IS_WIN', True), patch.object(ui, 'game_focused', return_value=True), patch.object(ui, 'game_rect', return_value=(0, 0, 1920, 1080)), patch.object(ui.time, 'monotonic', return_value=10) as clock, patch.object(ui.threading, 'Thread') as thread, patch.object(ui.tab_detect, 'capture_and_detect', return_value=layout) as capture:
+            w.auto_tick(True, g)
+            thread.assert_not_called()  # opening animation delay
+            clock.return_value = 10.3
+            w.auto_tick(True, g)
+            thread.return_value.start.assert_called_once()
+            thread.call_args.kwargs['target']()  # run the worker deterministically
+            capture.assert_called_once()
+            w.auto_tick(True, g)
+        self.assertEqual(w.auto_layout, layout)
+        w.show.assert_called_once_with(g)
+        self.assertTrue(any('1/1' in c.args[0] for c in w._detection_status.call_args_list))
+
+    def test_no_players_reports_waiting_for_live_data(self):
+        w = self.plate()
+        w._detection_status = Mock()
+        with patch.object(ui.threading, 'Thread') as thread:
+            w.auto_tick(True, SimpleNamespace(players=[], t=0))
+        thread.assert_not_called()
+        self.assertIn('игровые данные', w._detection_status.call_args.args[0])
 
     def test_detected_rows_use_champion_identity_and_uncertain_rows_are_empty(self):
         w = self.plate()

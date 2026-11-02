@@ -48,7 +48,7 @@ def run():
             tab.unlock(True)
             tab.demo()
             tab.deiconify()
-            rank = ui.InventoryOverlay(app, (1510, 180))
+            rank = ui.InventoryOverlay(app, (1510, 650))
             rank.demo()
             root.update()
             assert tab.handle.winfo_viewable()
@@ -101,6 +101,18 @@ def run():
             assert abs(Y - (1080 * .28 - 65/2)) < 4
             ImageGrab.grab(xdisplay=os.environ.get('DISPLAY')).save(out / ('auto_' + filename))
             print('ok', theme, 'detected row order/geometry and hidden handle')
+            frame, portraits, roster, box = TD.framed_fixture(1920, 1080, 65)
+            tab.auto_layout = tab_detect.detect(frame, portraits, roster)
+            assert tab.auto_layout and tab.auto_layout.source == 'frame'
+            player = dict(roster[0], pos='', igold=1250)
+            tab.show(SimpleNamespace(players=[player], allies=[player], enemies=[], my_team='ORDER'))
+            tab._detection_status('Таблица найдена по рамке · распознаны строки 1/1')
+            root.update()
+            assert tab.data[0][0][0]['v'] == 1250
+            assert all(row == (None, None) for row in tab.data[0][1:])
+            assert abs(tab.geom()[1] - box[1]) < 5
+            ImageGrab.grab(xdisplay=os.environ.get('DISPLAY')).save(out / ('practice_' + filename))
+            print('ok', theme, 'one-player practice, no fake rows, status updated')
         finally:
             root.destroy()
             ui.game_rect = original_rect

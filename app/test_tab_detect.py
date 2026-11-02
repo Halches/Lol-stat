@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-from tab_detect import Anchor, capture_and_detect, detect, fit_grid
+from tab_detect import Anchor, capture_and_detect, detect, fit_grid, find_frames
 
 
 PLAYERS = [{'c': f'C{i}', 'team': 'ORDER' if i < 5 else 'CHAOS'} for i in range(10)]
@@ -39,6 +39,26 @@ def fixture(width=1280, height=720, step=50, xshift=0):
         mask = Image.new('L', (size, size)); ImageDraw.Draw(mask).ellipse((0, 0, size-1, size-1), fill=255)
         frame.paste(icon, (round(p.x-size/2), round(p.y-size/2)), mask)
     return frame, portraits, points
+
+
+def framed_fixture(width=1280, height=720, step=50, visible=(0,), divider=True):
+    """A gold frame with deliberately empty player slots, not a full 5v5 grid."""
+    original, portraits, points = fixture(width, height, step)
+    frame = Image.new('RGB', (width, height), (80, 110, 85))
+    x0, y0 = points[0].x-step*1.75, points[0].y-step/2
+    x1, y1 = x0+15.25*step, y0+5*step
+    d = ImageDraw.Draw(frame)
+    gold = (170, 140, 65)
+    d.rectangle((x0, y0-step*.9, x1, y1), fill=(9, 22, 30), outline=gold, width=2)
+    d.line((x0, y0, x1, y0), fill=gold, width=2)
+    if divider: d.line(((x0+x1)/2, y0, (x0+x1)/2, y1), fill=gold, width=2)
+    for index in visible:
+        p = points[index]
+        r = round(p.size/2)+2
+        box = (round(p.x)-r, round(p.y)-r, round(p.x)+r, round(p.y)+r)
+        frame.paste(original.crop(box), box)
+    roster = [p for p in PLAYERS if p['c'] in {points[i].champ for i in visible}]
+    return frame, portraits, roster, (x0, y0, x1, y1)
 
 
 class GridTests(unittest.TestCase):
@@ -78,6 +98,52 @@ class GridTests(unittest.TestCase):
 
 
 class ImageTests(unittest.TestCase):
+    def test_single_player_practice_at_different_scales(self):
+        for w, h, step in ((1280, 720, 50), (2560, 1440, 86), (1720, 720, 52)):
+            with self.subTest(resolution=(w, h)):
+                frame, portraits, players, box = framed_fixture(w, h, step)
+                found = detect(frame, portraits, players)
+                self.assertIsNotNone(found)
+                self.assertEqual(found.source, 'frame')
+                self.assertEqual(found.columns, (('C2', None, None, None, None), (None,)*5))
+                self.assertAlmostEqual(found.rect[0]*h+w/2, box[0], delta=5)
+                self.assertAlmostEqual(found.rect[1]*h, box[1], delta=5)
+                self.assertAlmostEqual(found.rect[3]*h, box[3]-box[1], delta=5)
+
+    def test_incomplete_custom_teams_and_reordered_rows(self):
+        frame, portraits, players, _ = framed_fixture(visible=(0, 2, 8))
+        found = detect(frame, portraits, players)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.columns, (('C2', None, 'C4', None, None), (None, None, None, 'C7', None)))
+
+    def test_frame_with_full_teams_preserves_identity(self):
+        frame, portraits, players, _ = framed_fixture(visible=range(10))
+        found = detect(frame, portraits, players)
+        self.assertEqual(found.columns, tuple(tuple(f'C{i}' for i in col) for col in ORDER))
+
+    def test_frame_requires_divider_and_a_confirmed_portrait(self):
+        frame, portraits, players, _ = framed_fixture()
+        self.assertTrue(find_frames(np.asarray(frame)))
+        self.assertIsNone(detect(frame, {}, players))
+        empty, _, _, _ = framed_fixture(visible=())
+        self.assertIsNone(detect(empty, portraits, players))
+        no_divider, portraits, players, _ = framed_fixture(divider=False)
+        self.assertIsNone(detect(no_divider, portraits, players))
+
+    def test_unconfirmed_frame_does_not_disable_portrait_grid_fallback(self):
+        frame, portraits, _ = fixture()
+        with patch('tab_detect.find_frames', return_value=[(50, 50, 600, 250)]):
+            found = detect(frame, portraits, PLAYERS)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.source, 'portraits')
+
+    def test_disjoint_vertical_edges_are_not_a_frame(self):
+        im = Image.new('RGB', (1280, 720), (9, 22, 30))
+        d = ImageDraw.Draw(im)
+        d.line((250, 20, 250, 250), fill=(170, 140, 65), width=2)
+        d.line((800, 251, 800, 490), fill=(170, 140, 65), width=2)
+        self.assertFalse(find_frames(np.asarray(im)))
+
     def test_multiscale_circular_and_grayscale_portraits(self):
         for w, h, step in ((1280, 720, 50), (2560, 1440, 86)):
             with self.subTest(resolution=(w, h)):

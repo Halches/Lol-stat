@@ -732,6 +732,7 @@ class TabPlates(Overlay):
         if event.widget is self: self._auto_cancel.set()
 
     def _detection_status(self, text):
+        if text == self.auto_status: return
         self.auto_status = text
         label = getattr(self.app, 'tab_auto_label', None)
         if label and label.winfo_exists(): label.configure(text=text)
@@ -739,13 +740,16 @@ class TabPlates(Overlay):
     def auto_tick(self, active, g):
         """Called only on Tk's thread. Workers return plain data through a queue."""
         now = time.monotonic()
-        active = bool(active and IS_WIN and self.app.s.get('tab_auto') and g and len(g.players) == 10)
+        # Practice/custom games can have fewer than ten players. The frame detector
+        # validates those without inventing the missing portraits.
+        active = bool(active and IS_WIN and self.app.s.get('tab_auto') and g and g.players)
         context = (game_rect(), tuple(sorted((p['riot'], p['c'], p['team']) for p in g.players))) if g else None
         reset = context != self._auto_context or (g and g.t < self._auto_time)
         if reset or active != self._auto_active:
             self._auto_cancel.set()
             self._auto_epoch += 1
             self._auto_next = now + .20  # allow the game's opening animation to finish
+            if active: self._detection_status(f'Автоподгонка: запускаю поиск · игроков {len(g.players)}')
         if reset: self.auto_layout = None
         self._auto_context, self._auto_active = context, active
         self._auto_time = g.t if g else 0
@@ -759,14 +763,19 @@ class TabPlates(Overlay):
             elif result:
                 self.auto_layout = result
                 known = sum(c is not None for col in result.columns for c in col)
-                self._detection_status(f'Таблица найдена · распознаны строки {known}/10')
+                source = 'по рамке' if result.source == 'frame' else 'по портретам'
+                self._detection_status(f'Таблица найдена {source} · распознаны строки {known}/{len(g.players)}')
                 self.show(g)
             else:
                 self._detection_status('Таблица не распознана · последняя рамка; ручная настройка через Alt')
         if not self.app.s.get('tab_auto'):
             self._detection_status('Автоподгонка выключена · ручная настройка через Tab + Alt')
+        elif not g or not g.players:
+            self._detection_status('Автоподгонка: ожидаю игровые данные от клиента LoL')
         if not active or self._auto_pending or now < self._auto_next: return
         self._auto_next, self._auto_pending = now + 2.5, True
+        if not self.auto_layout:
+            self._detection_status(f'Автоподгонка: ищу таблицу · игроков {len(g.players)}')
         self._auto_cancel = cancel = threading.Event()
         epoch, results = self._auto_epoch, self._auto_results
         rect = context[0]
@@ -2370,8 +2379,20 @@ class App:
                     self.hidden = not self.hidden; self.apply_visibility()
             self.keys_prev[name] = down
         drag = bool(combo_down(k.get('drag')) and self.last_game and not self.hidden and game_focused()) or self.demo_on   # Alt двигает виджеты только в игре
-        tab = self.s['scoreboard'] and self.last_game and not self.last_game.arena and not self.hidden and combo_down(k.get('scoreboard')) and game_focused()
-        for w in self.tab.values(): w.auto_tick(bool(tab and not drag), self.last_game)
+        tab_down = combo_down(k.get('scoreboard'))
+        focused = game_focused()
+        tab = self.s['scoreboard'] and self.last_game and not self.last_game.arena and not self.hidden and tab_down and focused
+        for w in self.tab.values():
+            if tab_down and self.s.get('tab_auto'):
+                reason = ('включите оверлей таблицы Tab' if not self.s['scoreboard'] else
+                          'ожидаю игровые данные от клиента LoL' if not self.last_game else
+                          'таблица Арены пока не поддерживается' if self.last_game.arena else
+                          'показ оверлеев скрыт горячей клавишей' if self.hidden else
+                          'завершите расстановку виджетов' if self.demo_on else
+                          'отпустите Alt для автоматического поиска' if drag else
+                          'переключитесь в окно игры' if not focused else None)
+                if reason: w._detection_status('Автоподгонка: ' + reason)
+            w.auto_tick(bool(tab and not drag), self.last_game)
         if drag != self.keys_prev.get('drag'):
             self.set_unlocked(drag)
             self.keys_prev['drag'] = drag
@@ -3098,7 +3119,7 @@ class App:
         self.note(f, 'Таблички у краёв игровой таблицы: стоимость предметов и разница с оппонентом по линии, над рамкой — итог команд. '
                      'Считаются все предметы, кроме зелий, вардов и тотемов. Всё привязано к окну игры и масштабируется по его высоте, в том числе на широких мониторах. '
                      'Автоподгонка анализирует изображение игры только при удержании Tab; снимки никуда не отправляются и не сохраняются. '
-                     'Нужны не менее трёх узнаваемых портретов в каждой команде. Неуверенно распознанные строки не подписываются. '
+                     'Работает и в тренировке: ищет рамку таблицы и проверяет её по видимым портретам. Неуверенно распознанные строки не подписываются. '
                      'Если не совпало: выключи автоподгонку и зажми Tab и Alt. Тяни небольшую золотую ручку TAB для переноса; Shift + перетаскивание ручки меняет ширину и высоту. '
                      'Остальная область пропускает клики в игру даже при Alt. Ручка скрывается при отпускании Alt. ')
         ttk.Button(f, text='Вернуть рамку по умолчанию', command=lambda: self.set_tab('tab_rect', None)).pack(anchor='w', pady=(4, 0))
