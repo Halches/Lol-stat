@@ -41,7 +41,16 @@ class DraftView:
         self._resize_job = None
         self.fs, self.d = self.app.fs, self.app.data
         self.width = max(220, int((dashboard.winfo_width() - 90) / 3))
+        self.matchup_full = self.app.lola_matchup(me, result.get('role'), result.get('opp')) if me else None
+        self.selected_full = self.matchup_full if self.app.s.get('draft_build_context') == 'matchup' else full
+        if me: self.app.ensure_skill_icons(me)
         if not hasattr(dashboard, '_draft_open'): dashboard._draft_open = set()
+
+    def selected_variant(self):
+        full = self.selected_full or {}
+        key = self.app.s['rune_pick']
+        if self.app.s.get('draft_build_context') == 'matchup': return full.get(key) or {}
+        return full.get(key) or full
 
     def label(self, parent, text='', color='fg', size=10, bold=False, **kw):
         label = tk.Label(parent, text=text, bg=parent.cget('bg'), fg=self.c[color],
@@ -158,7 +167,7 @@ class DraftView:
         self.w.timer.configure(bg=self.c['bg'], fg=self.c['gold'])
         for surface in [self.w.sub, self.w.body, self.w.cv, self.w.wrap, self.w.bar, *self.w.cols, self.w.mid]:
             surface.configure(bg=self.c['bg'])
-        self.w.sub.configure(text='Пары: Lolalytics · Изумруд+ · все регионы · проценты по выборке, а не прогноз победы')
+        self.w.sub.configure(text='Синергия союзников · контрпики противников · сборки и руны против оппонента')
 
     def pair_rows(self, champion, lane, enemy):
         kind = 'counter' if enemy else 'build-team'
@@ -190,7 +199,9 @@ class DraftView:
         self.label(name, self.d.cn(ch) + (' · ты' if mine else ''), 'gold' if mine else 'fg', 12).pack(anchor='w')
         rl = tk.Frame(name, bg=self.c['panel']); rl.pack(anchor='w')
         self.image(rl, 'role', lane, 16)
-        self.label(rl, core.ROLE_RU.get(lane, 'Роль неизвестна').capitalize(), 'mute', 9).pack(side='left')
+        role_label = core.ROLE_RU.get(lane, 'Роль неизвестна').capitalize()
+        if not mine: role_label += ' · Контрпики' if enemy else ' · Синергия'
+        self.label(rl, role_label, 'mute', 9).pack(side='left')
         rank = player.get('rank')
         if rank and self.app.s['show']['ranks']:
             rr = tk.Frame(head, bg=self.c['panel']); rr.pack(side='right')
@@ -226,10 +237,11 @@ class DraftView:
             else:
                 key = ('counter' if enemy else 'build-team', ch, lane)
                 state = self.app.lola_state.get(key)
-                text = 'Загрузка статистики пар…' if state == 'loading' else ('Нет подходящих пар в пуле' if self.app.s['draft_scope'] == 'pool' else 'Нет подтверждённой статистики пар')
+                label = 'контрпиков' if enemy else 'синергии'
+                text = f'Загрузка {label}…' if state == 'loading' else (f'Нет {label} в пуле для этой роли' if self.app.s['draft_scope'] == 'pool' else f'Нет подтверждённых данных {label}')
                 self.label(card, text, 'mute', 8).pack(anchor='w', pady=(4, 0))
         if mine:
-            selected = (self.full or {}).get(self.app.s['rune_pick']) or self.full or {}
+            selected = self.selected_variant()
             row = tk.Frame(card, bg=self.c['panel']); row.pack(anchor='w', pady=(4, 0))
             for spell in selected.get('spells', [])[:2]: self.image(row, 'spell', spell, 20)
             if selected.get('perks'): self.image(row, 'rune', selected['perks'][0], 20)
@@ -290,7 +302,7 @@ class DraftView:
         if not self.me or not opp:
             self.label(box, 'Выбери чемпиона' if not self.me else 'Оппонент ещё не выбран', 'mute', 10).pack(anchor='w')
             return
-        self.label(box, self.d.cn(self.me) + ' против ' + self.d.cn(opp), 'mute', 9).pack(anchor='w', pady=(0, 7))
+        self.label(box, self.d.cn(self.me) + ' — ' + self.d.cn(opp), 'mute', 9).pack(anchor='w', pady=(0, 7))
         wr = n = None
         counters = core.lola_counters(self.app.lola_fetch('counter', opp, role), self.d)
         if self.me in counters: wr, _, n = counters[self.me]; wr = 100-wr
@@ -301,7 +313,7 @@ class DraftView:
         personal = pl.vs(self.me, opp) if pl else {'n':0}
         if pl and not personal['n']: personal = pl.vs(None, opp)
         gold = personal.get('g15')
-        cells = [('Винрейт пары', f'{wr:.1f}%' if wr is not None else '—',
+        cells = [('Винрейт матчапа', f'{wr:.1f}%' if wr is not None else '—',
                   f'{n:,} игр'.replace(',', ' ') if n else 'Нет выборки', 'good2' if wr is not None and wr >= 50 else 'bad2'),
                  ('Твой счёт', f"{personal['w']}–{personal['n']-personal['w']}" if personal['n'] else '—',
                   f"{personal['n']} личных игр", 'fg'),
@@ -328,72 +340,127 @@ class DraftView:
         self.app.draft_sig = self.w.draft_sig = None
         if self.app.draft: self.app.on_draft(self.app.draft)
 
+    def build_row(self, parent, option, context):
+        variant, key = option['variant'], option['key']
+        active = self.app.s.get('draft_build_context', 'general') == context and self.app.s['rune_pick'] == key
+        row = tk.Frame(parent, bg=self.c['deep'], padx=7, pady=7, takefocus=1,
+                       highlightthickness=1, highlightbackground=self.c['gold' if active else 'line'])
+        row.pack(fill='x', pady=3)
+        narrow = self.width < self.fs(540)
+        caption = tk.Frame(row, bg=self.c['deep']); caption.pack(side='top' if narrow else 'left', anchor='w')
+        title = 'Макс. винрейт' if context == 'matchup' and key == 'win' else option['title']
+        self.label(caption, title + (' ✓' if active else ''), 'gold' if active else 'fg', 9,
+                   width=13 if not narrow else 0, anchor='w').pack(anchor='w')
+        self.label(caption, 'Против оппонента' if context == 'matchup' else 'Все матчапы', 'mute', 7).pack(anchor='w')
+        stats = tk.Frame(row, bg=self.c['deep']); stats.pack(side='right', anchor='e')
+        wr, n = option['rune_winrate'], option['rune_games']
+        metric = 'Руна' if variant.get('rune_stat_kind') == 'keystone' else 'Руны'
+        self.label(stats, f'{metric} {wr:.1f}%' if wr is not None else metric+': —', 'good2', 9, True).pack(anchor='e')
+        self.label(stats, f'{n:,} игр'.replace(',', ' ') if n else 'Нет выборки', 'mute', 7).pack(anchor='e')
+        icons = tk.Frame(row, bg=self.c['deep']); icons.pack(side='top' if narrow else 'left', anchor='w', pady=2)
+        runes = tk.Frame(icons, bg=self.c['deep']); runes.pack(side='top' if narrow else 'left', anchor='w')
+        for rune in variant.get('perks', [])[:6]: self.image(runes, 'rune', rune, 18)
+        items = tk.Frame(icons, bg=self.c['deep']); items.pack(side='top' if narrow else 'left', anchor='w')
+        self.label(items, ' › ', 'mute', 9).pack(side='left')
+        for item in core.lola_build_items(variant)[:6]: self.image(items, 'item', item, 20)
+        def select(event=None): self.app.set_draft_build(context, key)
+        def clickable(widget):
+            widget.configure(cursor='hand2')
+            widget.bind('<Button-1>', select)
+            for child in widget.winfo_children(): clickable(child)
+        clickable(row)
+        row.bind('<Return>', select); row.bind('<space>', select)
+
     def build_table(self):
-        box = self.box(self.w.mid, 'Связки рун и сборок · ' + self.d.cn(self.me))
-        mode = tk.Frame(box, bg=self.c['panel']); mode.pack(fill='x')
-        for enabled, text in ((True, 'Автоэкспорт'), (False, 'Вручную')):
+        box = self.box(self.w.mid)
+        header = tk.Frame(box, bg=self.c['panel']); header.pack(fill='x')
+        self.image(header, 'champ', self.me, 24)
+        self.label(header, 'Связки рун и сборок', 'fg', 11, True).pack(side='left')
+        narrow = self.width < self.fs(540)
+        mode = tk.Frame(box if narrow else header, bg=self.c['panel'])
+        mode.pack(side='top' if narrow else 'right', anchor='w' if narrow else 'e', pady=(4, 0) if narrow else 0)
+        for enabled, text in ((True, 'Авто'), (False, 'Вручную')):
             ttk.Button(mode, text=text, style='DraftActive.TButton' if self.app.s['auto_import'] == enabled else 'Draft.TButton',
                        command=lambda enabled=enabled: self.set_auto(enabled)).pack(side='left', padx=(0, 4))
-        ttk.Button(mode, text='Экспорт', style='DraftPrimary.TButton', command=lambda: self.app.do_import(tuple(key for key, value in self.app.s['auto_parts'].items() if value))).pack(side='right')
-        parts = tk.Frame(box, bg=self.c['panel']); parts.pack(fill='x', pady=4)
+        ttk.Button(mode, text='Экспорт', style='DraftPrimary.TButton', command=lambda: self.app.do_import(tuple(key for key, value in self.app.s['auto_parts'].items() if value))).pack(side='left')
+        parts = tk.Frame(box, bg=self.c['panel']); parts.pack(fill='x', pady=(5, 2))
+        self.label(parts, 'Состав экспорта: ', 'mute', 8).pack(side='top' if narrow else 'left', anchor='w')
+        choices = tk.Frame(parts, bg=self.c['panel']); choices.pack(side='top' if narrow else 'left', anchor='w')
         for key, text in (('runes', 'Руны'), ('items', 'Предметы'), ('spells', 'Заклинания')):
-            ttk.Checkbutton(parts, text=text, variable=self.app.auto_vars[key],
-                            style='Draft.TCheckbutton',
+            ttk.Checkbutton(choices, text=text, variable=self.app.auto_vars[key], style='Draft.TCheckbutton',
                             command=lambda key=key: self.app.set_import_part(key)).pack(side='left')
-        options = draft_model.build_options(self.full)
-        for option in options:
-            variant, key = option['variant'], option['key']
-            row = tk.Frame(box, bg=self.c['raise'] if self.app.s['rune_pick'] == key else self.c['deep'], padx=5, pady=5)
-            row.pack(fill='x', pady=2)
-            narrow = self.width < self.fs(480)
-            ttk.Button(row, text=option['title'], style='Draft.TButton', width=12, command=lambda key=key: self.app.set_rune_pick(key)).pack(side='top' if narrow else 'left', anchor='w', padx=(0, 5))
-            runes = tk.Frame(row, bg=row.cget('bg')); runes.pack(side='top' if narrow else 'left', anchor='w')
-            for rid in variant.get('perks', [])[:6]: self.image(runes, 'rune', rid, 18)
-            items = tk.Frame(row, bg=row.cget('bg')); items.pack(side='top' if narrow else 'left', anchor='w')
-            if not narrow: self.label(items, ' → ', 'mute', 9).pack(side='left')
-            for item in core.lola_build_items(variant)[:6]: self.image(items, 'item', item, 20)
-        if not options:
-            self.label(box, 'Загрузка сборок…' if self.app.lola_state.get((self.me, self.r['role'])) == 'loading' else 'Источник сборок недоступен', 'mute', 9).pack(anchor='w')
-        self.label(box, 'Винрейт общей связки: нет подтверждённой выборки', 'mute', 8).pack(anchor='w', pady=(4, 0))
-        # Unsupported groups stay visible without inventing source data.
-        for title in ('Оффметовые', 'От мейнеров · до 3', 'От профессионалов · до 3'):
-            self.label(box, title, 'gold', 8).pack(anchor='w', pady=(7, 2))
-            placeholder = tk.Frame(box, bg=self.c['deep'], padx=9, pady=7, highlightthickness=1, highlightbackground=self.c['line'])
-            placeholder.pack(fill='x')
-            self.label(placeholder, 'Источник не подключён', 'mute', 8).pack(anchor='w')
-        self.w.import_lbl = self.label(box, self.app.import_text, 'mute', 9,
+        self.label(box, 'Основные варианты · EUW · Изумруд+', 'gold', 8).pack(anchor='w', pady=(6, 0))
+        for option in draft_model.build_options(self.full): self.build_row(box, option, 'general')
+        if not self.full:
+            self.label(box, 'Загрузка общей сборки…' if self.app.lola_state.get((self.me, self.r['role'])) == 'loading' else 'Общая сборка недоступна', 'mute', 9).pack(anchor='w')
+        opponent = self.r.get('opp')
+        self.label(box, 'Против оппонента: ' + self.d.cn(opponent) + ' · ' + core.ROLE_RU.get(self.r['role'], '') if opponent else 'Против оппонента на линии',
+                   'gold', 9, True).pack(anchor='w', pady=(7, 1))
+        if self.matchup_full:
+            for option in draft_model.build_options(self.matchup_full): self.build_row(box, option, 'matchup')
+            meta = self.matchup_full.get('matchup') or {}
+            label = 'Все регионы · Изумруд+ · патч ' + str(meta.get('patch') or '—')
+            if self.matchup_full.get('stale'): label += ' · сохранённые данные, обновление недоступно'
+            self.label(box, label, 'mute', 7, wraplength=max(120, self.width-35)).pack(anchor='w')
+        else:
+            state = self.app.lola_state.get(('matchup', self.me, self.r['role'], opponent))
+            text = 'Оппонент пока не определён' if not opponent else 'Загрузка двух вариантов матчапа…' if state == 'loading' else 'Нет подтверждённых сборок против этого оппонента'
+            self.label(box, text, 'mute', 9, wraplength=max(120, self.width-35)).pack(anchor='w', pady=5)
+        for title in ('Оффметовая', 'От мейнеров · 3 варианта', 'От профессионалов · 3 варианта'):
+            row = tk.Frame(box, bg=self.c['deep'], padx=7, pady=5, highlightthickness=1, highlightbackground=self.c['line'])
+            row.pack(fill='x', pady=(4, 0))
+            self.label(row, title, 'mute', 8).pack(side='left')
+            self.label(row, 'Источник не подключён', 'mute', 7).pack(side='right')
+        self.label(box, 'Справа — статистика рун источника; для матчапа — ключевой руны. Общей выборки рун + предметов нет.',
+                   'mute', 7, wraplength=max(120, self.width-35), justify='left').pack(anchor='w', pady=(6, 0))
+        self.w.import_lbl = self.label(box, self.app.import_text, 'mute', 8,
                                        wraplength=max(120, self.width-32), justify='left')
-        self.w.import_lbl.pack(anchor='w', pady=(4, 0))
+        self.w.import_lbl.pack(anchor='w', pady=(3, 0))
         self.w.import_err = ttk.Button(box, text='Скопировать отчёт об импорте', command=self.app.copy_report)
         if 'не получилось' in self.app.import_text: self.w.import_err.pack(anchor='w')
+
+    def skills(self):
+        box = self.box(self.w.mid, 'Умения и ситуативные предметы')
+        selected = self.selected_full or {}
+        variant = self.selected_variant()
+        if not variant:
+            self.label(box, 'Ожидание выбранной сборки', 'mute', 9).pack(anchor='w'); return
+        row = tk.Frame(box, bg=self.c['panel']); row.pack(fill='x')
+        for letter in 'QWER':
+            if not self.image(row, 'skill', self.me+letter, 26):
+                self.label(row, letter, 'gold', 12, True).pack(side='left', padx=6)
+        self.label(row, '  ' + ' → '.join(variant.get('skill_prio') or ''), 'gold', 10).pack(side='left')
+        sequence = variant.get('skills') or ''
+        count = 18 if self.width >= self.fs(520) else 9
+        for offset in range(0, 18, count):
+            strip = tk.Frame(box, bg=self.c['panel']); strip.pack(fill='x', pady=(5, 0))
+            for column, level in enumerate(range(offset, min(offset+count, 18))):
+                strip.columnconfigure(column, weight=1, uniform='level')
+                self.label(strip, str(level+1), 'mute', 7).grid(row=0, column=column)
+                letter = sequence[level] if level < len(sequence) else '—'
+                cell = self.label(strip, letter, 'gold' if letter == 'R' else 'fg', 9, True, padx=2, pady=2)
+                cell.configure(bg=self.c['raise']); cell.grid(row=1, column=column, sticky='ew', padx=1)
+        if 0 < len(sequence) < 18:
+            self.label(box, f'Источник подтверждает порядок до {len(sequence)}-го уровня.', 'mute', 7).pack(anchor='w', pady=(3, 0))
+        start = tk.Frame(box, bg=self.c['panel']); start.pack(fill='x', pady=(7, 0))
+        self.label(start, 'Старт: ', 'mute', 8).pack(side='left')
+        for item in variant.get('start', []): self.image(start, 'item', item, 21)
+        for item, short, when in selected.get('situ', [])[:4]:
+            row = tk.Frame(box, bg=self.c['panel']); row.pack(fill='x', pady=2)
+            self.image(row, 'item', item, 21)
+            self.label(row, when if short.lower() in when.lower() else short + ': ' + when, 'mute', 8, wraplength=max(120, self.width-65), justify='left').pack(side='left')
         def details(parent):
-            variant = (self.full or {}).get(self.app.s['rune_pick']) or self.full or {}
-            self.label(parent, 'Заклинания и ветки рун', 'mute', 9).pack(anchor='w')
+            for title, wr, n in (('Ключевая руна' if variant.get('rune_stat_kind') == 'keystone' else 'Руны источника', variant.get('wr_runes'), variant.get('n_runes')),
+                                 ('Основа предметов', variant.get('wr_core'), variant.get('n_core'))):
+                if wr is not None and n:
+                    self.label(parent, f'{title}: {wr:.1f}% · {n} игр · отдельная выборка', 'mute', 8).pack(anchor='w')
             row = tk.Frame(parent, bg=self.c['panel']); row.pack(anchor='w')
+            for rune in [variant.get('prim'), variant.get('sec')] + variant.get('shards', []): self.image(row, 'rune', rune, 22)
+            row = tk.Frame(parent, bg=self.c['panel']); row.pack(anchor='w', pady=3)
             for spell in variant.get('spells', [])[:2]:
                 self.image(row, 'spell', spell, 22)
                 self.label(row, core.SPELL_RU.get(spell, spell), 'fg', 8).pack(side='left', padx=(0, 6))
-            row = tk.Frame(parent, bg=self.c['panel']); row.pack(anchor='w', pady=3)
-            for rune in [variant.get('prim'), variant.get('sec')] + variant.get('shards', []):
-                self.image(row, 'rune', rune, 22)
-            self.label(parent, 'Старт', 'mute', 9).pack(anchor='w')
-            row = tk.Frame(parent, bg=self.c['panel']); row.pack(anchor='w')
-            for item in variant.get('start', []): self.image(row, 'item', item, 24)
-            for name, wr, n in (('Руны', variant.get('wr_runes'), variant.get('n_runes')),
-                                ('Основа предметов', variant.get('wr_core'), variant.get('n_core'))):
-                if wr is not None and n is not None:
-                    self.label(parent, f'{name}: {wr:.1f}% · {n} игр (отдельная выборка)', 'mute', 9).pack(anchor='w')
-            self.label(parent, 'Lolalytics · EUW · Изумруд+' + (f" · {self.full['games']} игр на чемпионе" if self.full and self.full.get('games') else ''),
-                       'mute', 8, wraplength=max(120, self.width-32)).pack(anchor='w')
-            self.label(parent, 'Прокачка: ' + ' › '.join(variant.get('skill_prio') or ''), 'gold', 9).pack(anchor='w', pady=4)
-            skills = variant.get('skills') or ''
-            for offset in range(0, len(skills), 9):
-                self.label(parent, '  '.join(f'{i+1}:{skill}' for i, skill in enumerate(skills) if offset <= i < offset+9), 'fg', 9).pack(anchor='w')
-            for item, short, when in (self.full or {}).get('situ', []):
-                row = tk.Frame(parent, bg=self.c['panel']); row.pack(fill='x', pady=2)
-                self.image(row, 'item', item, 22)
-                self.label(row, short + ': ' + when, 'mute', 9, wraplength=max(120, self.width-65), justify='left').pack(side='left')
-        self.fold(self.w.mid, 'Разбор сборки · руны, старт и умения', 'build-details', details)
+        self.fold(box, 'Полный разбор сборки', 'build-details', details, compact=True)
 
     def draw(self):
         for col in self.w.cols + [self.w.mid]:
@@ -403,7 +470,9 @@ class DraftView:
         self.w._draft_cards = self.player_cards
         for col in self.w.cols: col.bind('<Configure>', self.schedule_sizes)
         for parent, text, color in ((self.w.cols[0], 'Союзники', 'blue2'), (self.w.cols[1], 'Противники', 'red2')):
-            self.label(parent, text, color, 13, True).pack(anchor='w', pady=(0, 7))
+            team = tk.Frame(parent, bg=self.c['bg']); team.pack(fill='x', pady=(0, 7))
+            self.label(team, text, color, 13, True).pack(side='left')
+            self.label(team, 'Синергия под игроком' if text == 'Союзники' else 'Контрпики под игроком', 'mute', 8).pack(side='right')
         order = {rr: i for i, rr in enumerate(core.ROLES)}
         allies = sorted(self.cs.get('allies') or [], key=lambda a: order.get(a.get('pos'), 9))
         enemies = sorted(({'c': c, 'pos': self.r['roles'].get(c, '')} for c in self.cs['enemies']), key=lambda a: order.get(a['pos'], 9))
@@ -416,6 +485,7 @@ class DraftView:
         self.matchup()
         self.fold(self.w.mid, 'Композиции · сильные и слабые стороны', 'composition',
                   lambda body: self.draw_composition(body, allies))
+        if self.me: self.skills()
         self.fold(self.w.mid, 'Кого банить', 'bans', self.draw_bans)
         if self.me and not self.cs.get('locked'):
             self.fold(self.w.mid, 'Предварительная сборка', 'preview-build', lambda body: self.w.build_box(body, self.me, self.full, self.r['role']))

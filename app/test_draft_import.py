@@ -82,5 +82,41 @@ class DraftImportTests(unittest.TestCase):
         callbacks.get(timeout=2)()
         self.assertEqual([call[0] for call in app.calls], ['runes', 'items'])
 
+    def test_matchup_selection_exports_matchup_runes_and_items(self):
+        app, callbacks, _, _ = self.app()
+        app.s['draft_build_context'] = 'matchup'
+        app.draft_opponent = lambda cs, role: 'Viktor'
+        specific = app.lola_build('Ahri','MIDDLE')
+        specific['win'] = dict(specific['win'], perks=[8369], core=[3089])
+        app.lola_matchup = lambda champion, role, opponent: specific
+        app.do_import(('runes','items'))
+        callbacks.get(timeout=2)()
+        self.assertEqual(app.calls[0][1][3], [8369])
+        self.assertIn('против Viktor', app.calls[0][1][0])
+        self.assertEqual(app.calls[1][1][2][0][1][1][1], [3089])
+
+    def test_missing_matchup_never_exports_general_build_as_a_fallback(self):
+        app, _, _, _ = self.app()
+        app.s['draft_build_context'] = 'matchup'
+        app.draft_opponent = lambda cs, role: 'Viktor'
+        app.lola_matchup = lambda champion, role, opponent: None
+        app.do_import(('runes','items'))
+        self.assertEqual(app.calls, [])
+        self.assertIn('Экспорт не выполнен', app.messages[-1])
+
+    def test_opponent_change_cancels_remaining_matchup_export(self):
+        app, callbacks, entered, release = self.app(blocked=True)
+        app.s['draft_build_context'] = 'matchup'
+        app.draft['opponent'] = 'Viktor'
+        app.draft_opponent = lambda cs, role: cs['opponent']
+        app.lola_matchup = lambda champion, role, opponent: app.lola_build(champion,role)
+        app.do_import(('runes','items'))
+        self.assertTrue(entered.wait(2))
+        app.draft['opponent'] = 'Lux'
+        release.set()
+        callbacks.get(timeout=2)()
+        self.assertEqual([call[0] for call in app.calls], ['runes'])
+        self.assertIsNone(app.imported)
+
 
 if __name__ == '__main__': unittest.main()

@@ -153,7 +153,7 @@ DEFAULTS = {
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
     'phone': False, 'phone_port': 8765, 'phone_token': '',
-    'draft_scope': 'pool', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
+    'draft_scope': 'pool', 'draft_build_context': 'general', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
     'theme': 'lol', 'accent': 'theme', 'font': 'Golos Text', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
     'layout': {},
@@ -1170,7 +1170,7 @@ class Dashboard(tk.Toplevel):
         eu = app.lola_build(me, r.get('role')) if me else None
         if cs.get('left'): self.deadline = time.time() + cs['left']
         sig = json.dumps([cs['role'], r.get('role'), me, cs['enemies'], sorted(cs['unavailable']), bool(eu), len(app.lola), bans,
-                          self.app.s.get('draft_scope'), cs.get('locked'), self.app.s.get('rune_pick'),
+                          self.app.s.get('draft_scope'), cs.get('locked'), self.app.s.get('rune_pick'), self.app.s.get('draft_build_context'),
                           [(a['c'], a.get('pos'), bool(a.get('rank')), bool(a.get('hist'))) for a in cs.get('allies', [])], [x['c'] for x in r['picks']]], default=str)
         self.clear('draft')
         if sig == self.draft_sig: return
@@ -2116,6 +2116,9 @@ class App:
             return
         r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'], scope=self.s.get('draft_scope', 'pool'))
         r['role'], r['how'] = role, how
+        export_target = (cs['me'], role, self.s.get('draft_build_context'), r.get('opp') if self.s.get('draft_build_context') == 'matchup' else None)
+        if getattr(self, '_draft_export_target', None) != export_target:
+            self.imported = None; self._draft_export_target = export_target
         for a in cs.get('allies') or []:
             if a.get('me') and (not a.get('pos') or a.get('auto')): a['pos'], a['auto'] = role, True
         pool = core.ban_pool(p, role)
@@ -2166,6 +2169,108 @@ class App:
         if Image is None or not role: return None
         im = self.icons._pil('role', role)
         return render.tint(im, C['gold'], max(10, int(self.s['icon'] * k * self.s['scale'] / 100))) if im else None
+
+    def ensure_skill_icons(self, champion):
+        """Load the selected champion's official Data Dragon spell images off the Tk thread."""
+        import re
+        keys = [champion+letter for letter in 'QWER']
+        if all(key in self.icons.a.get('skill', {}) for key in keys): return
+        version = str(self.icons.a.get('v') or '')
+        if not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch(r'[A-Za-z0-9]+', champion): return
+        if not hasattr(self, '_skill_loading'): self._skill_loading = set()
+        if champion in self._skill_loading: return
+        self._skill_loading.add(champion)
+        path = os.path.join(self.home, 'skills', version, champion+'.json')
+        def job():
+            images = {}
+            try:
+                try:
+                    with open(path, encoding='utf-8') as source: images = json.load(source)
+                except (OSError, ValueError): pass
+                if not all(images.get(key) for key in keys):
+                    base = 'https://ddragon.leagueoflegends.com/cdn/'+version
+                    with urllib.request.urlopen(base+'/data/en_US/champion/'+champion+'.json', timeout=15) as response:
+                        spells = json.load(response)['data'][champion]['spells']
+                    if len(spells) != 4: raise ValueError('Нет четырёх умений чемпиона')
+                    for key, spell in zip(keys, spells):
+                        filename = spell['image']['full']
+                        if not re.fullmatch(r'[A-Za-z0-9_.-]+', filename): raise ValueError('Некорректное имя изображения')
+                        with urllib.request.urlopen(base+'/img/spell/'+filename, timeout=15) as response:
+                            images[key] = base64.b64encode(response.read()).decode('ascii')
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path+'.tmp', 'w', encoding='utf-8') as output: json.dump(images, output)
+                    os.replace(path+'.tmp', path)
+            except Exception as error: log_error('иконки умений '+champion, error)
+            def done():
+                if not images: return
+                self.icons.a.setdefault('skill', {}).update(images)
+                for key in list(self.icons.raw):
+                    if key[0] == 'skill' and key[1] in images: self.icons.raw.pop(key, None)
+                self.redraw_draft()
+            try: self.root.after(0, done)
+            except (RuntimeError, tk.TclError): pass
+        threading.Thread(target=job, daemon=True, name='skill-images').start()
+
+    def draft_opponent(self, cs, role):
+        roles = core.guess_enemy_roles(self.data, cs.get('enemies') or [])
+        return next((champ for champ, lane in roles.items() if lane == role), None)
+
+    def selected_draft_build(self, cs=None):
+        cs = cs or self.draft
+        if not cs or not cs.get('me'): return None
+        role = self.draft_role(cs)[0]
+        if role in core.ROLES and self.s.get('draft_build_context') == 'matchup':
+            return self.lola_matchup(cs['me'], role, self.draft_opponent(cs, role))
+        return self.lola_build(cs['me'], role)
+
+    def set_draft_build(self, context, variant):
+        if context not in ('general', 'matchup') or variant not in ('pick', 'win'): return
+        self.s['draft_build_context'] = context
+        self.set_rune_pick(variant)
+
+    def lola_matchup(self, champion, role, opponent):
+        """Public matchup page only. Cache includes both champions and the verified source context."""
+        if not champion or not opponent or role not in core.ROLES: return None
+        key = ('matchup', champion, role, opponent)
+        if key in self.lola: return self.lola[key]
+        if self.lola_state.get(key): return None
+        self.lola_state[key] = 'loading'
+        path = os.path.join(self.home, 'lola', f'matchup_v1_{champion}_{role}_{opponent}.json')
+        def valid(value):
+            meta = (value or {}).get('matchup') or {}
+            return (meta.get('champion'), meta.get('role'), meta.get('opponent'), meta.get('region')) == (champion, role, opponent, 'all')
+        def job():
+            import matchup_data
+            value, saved = None, None
+            try:
+                try:
+                    with open(path, encoding='utf-8') as source: saved = json.load(source)
+                    if not valid(saved): saved = None
+                except (OSError, ValueError): pass
+                if saved and time.time()-saved.get('fetched_at',0) < 12*3600:
+                    value = saved
+                else:
+                    req = urllib.request.Request(matchup_data.url(champion, role, opponent), headers={'User-Agent':'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=20) as response: html = response.read().decode('utf-8')
+                    value = matchup_data.parse(html, champion, role, opponent, self.data)
+                    if value:
+                        value['fetched_at'] = time.time()
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        with open(path+'.tmp', 'w', encoding='utf-8') as output: json.dump(value, output)
+                        os.replace(path+'.tmp', path)
+                    else: raise ValueError('Источник не подтвердил состав, роль или выборку матчапа')
+            except Exception as error:
+                log_error(f'сборка {champion} против {opponent}, {role}', error)
+                if saved:
+                    value = dict(saved, stale=True)
+            def done():
+                if value: self.lola[key] = value
+                self.lola_state[key] = 'ok' if value else 'fail'
+                self.redraw_draft()
+            try: self.root.after(0, done)
+            except (RuntimeError, tk.TclError): pass
+        threading.Thread(target=job, daemon=True, name='matchup-build').start()
+        return None
 
     def lola_build(self, champ, role):
         """Руны и сборка по Европе (lolalytics, EUW Изумруд+). Нет в памяти — грузим в фоне и перерисовываем драфт."""
@@ -2380,15 +2485,21 @@ class App:
         if not parts:
             self.set_import_msg('Выбери, что экспортировать: руны, предметы или заклинания'); return
         me, role = cs['me'], self.draft_role(cs)[0]
-        full = self.lola_build(me, role)
+        context = self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general'
+        opponent = self.draft_opponent(cs, role) if context == 'matchup' else None
+        full = self.selected_draft_build(cs)
+        if context == 'matchup' and not full:
+            self.set_import_msg('Сборка против оппонента ещё не загружена. Экспорт не выполнен.'); return
+        if context == 'matchup' and not full.get(self.s['rune_pick']):
+            self.set_import_msg('Выбранный вариант матчапа недоступен. Экспорт не выполнен.'); return
         variant = (full.get(self.s['rune_pick']) or full) if full else None
-        signature = (me, role, self.s['rune_pick'], parts)
+        signature = (me, role, self.s['rune_pick'], parts, context, opponent)
         if getattr(self, '_import_pending', None) == signature: return
         self._import_pending = signature
         self._import_generation = getattr(self, '_import_generation', 0) + 1
         generation = self._import_generation
         if not hasattr(self, '_import_lock'): self._import_lock = threading.Lock()
-        name, client = self.data.cn(me), self.client
+        name, client = self.data.cn(me) + (' против ' + self.data.cn(opponent) if opponent else ''), self.client
         account = dict(self.account or {})
         cid = next((key for key, value in self.data.ids.items() if value == me), None)
         chosen = self.s['rune_pick']
@@ -2399,13 +2510,15 @@ class App:
         if full and chosen == 'win': sets.reverse()
         sets = json.loads(json.dumps(sets))
         log_path = os.path.join(self.home, 'import.log') if getattr(self, 'home', None) else None
-        source = ('Европа, ' + ('лучший винрейт' if chosen == 'win' else 'популярная')) if full else 'из твоих игр'
+        source = ((('Против ' + self.data.cn(opponent) + ', все регионы') if opponent else 'Европа') + ', ' + ('лучший винрейт' if chosen == 'win' else 'популярная')) if full else 'из твоих игр'
         self.set_import_msg('Экспортирую выбранные данные…')
 
         def current():
             draft = self.draft or {}
             return (self._import_generation == generation and draft.get('me') == me
                     and self.draft_role(draft)[0] == role and self.s['rune_pick'] == chosen
+                    and (self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general') == context
+                    and (context != 'matchup' or self.draft_opponent(draft, role) == opponent)
                     and not self.last_game)
 
         def job():
