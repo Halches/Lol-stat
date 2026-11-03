@@ -53,7 +53,7 @@ class PoolScreen(tk.Frame):
         self.cv.pack(side='left',fill='both',expand=True);self.cv.configure(yscrollcommand=sb.set)
         self.grid_box=tk.Frame(self.cv,bg=C['bg']);self.window=self.cv.create_window(0,0,window=self.grid_box,anchor='nw')
         self.grid_box.bind('<Configure>',lambda e:self.cv.configure(scrollregion=self.cv.bbox('all')))
-        self.cv.bind('<Configure>',self.resize)
+        self.cv.bind('<Configure>',self.resize, add='+')
         self.bind('<Configure>',lambda e:self.info.configure(wraplength=max(200,e.width-8)) if e.widget is self else None)
         # Integrate with the application's existing wheel handler without binding globally again.
         app.canvases[str(parent)]=self.cv

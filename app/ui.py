@@ -950,7 +950,7 @@ class Dashboard(tk.Toplevel):
         self.body.bind('<Configure>', lambda e: (self.cv.configure(scrollregion=self.cv.bbox('all')),
                                                  sb.pack(side='right', fill='y') if self.body.winfo_reqheight() > self.cv.winfo_height() else sb.pack_forget()))
         win = self.cv.create_window((0, 0), window=self.body, anchor='nw'); self.cv.configure(yscrollcommand=sb.set)
-        self.cv.bind('<Configure>', lambda e: self.cv.itemconfigure(win, width=e.width))
+        self.cv.bind('<Configure>', lambda e: self.cv.itemconfigure(win, width=e.width), add='+')
         self.cv.pack(side='left', fill='both', expand=True)
         self.low = tk.Frame(self, bg=C['bg'])
         lf = tk.Frame(self.low, bg=C['bg'])
@@ -2801,7 +2801,7 @@ class App:
         sb.pack(side='right', fill='y')
         inner.bind('<Configure>', lambda e: cv.configure(scrollregion=cv.bbox('all')))
         win = cv.create_window((0, 0), window=inner, anchor='nw'); cv.configure(yscrollcommand=sb.set)
-        cv.bind('<Configure>', lambda e: cv.itemconfigure(win, width=e.width))
+        cv.bind('<Configure>', lambda e: cv.itemconfigure(win, width=e.width), add='+')
         cv.pack(side='left', fill='both', expand=True)
         self.__dict__.setdefault('canvases', {})[str(outer)] = cv
         if not getattr(self, '_wheel', False):

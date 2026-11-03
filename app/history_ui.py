@@ -219,7 +219,7 @@ class MatchWindow(tk.Toplevel,Components):
         sb.pack(side='right',fill='y');self.cv.pack(fill='both',expand=True);self.cv.configure(yscrollcommand=sb.set)
         self.body=tk.Frame(self.cv,bg=C['bg'],padx=app.fs(14),pady=app.fs(12));self.win=self.cv.create_window(0,0,window=self.body,anchor='nw')
         self.body.bind('<Configure>',lambda e:self.cv.configure(scrollregion=self.cv.bbox('all')))
-        self.cv.bind('<Configure>',self.resized)
+        self.cv.bind('<Configure>',self.resized, add='+')
         self.bind('<MouseWheel>',self.cv.wheel);self.bind('<Button-4>',self.cv.wheel);self.bind('<Button-5>',self.cv.wheel)
         self.render()
 

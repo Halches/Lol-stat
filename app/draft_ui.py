@@ -526,7 +526,7 @@ class DraftView:
             if self.center.winfo_reqheight() > self.center_canvas.winfo_height(): scrollbar.pack(side='right', fill='y')
             else: scrollbar.pack_forget()
         self.center.bind('<Configure>', content_changed)
-        self.center_canvas.bind('<Configure>', lambda event: self.center_canvas.itemconfigure(window, width=event.width))
+        self.center_canvas.bind('<Configure>', lambda event: self.center_canvas.itemconfigure(window, width=event.width), add='+')
         self.center_wheel = self.center_canvas.wheel
         self.center_content_changed = content_changed
 

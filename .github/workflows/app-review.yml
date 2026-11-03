@@ -45,6 +45,11 @@ jobs:
           mv tools/dd/runesReforged.json tools/dd/runes.json
           python app/make_assets.py
 
+      - name: Замер прокрутки настоящей главной страницы
+        env:
+          SCROLL_PERF_OUT: dist/scroll-performance.json
+        run: python app/dev/sim_scroll_performance.py
+
       - name: Локальный голос Piper
         shell: pwsh
         run: |

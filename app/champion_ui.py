@@ -178,7 +178,7 @@ class ChampionScreen(tk.Frame, Components):
         sb=ttk.Scrollbar(viewport,orient='vertical',command=cv.yview)
         sb.pack(side='right',fill='y');cv.pack(side='left',fill='both',expand=True);cv.configure(yscrollcommand=sb.set)
         body=tk.Frame(cv,bg=c['bg']);win=cv.create_window((0,0),window=body,anchor='nw')
-        cv.bind('<Configure>',lambda e:cv.itemconfigure(win,width=e.width))
+        cv.bind('<Configure>',lambda e:cv.itemconfigure(win,width=e.width), add='+')
         body.bind('<Configure>',lambda e:cv.configure(scrollregion=cv.bbox('all')))
         if self.right_open:self.special_sources(body)
         else:self.player_cards=[]

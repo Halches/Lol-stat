@@ -3,7 +3,6 @@ import os
 import tkinter as tk
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 from scroll_canvas import ScrollCanvas
 
 
@@ -73,14 +72,26 @@ class Scrolling(unittest.TestCase):
         self.cv.destroy()
         self.settle()
         self.assertIsNone(self.cv._scroll_job)
-        self.assertIsNone(self.cv._paint_job)
 
-    def test_repaint_is_coalesced(self):
-        # Run the scheduling path on Linux too; the native call remains Windows-only.
-        with patch('scroll_canvas.os.name', 'nt'), patch('scroll_canvas.repaint_children') as repaint:
-            for _ in range(30):self.cv._repaint_later()
-            self.settle()
-            repaint.assert_called_once_with(self.cv)
+    def test_scroll_moves_window_without_native_canvas_yview(self):
+        logical = self.cv.bbox('all')
+        self.cv.yview_moveto(.5)
+        self.settle()
+        self.assertEqual(self.cv.bbox('all'), logical)
+        self.assertEqual(tk.Canvas.yview(self.cv)[0], 0)
+        self.assertLess(tk.Canvas.coords(self.cv, self.cv._content_window)[1], 0)
+        self.assertGreater(self.cv.yview()[0], 0)
+        self.cv.yview_moveto(1)
+        self.assertEqual(self.cv.yview()[1], 1)
+
+    def test_content_shrink_resets_offset_and_thumb(self):
+        values = []
+        self.cv.configure(yscrollcommand=lambda *v: values.append(v))
+        self.cv.yview_moveto(1)
+        self.cv.configure(scrollregion=(0,0,580,100))
+        self.assertEqual(self.cv.yview(), (0,1))
+        self.assertEqual(values[-1], (0,1))
+        self.assertEqual(tk.Canvas.coords(self.cv, self.cv._content_window)[1], 0)
 
 
 if __name__ == '__main__':unittest.main()
