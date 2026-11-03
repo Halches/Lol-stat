@@ -111,6 +111,8 @@ class Scrolling(unittest.TestCase):
             data = json.loads(path.read_text(encoding='utf-8'))
             self.assertGreaterEqual(data['max_gap_ms'], 150)
             self.assertTrue(data['slow_callbacks'])
+            self.assertIn('<lambda>', data['slow_callbacks'][0]['callback'])
+            self.assertNotIn('after.<locals>.callit', data['slow_callbacks'][0]['callback'])
             self.assertIs(tk.CallWrapper.__call__, original)
 
 

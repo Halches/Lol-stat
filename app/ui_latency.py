@@ -24,10 +24,12 @@ class LatencyLog:
                 duration = (time.perf_counter()-start)*1000
                 if duration >= 50:
                     func = wrapper.func
-                    if getattr(func,'__name__','') == 'callit':
-                        for cell in getattr(func,'__closure__',()) or ():
-                            candidate = cell.cell_contents
-                            if callable(candidate):func = candidate;break
+                    for _ in range(5):
+                        code=getattr(func,'__code__',None)
+                        if not code or code.co_name!='callit':break
+                        cells=dict(zip(code.co_freevars,func.__closure__ or ()))
+                        if 'func' not in cells:break
+                        func=cells['func'].cell_contents
                     self.callbacks.append({'callback':getattr(func,'__qualname__',type(func).__name__),
                         'duration_ms':round(duration,1),'at_s':round(start-self.started,1)})
                     self.callbacks = sorted(self.callbacks,key=lambda v:v['duration_ms'],reverse=True)[:30]
@@ -46,7 +48,7 @@ class LatencyLog:
         self.job = self.root.after(50,self.tick)
 
     def save(self):
-        data = {'build':'scroll-v2','elapsed_s':round(time.perf_counter()-self.started,1),
+        data = {'build':'scroll-v3','elapsed_s':round(time.perf_counter()-self.started,1),
             'heartbeat_interval_ms':50,'samples':self.samples,'max_gap_ms':round(self.max_gap_ms,1),
             'long_gaps':self.gaps,'slow_callbacks':self.callbacks}
         try:self.path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')

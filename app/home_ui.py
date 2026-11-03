@@ -26,14 +26,17 @@ class HomeScreen(tk.Frame):
 
     def resized(self,event):
         if event.widget is not self:return
-        mode=self.mode(event.width)
+        mode=self.mode(max(self.app.fs(550),event.width))
         if mode!=self.layout or getattr(self,'layout_width',None)!=event.width:
             if self.resize_job:self.after_cancel(self.resize_job)
             self.resize_job=self.after(100,self.reflow)
 
     def reflow(self):
         if self.resize_job:self.after_cancel(self.resize_job)
-        self.resize_job=None;self.refresh()
+        self.resize_job=None
+        width=self.winfo_width()
+        if width>1 and (self.mode(max(self.app.fs(550),width))!=self.layout or width!=self.layout_width):
+            self.refresh()
 
     def mode(self,width):return (width>=self.app.fs(1100),width>=self.app.fs(780),width>=self.app.fs(740),width>=self.app.fs(1100),width>=self.app.fs(1050))
 

@@ -28,7 +28,14 @@ class HistoryScreen(tk.Frame,Components):
     def resized(self,event):
         if event.widget is self and getattr(self,'last_width',None)!=event.width:
             if self.job:self.after_cancel(self.job)
-            self.job=self.after(100,self.refresh)
+            self.job=self.after(100,self.refresh_if_resized)
+
+    def refresh_if_resized(self):
+        self.job=None
+        # Configure events can describe a temporary width while children are
+        # being rebuilt. Recheck the settled geometry before rebuilding again.
+        if self.winfo_exists() and self.winfo_width()>1 and self.winfo_width()!=self.last_width:
+            self.refresh()
 
     def search_changed(self):
         self.limit=20
