@@ -1,6 +1,7 @@
 """Separate champion-pool screen: portraits toggle the pool for the chosen role."""
 import tkinter as tk
 from tkinter import ttk
+from scroll_canvas import ScrollCanvas
 import webbrowser
 import core
 from view_components import readable_palette
@@ -47,7 +48,7 @@ class PoolScreen(tk.Frame):
         for i,(key,name) in enumerate(model.FIELDS):self.combo(self.advanced,key,name,i%3,i//3*2)
         self.result=self.label(self,'',9,'mute');self.result.pack(fill='x',pady=(8,5))
         viewport=tk.Frame(self,bg=C['bg']);viewport.pack(fill='both',expand=True)
-        self.cv=tk.Canvas(viewport,bg=C['bg'],highlightthickness=0)
+        self.cv=ScrollCanvas(viewport,bg=C['bg'],highlightthickness=0)
         sb=ttk.Scrollbar(viewport,orient='vertical',command=self.cv.yview);sb.pack(side='right',fill='y')
         self.cv.pack(side='left',fill='both',expand=True);self.cv.configure(yscrollcommand=sb.set)
         self.grid_box=tk.Frame(self.cv,bg=C['bg']);self.window=self.cv.create_window(0,0,window=self.grid_box,anchor='nw')
@@ -56,8 +57,6 @@ class PoolScreen(tk.Frame):
         self.bind('<Configure>',lambda e:self.info.configure(wraplength=max(200,e.width-8)) if e.widget is self else None)
         # Integrate with the application's existing wheel handler without binding globally again.
         app.canvases[str(parent)]=self.cv
-        self.cv.bind('<Button-4>',lambda e:self.cv.yview_scroll(-3,'units'))
-        self.cv.bind('<Button-5>',lambda e:self.cv.yview_scroll(3,'units'))
         foot=tk.Frame(self,bg=C['bg']);self.footer=foot;foot.pack(fill='x',side='bottom',before=viewport,pady=(8,0))
         self.saved=self.label(foot,'Изменения сохраняются автоматически',9,'mute');self.saved.pack(anchor='w')
         source_date=self.source.get('snapshot_date','неизвестна')

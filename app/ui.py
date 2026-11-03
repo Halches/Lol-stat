@@ -4,6 +4,8 @@ import base64, io, json, os, platform, queue, subprocess, sys, threading, time, 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from scroll_canvas import ScrollCanvas
+
 import performance_model
 import core, lcu, phone, tab_detect, player_comments, player_traits, player_evidence, champion_rank, champion_pool, profile_ranks
 
@@ -942,7 +944,7 @@ class Dashboard(tk.Toplevel):
         self.bar = tk.Frame(self, bg=C['bg'])   # в драфте: смена линии и импорт рун/предметов
         # карточки внутри прокручиваемой области: не всё помещается на маленьком мониторе
         self.wrap = tk.Frame(self, bg=C['bg']); self.wrap.pack(fill='both', expand=True, padx=10, pady=8)
-        self.cv = tk.Canvas(self.wrap, bg=C['bg'], highlightthickness=0)
+        self.cv = ScrollCanvas(self.wrap, bg=C['bg'], highlightthickness=0)
         sb = ttk.Scrollbar(self.wrap, orient='vertical', command=self.cv.yview)
         self.body = tk.Frame(self.cv, bg=C['bg'])
         self.body.bind('<Configure>', lambda e: (self.cv.configure(scrollregion=self.cv.bbox('all')),
@@ -2794,10 +2796,10 @@ class App:
         """Вкладка панели; с прокруткой колесом мыши, если содержимое не помещается."""
         outer = tk.Frame(self.nb, bg=C['bg'], padx=14, pady=6); self.nb.add(outer, text=name)
         if not scroll: outer.outer = outer; return outer
-        cv = tk.Canvas(outer, bg=C['bg'], highlightthickness=0); sb = ttk.Scrollbar(outer, orient='vertical', command=cv.yview)
+        cv = ScrollCanvas(outer, bg=C['bg'], highlightthickness=0); sb = ttk.Scrollbar(outer, orient='vertical', command=cv.yview)
         inner = tk.Frame(cv, bg=C['bg'])
-        inner.bind('<Configure>', lambda e: (cv.configure(scrollregion=cv.bbox('all')),
-                                             sb.pack(side='right', fill='y') if inner.winfo_reqheight() > cv.winfo_height() else sb.pack_forget()))
+        sb.pack(side='right', fill='y')
+        inner.bind('<Configure>', lambda e: cv.configure(scrollregion=cv.bbox('all')))
         win = cv.create_window((0, 0), window=inner, anchor='nw'); cv.configure(yscrollcommand=sb.set)
         cv.bind('<Configure>', lambda e: cv.itemconfigure(win, width=e.width))
         cv.pack(side='left', fill='both', expand=True)
@@ -2809,8 +2811,10 @@ class App:
                 except Exception: top = None
                 if self.dash and top is self.dash: c = self.dash.cv   # колесо над вторым окном — крутим его
                 else: c = self.canvases.get(self.nb.select())
-                if c and c.winfo_exists() and c.bbox('all') and c.bbox('all')[3] > c.winfo_height(): c.yview_scroll(-e.delta // 120, 'units')
+                if c and c.winfo_exists() and top is c.winfo_toplevel() and c.bbox('all') and c.bbox('all')[3] > c.winfo_height(): return c.wheel(e)
             self.root.bind_all('<MouseWheel>', wheel)
+            self.root.bind_all('<Button-4>', wheel)
+            self.root.bind_all('<Button-5>', wheel)
         inner.outer = outer
         return inner
 

@@ -1,0 +1,86 @@
+"""Exercise real Tk scrolling, including Windows CI's native child windows."""
+import os
+import tkinter as tk
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+from scroll_canvas import ScrollCanvas
+
+
+class Scrolling(unittest.TestCase):
+    def setUp(self):
+        try:
+            self.root = tk.Tk()
+        except tk.TclError as error:
+            if os.name == 'nt':
+                raise
+            self.skipTest(str(error))
+        self.root.geometry('600x400+0+0')
+        self.errors = []
+        self.root.report_callback_exception = lambda *args: self.errors.append(str(args[1]))
+        self.cv = ScrollCanvas(self.root, highlightthickness=0)
+        self.cv.pack(fill='both', expand=True)
+        body = tk.Frame(self.cv)
+        self.cv.create_window(0, 0, window=body, anchor='nw', width=580)
+        for i in range(80):
+            row = tk.Frame(body, bg='#102132', height=48)
+            row.pack(fill='x', pady=4)
+            tk.Label(row, text=f'Матч {i} · 7 / 2 / 10').pack(side='left')
+            tk.Button(row, text='Подробнее').pack(side='right')
+        self.root.update()
+        self.cv.configure(scrollregion=self.cv.bbox('all'))
+        self.root.update()
+        self.addCleanup(self.root.destroy)
+
+    def settle(self):
+        self.root.after(55, self.root.quit)
+        self.root.mainloop()
+        self.assertEqual(self.errors, [])
+
+    def test_burst_is_bounded_and_applied_once(self):
+        before = self.cv.yview()
+        for _ in range(300):
+            self.cv.wheel(SimpleNamespace(delta=-120))
+        job = self.cv._scroll_job
+        self.assertIsNotNone(job)
+        self.assertEqual(before, self.cv.yview())
+        self.assertLessEqual(self.cv._pending_units, 400 // 24)
+        self.settle()
+        self.assertIsNone(self.cv._scroll_job)
+        self.assertGreater(self.cv.yview()[0], before[0])
+        self.assertLessEqual(self.cv.canvasy(0), 400)
+
+    def test_small_wheel_deltas_and_direction(self):
+        for _ in range(3):self.cv.wheel(SimpleNamespace(delta=-30))
+        self.assertIsNone(self.cv._scroll_job)
+        self.cv.wheel(SimpleNamespace(delta=-30))
+        self.settle()
+        self.assertEqual(self.cv.canvasy(0), 72)
+        self.cv.wheel(SimpleNamespace(delta=120))
+        self.settle()
+        self.assertEqual(self.cv.canvasy(0), 0)
+
+    def test_scrollbar_overrides_pending_wheel(self):
+        self.cv.wheel(SimpleNamespace(delta=-120))
+        self.cv.yview('moveto', .5)
+        position = self.cv.yview()
+        self.settle()
+        self.assertEqual(self.cv.yview(), position)
+        self.assertIsNone(self.cv._scroll_job)
+
+    def test_destroy_cancels_callbacks(self):
+        self.cv.wheel(SimpleNamespace(delta=-120))
+        self.cv.destroy()
+        self.settle()
+        self.assertIsNone(self.cv._scroll_job)
+        self.assertIsNone(self.cv._paint_job)
+
+    def test_repaint_is_coalesced(self):
+        # Run the scheduling path on Linux too; the native call remains Windows-only.
+        with patch('scroll_canvas.os.name', 'nt'), patch('scroll_canvas.repaint_children') as repaint:
+            for _ in range(30):self.cv._repaint_later()
+            self.settle()
+            repaint.assert_called_once_with(self.cv)
+
+
+if __name__ == '__main__':unittest.main()

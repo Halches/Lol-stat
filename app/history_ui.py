@@ -3,6 +3,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
+from scroll_canvas import ScrollCanvas
 import core
 import history_model as model
 from view_components import ReadableComponents as Components, readable_palette
@@ -214,12 +215,12 @@ class MatchWindow(tk.Toplevel,Components):
         self.bind('<Destroy>',self.cleanup,add='+')
         footer=tk.Frame(self,bg=C['bg']);footer.pack(side='bottom',fill='x',padx=14,pady=8)
         self.button(footer,'Закрыть',self.close).pack(side='right')
-        self.cv=tk.Canvas(self,bg=C['bg'],highlightthickness=0);sb=ttk.Scrollbar(self,orient='vertical',command=self.cv.yview)
+        self.cv=ScrollCanvas(self,bg=C['bg'],highlightthickness=0);sb=ttk.Scrollbar(self,orient='vertical',command=self.cv.yview)
         sb.pack(side='right',fill='y');self.cv.pack(fill='both',expand=True);self.cv.configure(yscrollcommand=sb.set)
         self.body=tk.Frame(self.cv,bg=C['bg'],padx=app.fs(14),pady=app.fs(12));self.win=self.cv.create_window(0,0,window=self.body,anchor='nw')
         self.body.bind('<Configure>',lambda e:self.cv.configure(scrollregion=self.cv.bbox('all')))
         self.cv.bind('<Configure>',self.resized)
-        self.bind('<MouseWheel>',self.wheel);self.bind('<Button-4>',lambda e:self.scroll(-3));self.bind('<Button-5>',lambda e:self.scroll(3))
+        self.bind('<MouseWheel>',self.cv.wheel);self.bind('<Button-4>',self.cv.wheel);self.bind('<Button-5>',self.cv.wheel)
         self.render()
 
     def cleanup(self,event):

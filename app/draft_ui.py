@@ -3,6 +3,7 @@ import time
 import webbrowser
 import tkinter as tk
 from tkinter import ttk
+from scroll_canvas import ScrollCanvas
 import core
 import draft_model
 import draft_external
@@ -514,7 +515,7 @@ class DraftView:
         self.center_bottom.pack(side='bottom', fill='x')
         scroll_area = tk.Frame(self.center_clip, bg=self.c['bg'])
         scroll_area.pack(fill='both', expand=True)
-        self.center_canvas = tk.Canvas(scroll_area, bg=self.c['bg'], highlightthickness=0)
+        self.center_canvas = ScrollCanvas(scroll_area, bg=self.c['bg'], highlightthickness=0)
         self.center_canvas.pack(side='left', fill='both', expand=True)
         scrollbar = ttk.Scrollbar(scroll_area, orient='vertical', command=self.center_canvas.yview)
         self.center_canvas.configure(yscrollcommand=scrollbar.set)
@@ -526,12 +527,7 @@ class DraftView:
             else: scrollbar.pack_forget()
         self.center.bind('<Configure>', content_changed)
         self.center_canvas.bind('<Configure>', lambda event: self.center_canvas.itemconfigure(window, width=event.width))
-        def wheel(event):
-            raw = getattr(event, 'delta', 0)
-            delta = (-1 if event.num == 4 else 1) if getattr(event,'num',None) in (4,5) else (-int(raw/120) or (-1 if raw > 0 else 1 if raw < 0 else 0))
-            self.center_canvas.yview_scroll(delta, 'units')
-            return 'break'
-        self.center_wheel = wheel
+        self.center_wheel = self.center_canvas.wheel
         self.center_content_changed = content_changed
 
     def bind_center_wheel(self, widget):

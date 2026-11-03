@@ -1,6 +1,7 @@
 """Native champion page; uses existing asynchronous sources without altering draft choices."""
 import tkinter as tk
 from tkinter import ttk
+from scroll_canvas import ScrollCanvas
 import core
 import champion_pool
 import draft_model
@@ -173,7 +174,7 @@ class ChampionScreen(tk.Frame, Components):
             else:self.player_cards=[]
             self.matchups(parent,counters);return
         viewport=tk.Frame(parent,bg=c['bg']);viewport.pack(fill='both',expand=True)
-        cv=tk.Canvas(viewport,bg=c['bg'],highlightthickness=0);self.right_canvas=cv
+        cv=ScrollCanvas(viewport,bg=c['bg'],highlightthickness=0);self.right_canvas=cv
         sb=ttk.Scrollbar(viewport,orient='vertical',command=cv.yview)
         sb.pack(side='right',fill='y');cv.pack(side='left',fill='both',expand=True);cv.configure(yscrollcommand=sb.set)
         body=tk.Frame(cv,bg=c['bg']);win=cv.create_window((0,0),window=body,anchor='nw')
@@ -182,13 +183,7 @@ class ChampionScreen(tk.Frame, Components):
         if self.right_open:self.special_sources(body)
         else:self.player_cards=[]
         self.matchups(body,counters)
-        def scroll(e):
-            if getattr(e,'num',None)==4:units=-1
-            elif getattr(e,'num',None)==5:units=1
-            else:units=-1 if e.delta>0 else 1
-            bounds=cv.bbox('all')
-            if bounds and bounds[3]-bounds[1]>cv.winfo_height():cv.yview_scroll(units,'units')
-            return 'break'
+        scroll=cv.wheel
         def bind_wheel(widget):
             widget.bind('<MouseWheel>',scroll);widget.bind('<Button-4>',scroll);widget.bind('<Button-5>',scroll)
             for child in widget.winfo_children():bind_wheel(child)
