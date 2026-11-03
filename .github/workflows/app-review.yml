@@ -73,12 +73,28 @@ jobs:
       - name: Запуск упакованного интерфейса без игры
         shell: pwsh
         run: |
-          $p = Start-Process dist/LoLHelper-Review.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Проверочный EXE не завершился за 60 секунд' }
-          if ($p.ExitCode -ne 0) { throw "Проверочный EXE завершился с кодом $($p.ExitCode)" }
-          Copy-Item "$env:APPDATA/LoLHelper/development-review/review-report.txt" dist/review-report.txt
-          Copy-Item app/dev/WINDOWS_REVIEW.md dist/WINDOWS_REVIEW.md
-          Set-Content dist/source-commit.txt '${{ github.sha }}'
+          try {
+            $p = Start-Process dist/LoLHelper-Review.exe -ArgumentList '--smoke-test' -PassThru
+            if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Проверочный EXE не завершился за 60 секунд' }
+            if ($p.ExitCode -ne 0) { throw "Проверочный EXE завершился с кодом $($p.ExitCode)" }
+            Copy-Item "$env:APPDATA/LoLHelper/development-review/review-report.txt" dist/review-report.txt
+            Copy-Item app/dev/WINDOWS_REVIEW.md dist/WINDOWS_REVIEW.md
+            Set-Content dist/source-commit.txt '${{ github.sha }}'
+          } finally {
+            $trace = "$env:APPDATA/LoLHelper/development-review/smoke-trace.txt"
+            if (Test-Path $trace) { Copy-Item $trace dist/smoke-trace.txt; Get-Content $trace }
+          }
+
+      - name: Диагностика при ошибке запуска
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-startup-diagnostics-${{ github.sha }}
+          path: |
+            dist/smoke-trace.txt
+            dist/scroll-performance.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Сохранить проверочный комплект
         uses: actions/upload-artifact@v4
