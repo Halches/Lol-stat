@@ -46,6 +46,7 @@ class HotkeyLifecycle(unittest.TestCase):
         self.app.keys()
         self.tab.deiconify.assert_not_called()
         self.tab.withdraw.assert_called()
+        self.tab.unlock.assert_called_with(False)
 
     def test_scoreboard_can_open_and_close_while_alt_is_held(self):
         self.held.update(('alt','tab'))

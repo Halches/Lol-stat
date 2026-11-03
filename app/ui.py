@@ -862,7 +862,7 @@ class TabPlates(Overlay):
             return
         self.unlocked = on
         click_through(self, True)   # в том числе при Alt: игровая таблица остаётся кликабельной
-        if self.data: self.draw(*self.data)
+        if self.data and self.winfo_viewable(): self.draw(*self.data)
         if not on: self.handle.withdraw()
 
     def _start(self, e):
@@ -2729,7 +2729,9 @@ class App:
             self.keys_prev['tab']=False
             return
         if tab:
-            for w in self.tab.values(): w.refresh_geometry()
+            for w in self.tab.values():
+                if w.unlocked!=drag:w.unlock(drag)
+                w.refresh_geometry()
             if not self.keys_prev.get('tab') or time.time() - self.keys_prev.get('tab_t', 0) > 1:
                 for w in self.tab.values():
                     try: w.show(self.last_game); w.deiconify()
@@ -2751,10 +2753,10 @@ class App:
             enabled=self.s['scoreboard'] if key in self.tab else self.s['widgets'].get(key)
             if not enabled:
                 w.withdraw();w.unlock(False);continue
+            if on and key in self.tab and not self.demo_on and not combo_down(self.s['keys'].get('scoreboard')):
+                w.withdraw();w.unlock(False);continue
             w.unlock(on)
             if not on:continue
-            if key in self.tab and not self.demo_on and not combo_down(self.s['keys'].get('scoreboard')):
-                w.withdraw();continue
             if self.last_game and self.last_game.me and key!='hints':w.show(self.last_game)
             else:w.demo()
             w.deiconify();w.lift()
