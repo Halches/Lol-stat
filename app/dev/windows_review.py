@@ -39,8 +39,13 @@ def main():
     app=ui.App(lolhelper.load_data(),'ПРОВЕРКА РАЗРАБОТКИ',None)
     errors=[]
     if smoke:app.root.report_callback_exception=lambda et,ev,tb:errors.append(str(ev))
-    app.root.title('LoL Helper · проверка разработки · отдельные настройки')
+    app.root.title('LoL Helper · ПРОКРУТКА v2 · отдельные настройки')
+    latency=None
+    if not smoke and hasattr(app.root,'tk'):
+        from ui_latency import LatencyLog
+        latency=LatencyLog(app.root,review/'ui-latency.json')
     def close():
+        if latency:latency.close()
         with report.open('a',encoding='utf-8') as output:
             if not smoke:output.write('\n'+app.report_text()+'\n')
             output.write(('SMOKE FAIL: '+repr(errors) if errors else 'SMOKE OK: интерфейс и ресурсы')+'\n' if smoke else 'Проверка закрыта пользователем. Результаты ручного прогона надо указать отдельно.\n')

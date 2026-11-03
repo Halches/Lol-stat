@@ -1,5 +1,9 @@
 """Exercise real Tk scrolling, including Windows CI's native child windows."""
 import os
+import json
+from pathlib import Path
+import tempfile
+import time
 import tkinter as tk
 from types import SimpleNamespace
 import unittest
@@ -92,6 +96,22 @@ class Scrolling(unittest.TestCase):
         self.assertEqual(self.cv.yview(), (0,1))
         self.assertEqual(values[-1], (0,1))
         self.assertEqual(tk.Canvas.coords(self.cv, self.cv._content_window)[1], 0)
+
+    def test_review_latency_log_records_stalls_and_restores_tk(self):
+        from ui_latency import LatencyLog
+        original = tk.CallWrapper.__call__
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'latency.json'
+            log = LatencyLog(self.root, path)
+            try:
+                self.root.after(0, lambda: time.sleep(.16))
+                self.settle()
+            finally:
+                log.close()
+            data = json.loads(path.read_text(encoding='utf-8'))
+            self.assertGreaterEqual(data['max_gap_ms'], 150)
+            self.assertTrue(data['slow_callbacks'])
+            self.assertIs(tk.CallWrapper.__call__, original)
 
 
 if __name__ == '__main__':unittest.main()
