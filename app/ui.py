@@ -153,7 +153,7 @@ DEFAULTS = {
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
     'phone': False, 'phone_port': 8765, 'phone_token': '',
-    'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
+    'draft_scope': 'pool', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
     'theme': 'lol', 'accent': 'theme', 'font': 'Golos Text', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
     'layout': {},
@@ -172,12 +172,16 @@ class Settings(dict):
     def __init__(self, home):
         super().__init__()
         self.path = os.path.join(home, 'settings.json')
-        try: saved = json.load(open(self.path, encoding='utf-8'))
+        try:
+            with open(self.path, encoding='utf-8') as source: saved = json.load(source)
         except Exception: saved = {}
         for k, v in DEFAULTS.items():
             self[k] = ({**v, **saved.get(k, {})} if isinstance(v, dict) else saved.get(k, v))
         if saved.get('auto_import') and 'auto_parts' not in saved:   # раньше была одна галка на всё
             self['auto_parts'] = {'runes': True, 'items': True, 'spells': False}
+        if 'draft_auto_mode_v1' not in saved:
+            self['auto_import'] = any(self['auto_parts'].values())
+            self['draft_auto_mode_v1'] = True
         if not saved.get('design3'):   # дизайн 26.10: новые темы и шрифты включаются всем один раз
             self['theme'], self['font'], self['accent'], self['design3'] = 'lol', 'Golos Text', 'theme', True
         self['theme'] = OLD_THEMES.get(self['theme'], self['theme'])
@@ -212,7 +216,8 @@ class Settings(dict):
 
     def save(self):
         tmp = self.path + '.tmp'
-        json.dump(dict(self), open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        with open(tmp, 'w', encoding='utf-8') as output:
+            json.dump(dict(self), output, ensure_ascii=False, indent=1)
         os.replace(tmp, self.path)
 
 
@@ -1159,6 +1164,7 @@ class Dashboard(tk.Toplevel):
         eu = app.lola_build(me, r.get('role')) if me else None
         if cs.get('left'): self.deadline = time.time() + cs['left']
         sig = json.dumps([cs['role'], r.get('role'), me, cs['enemies'], sorted(cs['unavailable']), bool(eu), len(app.lola), bans,
+                          self.app.s.get('draft_scope'), cs.get('locked'), self.app.s.get('rune_pick'),
                           [(a['c'], a.get('pos'), bool(a.get('rank')), bool(a.get('hist'))) for a in cs.get('allies', [])], [x['c'] for x in r['picks']]], default=str)
         self.clear('draft')
         if sig == self.draft_sig: return
@@ -1168,42 +1174,8 @@ class Dashboard(tk.Toplevel):
         self.cv.yview_moveto(y)   # прокрутка остаётся на месте
 
     def _show_draft(self, cs, r, bans, me, eu):
-        app, d = self.app, self.app.data
-        for col in self.cols + [self.mid]:
-            for w in col.winfo_children(): w.destroy()
-        fn, fs = F['font'], app.fs
-        self.draft_bar(r.get('role') or cs['role'], me)
-        role = core.ROLE_RU.get(r.get('role') or cs['role'], '')
-        self.head.configure(text='Выбор чемпионов' + (f' · ты: {role}' if role else ''), fg=C['fg'])
-        self.sub.configure(text=(f"Вероятный оппонент: {d.cn(r['opp'])}" if r['opp'] else 'Оппонент ещё не выбран'))
-        order = {x: i for i, x in enumerate(core.ROLES)}
-        for col, t, c in ((self.cols[0], 'Твоя команда', 'blue'), (self.cols[1], 'Противники', 'red')):
-            tk.Label(col, text=t.upper(), bg=C['bg'], fg=C[c], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
-        allies = sorted(cs.get('allies') or [], key=lambda a: order.get(a.get('pos'), 9))
-        enemies = sorted(({'c': c, 'pos': r['roles'].get(c, '')} for c in cs['enemies']), key=lambda a: order.get(a['pos'], 9))
-        for col, team in enumerate((allies, enemies + [{}] * (5 - len(enemies)))):
-            for p in team: self.draft_card(col, p, r, eu if p.get('me') else None, app.matchup_lines(p, col, allies, r))
-        if r['picks'] and not cs.get('locked'):   # сверху: кого взять — три карточки, лучшая подсвечена
-            tk.Label(self.mid, text='КОГО ВЗЯТЬ', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
-            row = tk.Frame(self.mid, bg=C['bg']); row.pack(fill='x', pady=(0, 6))
-            for i, x in enumerate(r['picks'][:3]):
-                bg = C['raise'] if i == 0 else C['panel']
-                c = tk.Frame(row, bg=bg, padx=fs(10), pady=fs(8)); c.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0))
-                row.columnconfigure(i, weight=1, uniform='p')
-                tk.Label(c, image=app.img('champ', x['c'], 1.1) or '', bg=bg).pack(anchor='w')
-                tk.Label(c, text=x['name'], bg=bg, fg=C['gold'] if i == 0 else C['fg'], font=(fn, fs(11), 'bold'), anchor='w').pack(anchor='w', pady=(4, 0))
-                tk.Label(c, text=x['why'], bg=bg, fg=C['mute'], font=(fn, fs(9)), wraplength=fs(150), justify='left', anchor='w').pack(anchor='w')
-        self.matchup_card(me, r)
-        self.comp_card(cs, r, allies)
-        if me: self.build_box(self.mid, me, eu, r.get('role'))
-        self.bottom = tk.Frame(self.mid, bg=C['bg']); self.bottom.pack(fill='x', pady=(12, 0))
-        b = self.bottom   # снизу: кого банить
-        if bans:
-            tk.Label(b, text=f'КОГО БАНИТЬ · {role.upper()}', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12))).grid(row=5, column=0, columnspan=2, sticky='w', pady=(0, 2))
-            for i, (c, sc, why) in enumerate(bans):
-                tk.Label(b, text='  ' + d.cn(c), image=app.img('champ', c, 1.0) or '', compound='left', bg=C['bg'], fg=C['bad'],
-                         font=(fn, fs(11), 'bold')).grid(row=6 + i, column=0, sticky='w', pady=1)
-                tk.Label(b, text='  ' + why, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), wraplength=fs(250), justify='left').grid(row=6 + i, column=1, sticky='w')
+        from draft_ui import render_draft
+        render_draft(self, cs, r, bans, me, eu, C, F)
 
     def draft_bar(self, role, me):
         """Над карточками: линия, вариант рун, импорт в клиент и автоимпорт."""
@@ -1224,10 +1196,16 @@ class Dashboard(tk.Toplevel):
         else: tk.Label(row, text='ARAM: сборка и руны по всем рангам (lolalytics)', bg=C['deep'], fg=C['gold'], font=(fn, fs(10), 'bold')).pack(side='left', padx=(0, 10))
         ttk.Button(row, text='Импортировать в клиент', style='A.TButton', command=app.do_import).pack(side='left')
         row2 = tk.Frame(box, bg=C['deep']); row2.pack(anchor='w', fill='x', pady=(6, 0))
-        tk.Label(row2, text='АВТОИМПОРТ, КАК ТОЛЬКО ВЫБЕРЕШЬ ЧЕМПИОНА:', bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack(side='left')
+        auto_mode = tk.BooleanVar(value=app.s['auto_import'])
+        def save_auto_mode():
+            app.s['auto_import'] = auto_mode.get(); app.s.save()
+            app.draft_sig = None
+            if app.draft: app.on_draft(app.draft)
+        ttk.Checkbutton(row2, text='Автоэкспорт', variable=auto_mode, command=save_auto_mode, style='D.TCheckbutton').pack(side='left')
+        tk.Label(row2, text='Экспортировать:', bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack(side='left')
         for key, t in (('runes', 'руны'), ('items', 'предметы'), ('spells', 'заклинания призывателя')):
             ttk.Checkbutton(row2, text=t, variable=app.auto_vars[key], style='D.TCheckbutton',
-                            command=lambda key=key: (app.s['auto_parts'].__setitem__(key, app.auto_vars[key].get()), app.s.save())).pack(side='left', padx=(10, 0))
+                            command=lambda key=key: app.set_import_part(key)).pack(side='left', padx=(10, 0))
         self.import_err = ttk.Button(row2, text='Скопировать ошибку для Claude', command=app.copy_report)
         bad = 'не получилось' in app.import_text
         if bad: self.import_err.pack(side='right', padx=(8, 0))
@@ -2109,7 +2087,7 @@ class App:
             self.draft_sig = 'none'
             self.imported = None; return
         if not self.dash: self.open_dash()
-        sig = json.dumps([cs['role'], self.role_override, cs['me'], cs['enemies'], sorted(cs['unavailable']), len(self.lola), [(a['c'], bool(a['rank']), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
+        sig = json.dumps([cs['role'], self.role_override, self.s.get('draft_scope'), cs.get('locked'), cs['me'], cs['enemies'], sorted(cs['unavailable']), len(self.lola), [(a['c'], bool(a['rank']), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
         if sig == self.draft_sig: return
         self.draft_sig = sig
         p, d = self.player, self.data
@@ -2128,9 +2106,9 @@ class App:
             except Exception as e: log_error('второе окно: ARAM', e)
             self.phone_draft(cs, {'role': 'ARAM', 'picks': [], 'opp': None}, [])
             auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
-            if auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
+            if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
             return
-        r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'])
+        r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'], scope=self.s.get('draft_scope', 'pool'))
         r['role'], r['how'] = role, how
         for a in cs.get('allies') or []:
             if a.get('me') and (not a.get('pos') or a.get('auto')): a['pos'], a['auto'] = role, True
@@ -2141,7 +2119,7 @@ class App:
         except Exception as e: log_error('второе окно: драфт', e)
         self.phone_draft(cs, r, bans)
         auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
-        if auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
+        if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
 
     def draft_role(self, cs):
         """Линия для подсказок: выбранная вручную, назначенная клиентом или основная линия игрока."""
@@ -2281,8 +2259,24 @@ class App:
                 out.append(('Тебе с ним из пула', [(x, f'({v:+.1f})', 'good' if v > .5 else 'fg') for v, x in pool[:4]]))
         return out
 
+    def set_draft_scope(self, scope):
+        self.s['draft_scope'] = scope
+        self.s.save()
+        self.draft_sig = None
+        if self.dash: self.dash.draft_sig = None
+        if self.draft: self.on_draft(self.draft)
+
+    def set_import_part(self, key):
+        self.s['auto_parts'][key] = self.auto_vars[key].get()
+        self.s.save()
+        self.imported = None
+        self.draft_sig = None
+        if self.dash: self.dash.draft_sig = None
+        if self.draft: self.on_draft(self.draft)
+
     def set_draft_role(self, role):
         self.role_override = role
+        self.imported = None
         self.draft_sig = None
         if self.dash: self.dash.draft_sig = None
         if self.draft: self.on_draft(self.draft)
@@ -2372,45 +2366,83 @@ class App:
             except tk.TclError: pass
 
     def do_import(self, parts=('runes', 'items', 'spells')):
-        """Импорт в клиент: руны, наборы предметов и заклинания призывателя. parts — что именно (для автоимпорта по галкам)."""
-        cs, p = self.draft, self.player
-        if not cs or not cs['me'] or not p:
-            self.set_import_msg('Сначала выбери чемпиона'); return
-        me = cs['me']
-        eu = self.lola_build(me, self.draft_role(cs)[0])
-        ev = (eu.get(self.s['rune_pick']) or eu) if eu else None
-        out = []
-        def attempt(name, fn):
-            self.client.last_error = ''
-            try: ok = fn()
-            except Exception as e: ok = False; self.client.last_error = self.client.last_error or repr(e)
-            out.append(f"{name}: {'готово' if ok else 'не получилось' + (f' ({self.client.last_error})' if self.client.last_error else '')}")
-            if not ok: log_error(f'импорт {name}, {me}', self.client.last_error or 'клиент ответил отказом без текста ошибки')
-        if 'runes' in parts:
-            def runes():
-                if ev: return self.client.set_runes(self.data.cn(me), ev['prim'], ev['sec'], ev['perks'], ev['shards'] if len(ev['shards']) == 3 else None)
-                ru = p.best_runes(me)
-                return bool(ru) and self.client.set_runes(self.data.cn(me), ru['prim'], ru['sec'], ru['perks'])
-            src = ('по Европе, ' + ('лучший винрейт' if self.s['rune_pick'] == 'win' else 'популярные')) if eu else 'из твоих игр'
-            attempt(f'Руны ({src})', runes)
-        if 'items' in parts:
-            def items():
-                acc = self.account or self.client.me() or {}
-                cid = next((k for k, v in self.data.ids.items() if v == me), None)
-                if eu: sets = core.lola_item_sets(eu, self.data.cn(me))
-                else: sets = [(self.data.cn(me), [('Сборка из твоих побед', p.best_build(me)), ('Тотемы', [2055, 3340, 3364])])]
-                return bool(cid and sets[0][1][0][1]) and self.client.set_items(acc.get('id'), cid, sets, None)
-            attempt('Предметы (2 набора)' if eu else 'Предметы', items)
-        if 'spells' in parts and ev and ev.get('spells'):
-            ids = [core.SPELL_ID.get(x) for x in ev['spells'][:2]]
-            attempt('Заклинания (' + ', '.join(core.SPELL_RU.get(x, x) for x in ev['spells'][:2]) + ')',
-                    lambda: None not in ids and self.client.set_spells(*ids))
-        self.imported = me
-        msg = ' · '.join(out)
-        self.set_import_msg(msg)
-        try:
-            with open(os.path.join(self.home, 'import.log'), 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + me + ' ' + msg + '\n')
-        except Exception: pass
+        """Snapshot the chosen variant in Tk, serialize client mutations in a worker."""
+        cs, player = self.draft, self.player
+        if not cs or not cs.get('me') or not player:
+            self.set_import_msg('Сначала выбери чемпиона в драфте'); return
+        parts = tuple(k for k in parts if k in ('runes', 'items', 'spells'))
+        if not parts:
+            self.set_import_msg('Выбери, что экспортировать: руны, предметы или заклинания'); return
+        me, role = cs['me'], self.draft_role(cs)[0]
+        full = self.lola_build(me, role)
+        variant = (full.get(self.s['rune_pick']) or full) if full else None
+        signature = (me, role, self.s['rune_pick'], parts)
+        if getattr(self, '_import_pending', None) == signature: return
+        self._import_pending = signature
+        self._import_generation = getattr(self, '_import_generation', 0) + 1
+        generation = self._import_generation
+        if not hasattr(self, '_import_lock'): self._import_lock = threading.Lock()
+        name, client = self.data.cn(me), self.client
+        account = dict(self.account or {})
+        cid = next((key for key, value in self.data.ids.items() if value == me), None)
+        chosen = self.s['rune_pick']
+        # Copy data before starting a worker; no Tk/settings calls in the worker.
+        variant = json.loads(json.dumps(variant)) if variant else None
+        personal_runes = player.best_runes(me) if not variant else None
+        sets = core.lola_item_sets(full, name) if full else [(name, [('Сборка из твоих побед', player.best_build(me)), ('Тотемы', [2055, 3340, 3364])])]
+        if full and chosen == 'win': sets.reverse()
+        sets = json.loads(json.dumps(sets))
+        log_path = os.path.join(self.home, 'import.log') if getattr(self, 'home', None) else None
+        source = ('Европа, ' + ('лучший винрейт' if chosen == 'win' else 'популярная')) if full else 'из твоих игр'
+        self.set_import_msg('Экспортирую выбранные данные…')
+
+        def current():
+            draft = self.draft or {}
+            return (self._import_generation == generation and draft.get('me') == me
+                    and self.draft_role(draft)[0] == role and self.s['rune_pick'] == chosen
+                    and not self.last_game)
+
+        def job():
+            results = []
+            with self._import_lock:
+                for part in parts:
+                    if not current(): break
+                    client.last_error = ''
+                    try:
+                        if part == 'runes':
+                            runes = variant or personal_runes
+                            ok = bool(runes) and client.set_runes(name, runes['prim'], runes['sec'], runes['perks'],
+                                        runes.get('shards') if len(runes.get('shards') or []) == 3 else None)
+                        elif part == 'items':
+                            acc = account or client.me() or {}
+                            ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(acc.get('id'), cid, sets, None)
+                        else:
+                            spells = (variant or {}).get('spells') or []
+                            ids = [core.SPELL_ID.get(spell) for spell in spells[:2]]
+                            ok = len(ids) == 2 and None not in ids and client.set_spells(*ids)
+                        error = client.last_error or ('нет подходящих данных' if not ok else '')
+                    except Exception as exc:
+                        ok, error = False, str(exc)
+                    title = {'runes': 'Руны', 'items': 'Предметы', 'spells': 'Заклинания'}[part]
+                    results.append((ok, title + (': готово' if ok else ': не получилось (' + error + ')')))
+                    if not ok: log_error('импорт ' + title, error)
+            def done():
+                if self._import_generation != generation: return
+                self._import_pending = None
+                if not current():
+                    self.set_import_msg('Экспорт остановлен: выбор изменился или драфт завершён'); return
+                success = len(results) == len(parts) and all(ok for ok, _ in results)
+                self.imported = me if success else None
+                message = source + ' · ' + ' · '.join(text for _, text in results)
+                self.set_import_msg(message)
+                if log_path:
+                    try:
+                        with open(log_path, 'a', encoding='utf-8') as output:
+                            output.write(time.strftime('%Y-%m-%d %H:%M:%S ') + me + ' ' + message + '\n')
+                    except OSError: pass
+            try: self.root.after(0, done)
+            except (RuntimeError, tk.TclError): pass
+        threading.Thread(target=job, daemon=True, name='draft-import').start()
 
     # --- клавиши и Tab
     def keys(self):

@@ -219,17 +219,21 @@ def guess_enemy_roles(data, champs):
     return best
 
 
-def draft_suggest(player, role, enemies=(), unavailable=(), top=3):
+def draft_suggest(player, role, enemies=(), unavailable=(), top=3, scope=None):
     """Кого взять: винрейт на роли со сглаживанием + матчап против вероятного оппонента + Изумруд+."""
     data = player.data
     roles = guess_enemy_roles(data, list(enemies))
     opp = next((c for c, r in roles.items() if r == role), None)
     cands = set(player.pool.get(role, [])) | {g['c'] for g in player.on(pos=role)}
+    if scope == 'pool':
+        cands = set(player.pool.get(role, []))
+    elif scope == 'all':
+        cands = {c for c in data.ids.values() if data.lane_n(c, role) > 0}
     out = []
     for c in cands:
         if c in unavailable: continue
         gs = player.on(c, role)
-        if len(gs) < 2 and c not in player.pool.get(role, []): continue
+        if len(gs) < 2 and c not in player.pool.get(role, []) and scope != 'all': continue
         w = sum(g['w'] for g in gs)
         s = smooth(w, len(gs), 20)
         v = player.vs(c, opp) if opp else {'n': 0}
@@ -237,7 +241,7 @@ def draft_suggest(player, role, enemies=(), unavailable=(), top=3):
         lo = data.lola.get(f'{c}|{role}')
         if lo: s += (lo['wr'] - 50) / 400
         if c in player.pool.get(role, []): s += .01
-        why = [f'{plural(len(gs), "игра", "игры", "игр")} на роли, {round(w / len(gs) * 100)}%' if gs else 'в пуле, игр на роли нет']
+        why = [f'{plural(len(gs), "игра", "игры", "игр")} на роли, {round(w / len(gs) * 100)}%' if gs else 'в пуле, игр на роли нет' if c in player.pool.get(role, []) else 'статистика роли, личных игр нет']
         if v['n']: why.append(f'с {data.cn(opp)} {v["w"]}–{v["n"] - v["w"]}')
         if lo: why.append(f'Изумруд+ {lo["wr"]:.1f}%')
         out.append({'c': c, 'name': data.cn(c), 's': s, 'why': ', '.join(why), 'pool': c in player.pool.get(role, [])})
