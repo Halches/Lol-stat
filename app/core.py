@@ -70,11 +70,10 @@ class Data:
         return sum(it['g'] for i in ids for it in [self.items.get(str(i))] if it and not skip & set(it.get('tags') or []))
 
     def who_by_riot(self, riot):
-        r = (riot or '').lower()
-        for w, p in self.d['players'].items():
-            if p['riot'].lower() == r or p['riot'].split('#')[0].lower() == r.split('#')[0]:
-                return w
-        return None
+        r=(riot or '').casefold()
+        if not r:return None
+        matches=[who for who,p in self.d['players'].items() if p.get('riot','').casefold()==r] if '#' in r else [who for who,p in self.d['players'].items() if p.get('riot','').split('#')[0].casefold()==r]
+        return matches[0] if len(matches)==1 else None
 
     def role_of_champ(self, c):
         """Самая частая роль чемпиона по lolalytics (сколько игр на каждой)."""
@@ -315,6 +314,7 @@ class Game:
         gd = raw.get('gameData') or {}
         self.t = float(gd.get('gameTime') or 0)
         self.mode = gd.get('gameMode', '')
+        self.sr = self.mode in ('CLASSIC','') and gd.get('mapNumber',11) == 11
         self.arena = self.mode == 'CHERRY'   # Арена: нет линий, лесников и объектов Ущелья
         ap = raw.get('activePlayer') or {}
         self.my_riot = ap.get('riotId') or ap.get('summonerName') or ''
@@ -329,14 +329,15 @@ class Game:
             self.players.append({
                 'riot': riot, 'c': champ_key(p, data), 'team': p.get('team'), 'pos': p.get('position') or '', 'lvl': p.get('level', 1),
                 'items': its, 'igold': data.items_value(its),
-                'k': sc.get('kills', 0), 'd': sc.get('deaths', 0), 'a': sc.get('assists', 0), 'cs': sc.get('creepScore', 0), 'ward': sc.get('wardScore', 0),
+                'k': sc.get('kills', 0), 'd': sc.get('deaths', 0), 'a': sc.get('assists', 0), 'cs': sc.get('creepScore', 0), 'ward': sc.get('wardScore', 0), 'ward_known': isinstance(sc.get('wardScore'),(int,float)),
                 'dead': p.get('isDead', False), 'respawn': p.get('respawnTimer', 0), 'smite': 'Smite' in spells, 'tp': 'Teleport' in spells,
                 'spells': re.findall(r'(Summoner(?!Spell)[A-Za-z]+?)(?:_|\b)', spells),
                 'keystone': ((p.get('runes') or {}).get('keystone') or {}).get('id'),
                 'sec_tree': ((p.get('runes') or {}).get('secondaryRuneTree') or {}).get('id'),
             })
-        rn = lambda r: (r or '').split('#')[0].lower()
-        self.me = next((p for p in self.players if rn(p['riot']) == rn(self.my_riot)), self.players[0] if self.players else None)
+        identity=self.my_riot.casefold()
+        matches=[p for p in self.players if p['riot'].casefold()==identity] if '#' in identity else [p for p in self.players if p['riot'].split('#')[0].casefold()==identity]
+        self.me=matches[0] if identity and len(matches)==1 else None
         self.my_team = self.me['team'] if self.me else 'ORDER'
         self.allies = [p for p in self.players if p['team'] == self.my_team]
         self.enemies = [p for p in self.players if p['team'] != self.my_team]
@@ -362,19 +363,29 @@ class Game:
         return (self.me['igold'] - self.opp['igold']) if self.me and self.opp else None
 
     def by_name(self, name):
-        n = (name or '').split('#')[0].lower()
-        return next((p for p in self.players if p['riot'].split('#')[0].lower() == n or p['c'].lower() == n), None)
+        n=(name or '').casefold()
+        if not n:return None
+        matches=[p for p in self.players if p['riot'].casefold()==n] if '#' in n else [p for p in self.players if p['riot'].split('#')[0].casefold()==n or p['c'].casefold()==n]
+        return matches[0] if len(matches)==1 else None
 
     def objectives(self):
         """Таймеры: дракон, личинки, Герольд, барон (по событиям убийства)."""
+        if not self.sr:return {}
         o = {}
         drakes = [e for e in self.events if e.get('EventName') == 'DragonKill']
         elder = [e for e in drakes if e.get('DragonType') == 'Elder']
-        soul = len([e for e in drakes if e.get('DragonType') != 'Elder']) >= 4
+        teams={};unknown=0
+        for event in drakes:
+            if event.get('DragonType')=='Elder':continue
+            killer=self.by_name(event.get('KillerName'))
+            if killer and killer.get('team'):teams[killer['team']]=teams.get(killer['team'],0)+1
+            else:unknown+=1
+        soul=bool(elder) or any(n>=4 for n in teams.values())
+        soul_unknown=not soul and unknown>0 and max(teams.values(),default=0)+unknown>=4
         if drakes:
             last = drakes[-1]['EventTime']
-            o['dragon'] = last + (OBJ['elder_respawn'] if soul else OBJ['dragon_respawn'])
-            o['dragon_name'] = 'Древний дракон' if soul else 'Дракон'
+            o['dragon'] = None if soul_unknown else last + (OBJ['elder_respawn'] if soul else OBJ['dragon_respawn'])
+            o['dragon_name'] = 'Дракон: тип не подтверждён' if soul_unknown else 'Древний дракон' if soul else 'Дракон'
         else:
             o['dragon'], o['dragon_name'] = OBJ['dragon_first'], 'Дракон'
         barons = [e for e in self.events if e.get('EventName') == 'BaronKill']
@@ -384,12 +395,13 @@ class Game:
         return o
 
     def next_cannon(self):
-        """Когда появится следующая волна с осадным миньоном (волны каждые 30 с с 0:30)."""
+        """Ранние осадные волны; после 14:00 точная фаза изменённого расписания не подтверждена."""
+        if not self.sr or self.t>=840:return None
         n = max(1, math.ceil((self.t - 30) / 30) + 1)
         for k in range(n, n + 12):
             ts = 30 + 30 * (k - 1)
             every = 3 if ts < 900 else 2 if ts < 1500 else 1
-            if k % every == 0 and ts >= self.t: return ts
+            if k % every == 0 and self.t <= ts < 840: return ts
         return None
 
 
@@ -400,7 +412,7 @@ LANE_TO = {'TOP': 'топ', 'MIDDLE': 'мид', 'BOTTOM': 'бот'}
 def gank_windows(game, plan=None):
     """Три окна ганка: 3 лагеря, полная зачистка, поправка под вражеского лесника (по его прошлым играм, если они есть)."""
     j = game.ejg['c'] if game.ejg else None
-    w = [('gank1', 170, 200, 'лесник взял 3 лагеря'), ('gank2', 200, 240, 'полная зачистка и краб')]
+    w = [('gank1', 170, 200, 'условный ориентир раннего выхода, число лагерей неизвестно'), ('gank2', 200, 240, 'возможный выход после зачистки, маршрут не подтверждён')]
     if plan and plan.get('lane') and plan.get('t'):
         t, mine = plan['t'], plan['lane'] == SIDE.get(game.role)
         who = f"{game.data.cn(j)} в {plan['k']} из {plan['n']} последних игр первым ганкал {LANE_TO[plan['lane']]}"
@@ -419,29 +431,29 @@ HINTS = [
     ('trinket', 'Загрузка', 'Купи тотем, если слот пуст', 'voice', 60),
     ('early_ward', 'Загрузка', 'Первый вард: когда и куда (своё для роли)', 'text', 0),
     ('crab', 'Лес', 'Лесник: крабы в 2:55 и на какой стороне сильнее линии', 'voice', 0),
-    ('gank1', 'Линия', 'Ганк 1: лесник взял 3 лагеря', 'voice', 0),
-    ('gank2', 'Линия', 'Ганк 2: полная зачистка', 'voice', 0),
+    ('gank1', 'Линия', 'Ганк 1: ориентир раннего выхода', 'voice', 0),
+    ('gank2', 'Линия', 'Ганк 2: ориентир после зачистки', 'voice', 0),
     ('gank3', 'Линия', 'Ганк 3: под вражеского лесника', 'voice', 0),
     ('jg_path', 'Линия', 'Куда лесник врагов ганкал в прошлых играх', 'text', 0),
-    ('jg_seen', 'Линия', 'Лесник врагов на другой стороне: можно давить', 'voice', 45),
+    ('jg_seen', 'Линия', 'Недавняя активность лесника: проверь миникарту', 'voice', 45),
     ('cs_norm', 'Линия', 'CS отстаёт от твоей нормы (5, 10, 15 мин)', 'text', 0),
     ('lane_gold', 'Линия', 'Разница в предметах с оппонентом', 'text', 90),
     ('levels', 'Линия', 'Уровни 2, 3 и 6: пик силы', 'voice', 0),
-    ('skills', 'Линия', 'Какое умение качать на 1–3 уровне и когда ульту (по Европе)', 'voice', 0),
+    ('skills', 'Линия', 'Умения: порядок выбранной сборки', 'voice', 0),
     ('bench', 'Линия', 'Контрольные точки 10 и 15 мин: CS и золото против нормы', 'text', 0),
     ('early_deaths', 'Линия', '2 смерти до 14 минуты: играй от варда', 'voice', 0),
     ('base', 'Линия', '1300+ золота: можно на базу', 'beep', 60),
     ('hoard', 'Линия', '2000+ золота не потрачено', 'voice', 120),
     ('tp', 'Линия', 'Телепорт к дракону', 'text', 0),
-    ('cannon', 'Линия', 'Волна с осадным миньоном', 'off', 0),
+    ('cannon', 'Линия', 'Осадная волна на базе (до 14:00)', 'off', 0),
     ('control', 'Обзор и предметы', 'Нет контрольного тотема после возвращения', 'voice', 0),
-    ('lens', 'Обзор и предметы', 'Поддержка: поменяй тотем на линзу', 'text', 0),
+    ('lens', 'Обзор и предметы', 'Поддержка: проверь линзу после получения вардов', 'text', 0),
     ('vision', 'Обзор и предметы', 'Обзор ниже цели (10 и 20 мин)', 'text', 0),
     ('enemy_dmg', 'Обзор и предметы', 'Тип урона врагов и антихил', 'text', 0),
     ('enemy_item', 'Обзор и предметы', 'Оппонент закончил предмет', 'voice', 0),
     ('next_item', 'Обзор и предметы', 'Следующий предмет по твоему лучшему билду', 'text', 0),
     ('objectives', 'Объекты', 'Дракон, личинки, Герольд, барон: за 60 и 30 с', 'voice', 0),
-    ('fight_won', 'Объекты', 'Выиграли драку: берите объект', 'voice', 30),
+    ('fight_won', 'Объекты', 'Перевес недавних убийств: оцени объект', 'voice', 30),
     ('team_gold', 'Объекты', 'Перевес команды 3000+: играйте вместе', 'text', 240),
     ('side_lane', 'Объекты', 'Впереди после 15 мин: сначала вард, потом сплит', 'text', 240),
     ('baron_jungle', 'Объекты', 'Барон через 30 с: не заходи в лес один', 'voice', 0),
@@ -453,36 +465,36 @@ HINT_IDS = [h[0] for h in HINTS]
 SKILL_SAY = {'Q': 'ку', 'W': 'дабл-ю', 'E': 'и', 'R': 'ульту'}
 # Когда срабатывает и зачем — для вкладки «Подсказки».
 HINT_DESC = {
-    'scout': 'На 0:03. Твой счёт против этого оппонента по истории игр и золото на 15 минуте. Помечает неудобных врагов.',
+    'scout': 'В начале игры: история именно этого чемпиона, роли и оппонента. Показатель золота на 15 минуте относится к сохранённым матчам.',
     'jungler': 'На 0:03. Кто лесник врагов и в каком темпе он обычно играет: ранний ганкер, фармер или обычный.',
     'trinket': 'С 0:30 до 2:00, если слот тотема пуст. Чтобы не выйти на линию без варда.',
     'early_ward': 'С 0:20 до 0:40, пока идёшь на линию. Куда и когда ставить первый вард, своё для каждой роли.',
-    'crab': 'За 25 с до появления крабов (2:55). Какой краб брать: там, где твои линии сильнее по уровню и фарму.',
-    'gank1': 'За 20 с до окна 2:50–3:20: в это время приходит лесник, взявший 3 лагеря.',
-    'gank2': 'За 20 с до окна 3:20–4:00: лесник после полной зачистки и краба.',
+    'crab': 'За 25 с до настроенного появления крабов. Сравниваются уровень и CS соседних линий; это не подтверждение приоритета или готовности помочь.',
+    'gank1': 'Ориентир 2:50–3:20, предупреждение за 20 с. Это эвристика, не подтверждение маршрута или числа лагерей; ганк возможен раньше.',
+    'gank2': 'Ориентир 3:20–4:00, предупреждение за 20 с. Полная зачистка и положение лесника не подтверждаются.',
     'gank3': 'Окно под конкретного лесника врагов: по его 2–3 последним играм в лесу (где и когда был первый ганк), '
              'а без них по чемпиону: у ранних ганкеров раньше (2:30–3:05), у фармеров позже (3:45–4:40).',
     'jg_path': 'В первые минуты: где лесник врагов был к 3:00 и куда шёл первый ганк в его последних играх (таймлайны из клиента).',
-    'jg_seen': 'С 1:30 до 15:00, когда лесник врагов участвует в убийстве на другой стороне карты: в это время можно давить.',
+    'jg_seen': 'С 1:30 до 15:00: лесник участвовал в недавнем убийстве. Роль жертвы не доказывает место события и не означает, что можно безопасно давить.',
     'cs_norm': 'На 5, 10 и 15 минуте, если фарм ниже 85% твоей обычной нормы на этом чемпионе.',
     'lane_gold': 'После 3:00, когда разница в предметах с оппонентом 900+ золота. Подсказывает, давить или отходить.',
     'levels': 'Когда ты или оппонент первым берёт 2-й или 3-й уровень: момент для размена или отхода.',
-    'skills': 'На 1, 2 и 3 уровне и при каждом очке ульты: какое умение качать. Порядок — самый выигрышный по Европе (Изумруд+, lolalytics).',
-    'bench': 'На 10:00 и 15:00: твой CS против твоей обычной нормы на чемпионе и темпа Изумруда+, на 15 ещё золото против оппонента.',
+    'skills': 'Порядок выбранного варианта сборки для текущего уровня. Если API подтверждает, что очки уже потрачены, напоминания нет. При позднем подключении старые уровни не перечисляются.',
+    'bench': 'На 10:00 и 15:00: CS и доступная норма именно чемпиона и роли; на 15 — разница стоимости предметов. Историческое заработанное золото с ней не смешивается.',
     'early_deaths': 'Если до 14:00 ты умер дважды. Совет играть осторожнее, от варда.',
     'base': 'После 2:00, когда у тебя 1300+ золота: можно возвращаться на базу при удобной волне.',
     'hoard': 'После 5:00, если 2000+ золота не потрачено.',
-    'tp': 'Только топ: за минуту до дракона, если телепорт готов.',
-    'cannon': 'За пару секунд до волны с осадным миньоном. Его легко потерять, если не следить.',
-    'control': 'После возвращения на базу, если ты не купил контрольный тотем.',
-    'lens': 'Только саппорт: на 9 уровне, если ещё стоит Скрытый тотем.',
+    'tp': 'Топ: за минуту до дракона проверь доступность телепорта. Live API не подтверждает перезарядку и завершение квеста роли.',
+    'cannon': 'До 14:00: напоминание о появлении осадной волны на базе, а не её приходе на линию. После изменения частоты волн поздняя фаза пока не подтверждена.',
+    'control': 'После покупки при достаточном золоте и месте. Для выполненного квеста саппорта учтены цена 40 и слот роли; его запас не выдумывается. Покупка не доказывает нахождения на базе.',
+    'lens': 'Когда предмет поддержки уже даёт варды, а выбран жёлтый тотем: проверь линзу. Уровень 9 не требуется; наличие зарядов не подтверждается.',
     'vision': 'На 10 и 20 минуте, если обзор в минуту ниже твоей цели.',
-    'enemy_dmg': 'После 10:00, один раз. Какой урон у врагов по их предметам и нужен ли антихил.',
+    'enemy_dmg': 'После 10:00: оценка тегов AD/AP/вампиризма в предметах. Не измеряет фактический урон или лечение; антихил не объявляется обязательным.',
     'enemy_item': 'Когда оппонент по линии собирает законченный предмет: это его пик силы.',
     'next_item': 'После покупки на базе. Следующий предмет по твоим лучшим играм на этом чемпионе.',
     'objectives': 'За 60 и 30 с до дракона, личинок, Герольда и барона.',
-    'fight_won': 'Когда за 15 с враги потеряли хотя бы на 2 чемпиона больше: время брать объект.',
-    'team_gold': 'После 15:00, когда команда впереди на 3000+ золота. Совет играть вместе.',
+    'fight_won': 'Когда за последние 15 с есть перевес хотя бы в 2 убийства. Это не подтверждение победы в общей драке или доступности объекта.',
+    'team_gold': 'После 15:00 при перевесе стоимости предметов команды на 3000+. Это не разница всего заработанного или наличного золота.',
     'side_lane': 'С 15 до 25 минуты, когда ты впереди по линии: напоминание ставить вард перед сплитом.',
     'baron_jungle': 'За 30 с до барона: не заходить в лес одному.',
     'inhib': 'За минуту до восстановления уничтоженного ингибитора.',
@@ -526,7 +538,7 @@ class Engine:
         self.spent_at = None     # когда последний раз тратили золото (возвращение на базу)
         self.skills, self.skill_prio = '', ''   # порядок умений по Европе ('QWEQQRQ…'), задаёт программа при старте игры
         self.situ = []           # ситуативные предметы из сборки по Европе: [(id, коротко, когда)]
-        self.bench = None        # темп Изумруда+ на чемпионе: {'cs': CS за игру, 'min': минут}
+        self.bench = None        # подтверждённый темп источника: {'csm': CS в минуту}
         self.jg_plan = None      # как лесник врагов начинал последние игры (jungle_plan); {} если данных нет
 
     def _once(self, key):
@@ -535,39 +547,46 @@ class Engine:
 
     def _cool(self, hid, now):
         if now - self.last.get(hid, -1e9) < self.cool.get(hid, 0): return False
+        if not self.enabled.get(hid,True):return False
         self.last[hid] = now; return True
+
+    def _due(self,at,g,grace=15):
+        previous=self.prev.t if self.prev else None
+        return 0<=g.t-at<=grace and (previous is None or previous<at)
 
     def tick(self, g):
         out = []
-        if not g.me: return out
+        if not g.me or not g.sr: return out
         add = lambda hid, text, say=None: out.append(Hint(hid, text, say)) if self.enabled.get(hid, True) and hint_for(hid, g.role) else None
         t, me, opp, d = g.t, g.me, g.opp, self.data
         p = self.prev
-        norm = self.player.norm(me['c'], g.role) if self.player else {}
+        norm = self.player.norm(me['c'], g.role) if self.player and len(self.player.on(me['c'],g.role))>=3 else {}
         laner = g.role not in ('JUNGLE', '')
 
         # --- загрузка и первые минуты
-        if t > 3 and self._once('jungler') and g.ejg:
+        if t > 3 and g.ejg and self._once('jungler'):
             j = g.ejg['c']
-            kind = 'ранний ганкер, жди его уже к трём минутам' if j in JG_EARLY else 'фармер, первые минуты спокойнее' if j in JG_FARM else 'обычный темп'
+            kind = 'может ганкнуть рано; оценка по чемпиону' if j in JG_EARLY else 'часто выбирает фарм, но ранний ганк возможен' if j in JG_FARM else 'обычный темп'
             add('jungler', f'Лесник врагов: {d.cn(j)} — {kind}', f'Лесник врагов {d.cn(j)}, {kind}')
         if t > 3 and opp and self._once('scout'):
-            v = self.player.vs(None, opp['c']) if self.player else {'n': 0}
+            history=[x for x in self.player.on(me['c'],g.role) if x.get('opp')==opp['c'] and x.get('w') in (0,1) and x.get('w') is not None] if self.player else []
+            golds=[x['g15'] for x in history if type(x.get('g15')) in (int,float) and math.isfinite(x['g15'])]
+            v={'n':len(history),'w':sum(x['w'] for x in history),'g15':sum(golds)/len(golds) if golds else None}
             txt = f'Оппонент {d.cn(opp["c"])}: ' + (f'{v["w"]}–{v["n"] - v["w"]} на линии' + (f', золото на 15 в среднем {v["g15"]:+.0f}' if v['g15'] is not None else '') if v['n'] else 'вы ещё не встречались')
-            if self.player and any(c == opp['c'] for c, _, _ in self.player.bad_enemies()): txt += '. Это твой неудобный враг: играй от фарма и варда'
+            if v['n']>=5 and v['w']/v['n']<.4:txt += '. В этой выборке побед меньше 40%'
             add('scout', txt)
-        if 30 < t < 120 and not any(i in (3340, 3363, 3364) for i in me['items']) and self._cool('trinket', t):
+        if 30 < t < 120 and not any(i in (3330, 3340, 3363, 3364) for i in me['items']) and self._cool('trinket', t):
             add('trinket', 'Слот тотема пуст: купи Скрытый тотем', 'Купи тотем')
         if 20 < t < 40 and self._once('early_ward'):   # пока идёшь на линию, до первой встречи у реки
             if g.role == 'JUNGLE':
                 add('early_ward', 'Тотем: поставь у входа в свой лес со стороны второго бафа, чтобы увидеть вторжение', 'Вард у входа в свой лес')
             elif g.role == 'UTILITY':
-                add('early_ward', 'Поставь вард в куст реки у бота до 1:30, оттуда приходит лесник на первом ганке', 'Вард в речной куст')
+                add('early_ward', 'Проверь входы к боту: ставь вард безопасно, ориентируясь на миникарту', 'Вард в речной куст')
             else:
-                add('early_ward', 'Первый вард держи до 2:30 и ставь в реку: тогда увидишь первый ганк', 'Первый вард держи до ганка')
+                add('early_ward', 'Первый вард ставь с учётом положения волны и миникарты; ранний ганк возможен до условного окна', 'Первый вард держи до ганка')
 
-        # --- крабы (только для лесника): появляются в 3:30, сторону подсказываем по силе своих линий
-        if g.role == 'JUNGLE' and OBJ['crab'] - 25 <= t < OBJ['crab'] - 20 and self._once('crab'):
+        # --- крабы: настроенный таймер; уровни/CS не доказывают приоритет линий
+        if g.role == 'JUNGLE' and self._due(OBJ['crab']-25,g) and self._once('crab'):
             def side(roles):
                 sc = 0
                 for r in roles:
@@ -576,30 +595,30 @@ class Engine:
                 return sc
             top, bot = side(['TOP', 'MIDDLE']), side(['BOTTOM', 'UTILITY', 'MIDDLE'])
             where = 'верхнего' if top > bot + 5 else 'нижнего' if bot > top + 5 else None
-            if where: add('crab', f'Крабы в {mmss(OBJ["crab"])}: иди на {where} краба — там твои линии сильнее и помогут', f'Крабы через двадцать секунд, иди на {where}')
-            else: add('crab', f'Крабы в {mmss(OBJ["crab"])}: линии равны, бери ближайшего краба и поставь вард в реку', 'Крабы через двадцать секунд')
+            if where: add('crab', f'Крабы в {mmss(OBJ["crab"])}: у {where} краба выше показатели союзных линий по уровню и CS. Проверь волны, здоровье и возможность помочь', f'Крабы скоро, оцени {where} реку и приоритет линий')
+            else: add('crab', f'Крабы в {mmss(OBJ["crab"])}: по уровню и CS явного перевеса нет. Проверь приоритет линий перед выходом', 'Крабы скоро, проверь приоритет линий')
 
         # --- ганки (только для линии)
         if laner and t < 300:
             if self.jg_plan and self.jg_plan.get('text') and t < 200 and self._once('jg_path'):
                 add('jg_path', f'Лесник врагов в прошлых играх: {self.jg_plan["text"]}', 'Лесник врагов: ' + self.jg_plan['say'])
             for hid, a, b, why in gank_windows(g, self.jg_plan):
-                if a - 20 <= t < a and self._once(hid):
-                    add(hid, f'Окно ганка {mmss(a)}–{mmss(b)}: {why}. Вард в реку', 'Окно ганка, вард в реку')
+                if self._due(a-20,g) and t<a and self._once(hid):
+                    add(hid, f'Ориентир ганка {mmss(a)}–{mmss(b)}: {why}. Это оценка, проверь миникарту и обзор', 'Возможен ганк, проверь миникарту и обзор')
         if laner and g.ejg and 90 < t < 900:
             for e in g.events[-5:]:
                 if e.get('EventName') != 'ChampionKill' or e.get('EventTime', 0) < t - 5: continue
                 names = [e.get('KillerName')] + list(e.get('Assisters') or [])
                 if not any(g.by_name(n) is g.ejg for n in names if n): continue
                 victim = g.by_name(e.get('VictimName'))
-                far = {'TOP': ('BOTTOM', 'UTILITY'), 'BOTTOM': ('TOP',), 'UTILITY': ('TOP',), 'MIDDLE': ()}
-                if victim and victim['pos'] in far.get(g.role, ()) and self._cool('jg_seen', t):
-                    add('jg_seen', f'{d.cn(g.ejg["c"])} показался на другой стороне карты: можно давить', 'Лесник на другой стороне, дави')
+                if victim and t-5 <= e.get('EventTime',-1) <= t and self._cool('jg_seen',t):
+                    add('jg_seen',f'{d.cn(g.ejg["c"])} недавно участвовал в убийстве {d.cn(victim["c"])}. Проверь миникарту: место события не подтверждено','Лесник участвовал в убийстве, проверь миникарту')
+
 
         # --- CS и золото
         if g.role != 'UTILITY':
             for m in ((5,) if self.enabled.get('bench', True) else (5, 10, 15)):   # 10 и 15 покрывает «Контрольная точка»
-                if m * 60 <= t < m * 60 + 5 and norm.get('csm') and self._once(f'cs{m}'):
+                if self._due(m*60,g) and norm.get('csm') and self._once(f'cs{m}'):
                     want = norm['cs10'] * m / 10 if m <= 10 and norm.get('cs10') else norm['csm'] * m
                     if me['cs'] < want * .85:
                         add('cs_norm', f'{m} мин: {me["cs"]} CS, твоя норма на {d.cn(me["c"])} ~{want:.0f}', f'Отстаёшь по фарму на {want - me["cs"]:.0f} миньонов')
@@ -615,25 +634,28 @@ class Engine:
                 if opp['lvl'] >= lv > p.opp['lvl'] and me['lvl'] < lv and self._once(f'olv{lv}'):
                     add('levels' if lv < 6 else 'powerspike', f'У {d.cn(opp["c"])} {lv}-й уровень раньше тебя: отойди', f'У оппонента {lv} уровень, отойди')
         if self.skills:
-            was = p.me['lvl'] if p and p.me else 0
-            for lv in range(was + 1, min(me['lvl'], len(self.skills)) + 1):
+            was=p.me['lvl'] if p and p.me else me['lvl']-1
+            abilities=(g.raw.get('activePlayer') or {}).get('abilities') or {}
+            levels=[(abilities.get(k) or {}).get('abilityLevel') for k in 'QWER']
+            spent=all(type(v) is int and v>=0 for v in levels) and sum(levels)>=me['lvl']
+            if spent:was=me['lvl']
+            for lv in range(max(was+1,me['lvl']),min(me['lvl'],len(self.skills))+1):
                 k = self.skills[lv - 1]
                 if (lv <= 3 or k == 'R') and self._once(f'sk{lv}'):
                     prio = f". Дальше максим {' → '.join(self.skill_prio)}" if lv == 3 and self.skill_prio else ''
-                    add('skills', f'Уровень {lv}: качай {k}{prio}', 'Качай ульту' if k == 'R' else f'Качай {SKILL_SAY[k]}')
+                    add('skills', f'Порядок сборки на {lv}-м уровне: {k}{prio}. Проверь свободное очко умения', 'Проверь очко умения и порядок сборки')
         for m in (10, 15):
-            if m * 60 <= t < m * 60 + 5 and g.role != 'UTILITY' and self._once(f'bench{m}'):
+            if self._due(m*60,g) and g.role != 'UTILITY' and self._once(f'bench{m}'):
                 parts = [f'{m}:00 — {me["cs"]} CS']
                 want = (norm.get('cs10') * m / 10 if m == 10 and norm.get('cs10') else (norm.get('csm') or 0) * m)
                 if want: parts.append(f'твоя норма {want:.0f}')
-                if self.bench and self.bench.get('cs'): parts.append(f'Изумруд+ ~{self.bench["cs"] / self.bench.get("min", 28) * m:.0f}')
+                if self.bench and type(self.bench.get('csm')) in (int,float) and math.isfinite(self.bench['csm']) and self.bench['csm']>=0:parts.append(f'Изумруд+ ~{self.bench["csm"]*m:.0f}')
                 if m == 15 and opp:
                     ld = g.lane_diff()
-                    v = self.player.vs(me['c'], opp['c']) if self.player else {}
-                    if ld is not None: parts.append(f'предметы против оппонента {ld:+.0f}' + (f' (обычно {v["g15"]:+.0f})' if v.get('g15') is not None else ''))
+                    if ld is not None: parts.append(f'предметы против оппонента {ld:+.0f}')
                 behind = want and me['cs'] < want * .9
                 add('bench', ', '.join(parts) + ('. Отстаёшь: забирай волны перед уходом' if behind else ''), '')
-        early = [e for e in g.events if e.get('EventName') == 'ChampionKill' and e.get('EventTime', 0) < 840 and (g.by_name(e.get('VictimName')) is me)]
+        early = [e for e in g.events if e.get('EventName') == 'ChampionKill' and 0<=e.get('EventTime',0)<=min(t,839.999) and (g.by_name(e.get('VictimName')) is me)]
         if len(early) >= 2 and t < 840 and self._once('early2'):
             add('early_deaths', 'Уже 2 смерти до 14 минуты: играй от варда и не дерись без лесника', 'Две ранние смерти, играй от варда')
 
@@ -641,16 +663,21 @@ class Engine:
         if p and g.gold < p.gold - 250: self.spent_at = t
         if 120 < t and g.gold >= 1300 and not me['dead'] and self._cool('base', t):
             add('base', f'{g.gold:.0f} золота: при удобной волне можно на базу', '')
-        if g.gold >= 2000 and t > 300 and self._cool('hoard', t):
+        if g.gold >= 2000 and t > 300 and not me['dead'] and self._cool('hoard', t):
             add('hoard', f'{g.gold:.0f} золота не потрачено', 'Больше двух тысяч золота, на базу')
 
         # --- обзор и предметы
-        if p and self.spent_at == t and t > 300 and 2055 not in me['items'] and self._cool('control', t):
-            add('control', 'Нет контрольного тотема: купи на базе', 'Купи контрольный тотем')
-        if g.role == 'UTILITY' and me['lvl'] >= 9 and 3340 in me['items'] and self._once('lens'):
-            add('lens', 'Девятый уровень: поменяй Скрытый тотем на Лупу оракула', 'Поменяй тотем на линзу')
+        ward_items={3866,3867,3869,3870,3871,3876,3877}
+        support_complete=g.role=='UTILITY' and any(i in ward_items-{3866} for i in me['items'])
+        control_cost=40 if support_complete else (d.items.get('2055') or {}).get('g',75)
+        room=support_complete or len([i for i in me['items'] if i not in (3330,3340,3363,3364)])<6
+        if p and self.spent_at==t and t>300 and g.gold>=control_cost and room and 2055 not in me['items'] and self._cool('control',t):
+            text='Квест поддержки выполнен: проверь запас контрольных тотемов в слоте роли; его содержимое не подтверждено' if support_complete else 'После покупки нет контрольного тотема. При возвращении на базу оцени, нужен ли вард'
+            add('control',text,'Проверь запас контрольных тотемов')
+        if g.role=='UTILITY' and any(i in ward_items for i in me['items']) and 3340 in me['items'] and self._once('lens'):
+            add('lens','Предмет поддержки уже даёт варды: при возвращении на базу оцени замену жёлтого тотема на линзу','Предмет поддержки даёт варды, проверь выбор линзы')
         for m in (10, 20):
-            if m * 60 <= t < m * 60 + 5 and self._once(f'vis{m}'):
+            if self._due(m*60,g) and me.get('ward_known',False) and self._once(f'vis{m}'):
                 vsm = me['ward'] / (t / 60)
                 if vsm < self.goals.get('vsm', .8) * .9:
                     add('vision', f'Обзор {vsm:.2f}/мин при цели {self.goals.get("vsm", .8)}: поставь вард и контрольный тотем')
@@ -660,12 +687,14 @@ class Engine:
             heal = tags.count('LifeSteal') + tags.count('SpellVamp')
             msg = []
             if ad + ap >= 6:
-                if ad >= 2 * ap: msg.append(f'у врагов в основном физический урон — бери броню')
-                elif ap >= 2 * ad: msg.append(f'у врагов в основном магический урон — бери сопротивление магии')
-            if heal >= 3: msg.append('много вампиризма — нужен антихил')
+                if ad >= 2 * ap: msg.append(f'в предметах врагов больше признаков AD; это не фактический состав нанесённого урона')
+                elif ap >= 2 * ad: msg.append(f'в предметах врагов больше признаков AP; это не фактический состав нанесённого урона')
+            if heal >= 3: msg.append('есть предметы с вампиризмом; оцени антихил с учётом реального лечения')
             if msg:
-                want = (['против лечения'] if heal >= 3 else []) + (['против AD', 'против бурста', 'против критов', 'против автоатак'] if ad >= 2 * ap else
-                                                                    ['против магов', 'против магов и контроля'] if ap >= 2 * ad else [])
+                want=['против лечения'] if heal>=3 else []
+                if ad+ap>=6:
+                    if ad>=2*ap:want+=['против AD','против бурста','против критов','против автоатак']
+                    elif ap>=2*ad:want+=['против магов','против магов и контроля']
                 have = set(me['items'])
                 pick = [x for x in self.situ if x[1] in want and x[0] not in have]
                 tip = ('. Из твоей сборки: ' + ', '.join(f'{d.iname(i)} ({short})' for i, short, _ in pick[:2])) if pick else ''
@@ -680,7 +709,7 @@ class Engine:
                     add('powerspike', f'Собран {d.iname(i)}: твой пик силы, ищи драку или давление', f'Собран {d.iname(i)}, пик силы')
             for lv in (11, 16):
                 if me['lvl'] >= lv > p.me['lvl'] and self._once(f'ult{lv}'):
-                    add('powerspike', f'{lv}-й уровень: ульта сильнее', '')
+                    add('powerspike', f'{lv}-й уровень: проверь доступные очки и порядок прокачки', '')
         if p and self.spent_at == t and self.player and self._cool('next_item', t):
             have = set(me['items'])
             nxt = next((i for i in self.player.best_build(me['c']) if i not in have), None)
@@ -692,29 +721,29 @@ class Engine:
             at = ob.get(key)
             if not at: continue
             for lead in (60, 30):
-                if at - lead <= t < at - lead + 2 and self._once(f'{key}{at}-{lead}'):
-                    add('objectives', f'{label} через {lead} с ({mmss(at)})', f'{label} через {"минуту" if lead == 60 else "тридцать секунд"}')
-                    if key == 'dragon' and lead == 60 and me['tp'] and g.role == 'TOP': add('tp', 'Дракон через минуту: будь готов к телепорту на бот')
-            if key == 'baron' and at - 30 <= t < at - 28 and self._once(f'bj{at}'):
-                add('baron_jungle', 'Барон через 30 секунд: не заходи в лес один без обзора', 'Не заходи в лес один')
-        kills = [e for e in g.events if e.get('EventName') == 'ChampionKill' and e.get('EventTime', 0) > t - 15]
+                if self._due(at-lead,g) and t<at and self._once(f'{key}{at}-{lead}'):
+                    add('objectives', f'{label} через {max(1,round(at-t))} с ({mmss(at)})', f'{label} через {max(1,round(at-t))} секунд')
+                    if key == 'dragon' and lead == 60 and g.role == 'TOP': add('tp', 'Скоро дракон: проверь доступность телепорта и безопасную цель. Перезарядка не известна')
+            if key == 'baron' and self._due(at-30,g) and t<at and self._once(f'bj{at}'):
+                add('baron_jungle', 'Барон скоро: не заходи в лес один без обзора', 'Барон скоро, не заходи в лес один')
+        kills = [e for e in g.events if e.get('EventName') == 'ChampionKill' and t-15<e.get('EventTime',0)<=t]
         ek = sum(1 for e in kills if g.by_name(e.get('VictimName')) in g.enemies)
         ak = sum(1 for e in kills if g.by_name(e.get('VictimName')) in g.allies)
         if ek >= 2 and ak <= ek - 2 and self._cool('fight_won', t):
-            add('fight_won', f'Выиграли драку {ek}:{ak}: берите дракона, барона или башню', 'Драка выиграна, берите объект')
+            add('fight_won', f'Убийства за последние 15 с: {ek}:{ak}. Оцени возможность взять объект', 'Есть перевес по недавним убийствам, проверь объекты')
         gd = g.gold_diff()
         if t > 900 and gd >= 3000 and self._cool('team_gold', t):
-            add('team_gold', f'Команда впереди на {gd:.0f} золота: играйте вместе на объекты, не сплитуйся без вардов')
+            add('team_gold', f'Команда впереди по стоимости предметов на {gd:.0f}: играйте вместе на объекты, не сплитуйся без вардов')
         if 900 < t < 1500 and ld is not None and ld > 0 and self._cool('side_lane', t):
-            add('side_lane', 'Ты впереди, но в твоих играх с 15 по 25 минуту ты чаще всего умираешь на боковой линии: сначала вард')
+            add('side_lane', 'На боковой линии сначала проверь миникарту и подготовь обзор. Перевес в предметах не гарантирует безопасный сплит')
         for e in g.events:
             if e.get('EventName') == 'InhibKilled':
                 back = e['EventTime'] + OBJ['inhib_respawn']
-                if back - 60 <= t < back - 58 and self._once(f'inh{e.get("EventID")}'):
-                    add('inhib', 'Ингибитор восстановится через минуту: успейте дожать линию')
+                if self._due(back-60,g) and t<back and self._once(f'inh{e.get("EventID")}'):
+                    add('inhib', f'Ингибитор восстановится через {max(1,round(back-t))} с: оцени возможность давления')
         nc = g.next_cannon()
-        if nc and nc - 3 <= t < nc - 1 and self._once(f'cn{nc}'):
-            add('cannon', 'Волна с осадным миньоном', 'Осадный миньон')
+        if nc and self._due(nc-3,g,grace=2) and t<nc and self._once(f'cn{nc}'):
+            add('cannon', 'Осадная волна скоро появится на базе; это не время прихода на линию', 'Осадная волна скоро появится на базе')
 
         self.prev = g
         for h in out: self.fired.append((t, h))

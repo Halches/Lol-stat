@@ -1,0 +1,81 @@
+name: Проверочный EXE без релиза
+
+on:
+  push:
+    branches: [design/draft-native]
+    paths: [app/**, .github/workflows/app-review.yml, tools/refresh_catalog_gameplay.py]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-review-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Зависимости и проверки Windows
+        run: |
+          python -m pip install pyinstaller==6.11.1 pillow edge-tts==7.3.1 pywebview==5.3.2 opencv-python-headless==4.11.0.86 numpy==2.2.6
+          python app/test_core.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s app -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Игровые ресурсы проверяемого патча
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/dd
+          V=16.21.1
+          echo "$V" > tools/dd/ver
+          for f in champion item summoner runesReforged; do curl --fail --retry 2 -sS -o "tools/dd/$f.json" "https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/$f.json"; done
+          mv tools/dd/runesReforged.json tools/dd/runes.json
+          python app/make_assets.py
+
+      - name: Локальный голос Piper
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          Expand-Archive piper.zip -DestinationPath .
+          New-Item -ItemType Directory voices | Out-Null
+          $url = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx'
+          Invoke-WebRequest $url -OutFile voices/ru_RU-dmitri-medium.onnx
+          Invoke-WebRequest "$url.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
+
+      - name: Сборка отдельного проверочного EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --onefile --noconsole --name LoLHelper-Review --paths app --hidden-import PIL._tkinter_finder `
+            --collect-all edge_tts --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data certifi --hidden-import clr --hidden-import sitewin `
+            --add-data "app/data.json;." --add-data "app/champion_catalog.json;." --add-data "app/assets.json;." --add-data "app/fonts;fonts" --add-data "app/ui_assets;ui_assets" --add-data "app/icon.png;." --icon app/icon.ico `
+            --add-data "piper;piper" --add-data "voices;voices" app/dev/windows_review.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Запуск упакованного интерфейса без игры
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/LoLHelper-Review.exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Проверочный EXE не завершился за 60 секунд' }
+          if ($p.ExitCode -ne 0) { throw "Проверочный EXE завершился с кодом $($p.ExitCode)" }
+          Copy-Item "$env:APPDATA/LoLHelper/development-review/review-report.txt" dist/review-report.txt
+          Copy-Item app/dev/WINDOWS_REVIEW.md dist/WINDOWS_REVIEW.md
+          Set-Content dist/source-commit.txt '${{ github.sha }}'
+
+      - name: Сохранить проверочный комплект
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoLHelper-Review-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

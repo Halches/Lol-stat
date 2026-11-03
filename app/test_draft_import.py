@@ -118,5 +118,28 @@ class DraftImportTests(unittest.TestCase):
         self.assertEqual([call[0] for call in app.calls], ['runes'])
         self.assertIsNone(app.imported)
 
+    def test_external_build_exports_exact_runes_and_items(self):
+        for context in ('offmeta','player:42'):
+            with self.subTest(context=context):
+                app,callbacks,_,_=self.app()
+                app.s.update(draft_build_context=context,rune_pick='pick')
+                variant=dict(app.lola_build('Ahri','MIDDLE')['pick'],perks=[8369],core=[3089])
+                row={'id':'42','champion':'Ahri','role':'MIDDLE','variant':variant,'patch':'16.21','source':'Mobalytics'}
+                app.offmeta_build=lambda c,r:row
+                app.player_builds=lambda c,r:{'champion':'Ahri','role':'MIDDLE','groups':{'OTP':[row]}}
+                app.do_import(('runes','items'));callbacks.get(timeout=2)()
+                self.assertEqual(app.calls[0][1][3],[8369])
+                self.assertEqual(app.calls[1][1][2][0][1][1][1],[3089])
+                self.assertIn('Mobalytics',app.calls[1][1][2][0][0])
+
+    def test_external_player_change_cancels_remaining_export(self):
+        app,callbacks,entered,release=self.app(blocked=True)
+        app.s.update(draft_build_context='offmeta',rune_pick='pick')
+        row={'champion':'Ahri','role':'MIDDLE','variant':app.lola_build('Ahri','MIDDLE')['pick']}
+        app.offmeta_build=lambda c,r:row
+        app.do_import(('runes','items'));self.assertTrue(entered.wait(2))
+        app.s['draft_build_context']='player:42';release.set();callbacks.get(timeout=2)()
+        self.assertEqual([call[0] for call in app.calls],['runes'])
+
 
 if __name__ == '__main__': unittest.main()

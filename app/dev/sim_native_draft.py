@@ -12,6 +12,8 @@ import core
 import lcu
 import lolhelper
 import matchup_data
+import offmeta_data
+import player_builds
 import ui
 
 OUT = Path(os.environ.get('SIM_OUT', tempfile.mkdtemp(prefix='lol-draft-pictures-')))
@@ -59,6 +61,18 @@ def fetch_matchup(self, champion, role, opponent):
     return value
 ui.App.lola_matchup = fetch_matchup
 ui.App.lola_fetch = fetch
+OFFMETA=json.loads((Path(__file__).parent/'fixtures/mobalytics-offmeta.json').read_text())['payload']
+ui.App.offmeta_build=lambda self,ch,role:offmeta_data.parse_state(OFFMETA,ch,role)
+PLAYERS=json.loads((Path(__file__).parent/'fixtures/mobalytics-players.json').read_text())
+def player_options(self,ch,role):
+    value=player_builds.listing(PLAYERS['index'],ch,role)
+    if value:
+        for group in value['groups'].values():
+            for i,row in enumerate(group):
+                details=player_builds.detail(PLAYERS['pages'].get(row['id']),row)
+                if details:group[i]=details
+    return value
+ui.App.player_builds=player_options
 errors=[]
 geometry_checks=[]
 app = ui.App(lolhelper.load_data(), 'Разработка · демонстрация')
@@ -80,7 +94,7 @@ app.lola.clear(); app.lola_state.clear()
 hist = {'n':10,'w':7,'streak':3,'on':24,'on_w':15,'kda':3.8,'tags':['почти только'],
         'good':['редко умирает (3.4 за игру)'], 'bad':['мало обзора (0.4/мин)'], 'tilt':[]}
 allies = [{'c':ch,'pos':role,'me':i==2,'rank':{'tier':'EMERALD','div':'II','lp':64,'w':68,'l':52},
-           'hist':dict(hist), 'pu':'demo'+str(i)}
+           'hist':dict(hist, extra_comments=([('G10','Топ-1000 · №42 в мире · Lolalytics','good'),('G7','Мейнер · 16/20 игр','good')] if i==2 else [('G8','Участие в убийствах 68% · 5 игр','good'),('N4','Непривычная роль · 1/15 игр','neutral')] if i==0 else [('G9','До 14 мин: 0.6 смерти · 5 игр','good')] if i==1 else [])), 'pu':'demo'+str(i)}
           for i,(ch,role) in enumerate(zip(['Malphite','Sejuani','Ahri','Jinx','Thresh'],core.ROLES))]
 cs={'role':'MIDDLE','me':'Ahri','allies':allies,'enemies':['Renekton','LeeSin','Viktor','Caitlyn','Lux'],
     'locked':False,'unavailable':set(['Malphite','Sejuani','Jinx','Thresh','Renekton','LeeSin','Viktor','Caitlyn','Lux']), 'left':28}
@@ -93,7 +107,7 @@ app.root.withdraw(); app.dash.geometry(os.environ.get('SIM_GEOMETRY','1920x1080+
 app.dash.title('LoL Helper · драфт · демонстрационные данные')
 
 def capture(name):
-    app.dash.update_idletasks()
+    app.root.update();app.dash.update_idletasks()
     check_geometry(name)
     subprocess.run(['import','-window',str(app.dash.winfo_id()),str(OUT/name)],check=True)
     if name == 'native-draft-builds.png':
@@ -111,7 +125,21 @@ def check_geometry(stage):
     assert len({r[2:] for r in rects}) == 1, (stage, rects)
     assert [r[1] for r in rects[:5]] == [r[1] for r in rects[5:]], (stage, rects)
     assert all(card.body.winfo_reqheight() <= card.winfo_height()-2*card.vpad for card in cards), stage
-    geometry_checks.append({'stage':stage, 'size':rects[0][2:], 'rows':[r[1] for r in rects[:5]]})
+    comment_backgrounds = {bg for bg,fg in ui.player_comments.palette(ui.C['dark']).values()}
+    for card in cards:
+        rows = {}
+        for widget in descendants(card):
+            if isinstance(widget, ui.tk.Label) and widget.cget('bg') in comment_backgrounds:
+                rows.setdefault(widget.winfo_rooty(), set()).add(widget.cget('bg'))
+        assert all(len(colours) == 1 for colours in rows.values()), (stage, 'mixed comment colours in a row')
+    view = app.dash._draft_view
+    top = view.center_clip.winfo_rooty()
+    bottom = top+view.center_clip.winfo_height()
+    assert top == cards[0].winfo_rooty(), (stage,'centre top',top,cards[0].winfo_rooty())
+    assert bottom == cards[4].winfo_rooty()+cards[4].winfo_height(), (stage,'centre bottom',bottom)
+    skills = view.center_bottom
+    assert skills.winfo_rooty()+skills.winfo_height() <= bottom, (stage, 'skills overflow')
+    geometry_checks.append({'centre_top':top,'centre_bottom':bottom,'stage':stage, 'size':rects[0][2:], 'rows':[r[1] for r in rects[:5]]})
 
 def show(locked=False):
     cs['locked']=locked
@@ -125,7 +153,28 @@ def descendants(widget):
         yield child
         yield from descendants(child)
 
+def exercise_external():
+    previous=(app.s['draft_build_context'],app.s['rune_pick'])
+    app.draft=cs
+    app.set_draft_build('offmeta','pick')
+    assert app.selected_draft_build(cs)['pick']['core']==[2503,3158,3100]
+    show(True);app.dash._draft_view.center_canvas.yview_moveto(.4);app.dash.update_idletasks();capture('native-draft-offmeta.png')
+    row=app.player_builds('Ahri','MIDDLE')['groups']['OTP'][0]
+    app.set_draft_build('player:'+row['id'],'pick')
+    assert app.selected_draft_build(cs)['pick']==row['variant']
+    show(True);app.dash._draft_view.center_canvas.yview_moveto(.65);app.dash.update_idletasks();capture('native-draft-player.png')
+    app.s['draft_build_context'],app.s['rune_pick']=previous
+    show(True)
+    window=app.dash;window.close();app.root.update();assert not window.winfo_viewable()
+    app.on_draft(cs);app.root.update();assert app.dash is window and not window.winfo_viewable()
+    app.open_dash();app.root.update();assert window.winfo_viewable()
+
 def exercise_folds():
+    exercise_external()
+    view = app.dash._draft_view
+    view.center_canvas.yview_moveto(1); app.dash.update_idletasks()
+    assert view.center_canvas.yview()[1] >= .999, 'centre cannot scroll to the end'
+    view.center_canvas.yview_moveto(0); app.dash.update_idletasks()
     history = next(w for w in descendants(app.dash.cols[0])
                    if isinstance(w, ui.ttk.Button) and 'Последние матчи' in w.cget('text'))
     history.invoke(); app.dash.update_idletasks()
@@ -160,14 +209,16 @@ def restore_size():
     app.dash.update_idletasks()
     check_geometry('resized')
     app.dash.geometry(original_geometry)
-app.root.after(300, lambda:show(False))
-app.root.after(900, lambda:capture('native-draft-selection.png'))
-app.root.after(1100, lambda:show(True))
-app.root.after(1500, lambda:capture('native-draft-builds.png'))
-app.root.after(1600,resize_for_check)
-app.root.after(1900,restore_size)
-app.root.after(2200,exercise_folds)
-app.root.after(2800,finish)
+def run_checks():
+    try:
+        show(False);capture('native-draft-selection.png')
+        show(True);capture('native-draft-builds.png')
+        resize_for_check();app.root.update();app.dash._draft_view.sync_card_sizes()
+        restore_size();app.root.update();app.dash._draft_view.sync_card_sizes()
+        exercise_folds()
+    except Exception as error:errors.append(repr(error))
+    finally:finish()
+app.root.after(300,run_checks)
 app.run()
 if errors: raise RuntimeError(errors)
 print(OUT)

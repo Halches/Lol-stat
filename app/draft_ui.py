@@ -1,8 +1,12 @@
 """Native draft dashboard using the existing application data and import controls."""
+import time
+import webbrowser
 import tkinter as tk
 from tkinter import ttk
 import core
 import draft_model
+import draft_external
+import player_comments
 
 
 class RoundedPanel(tk.Frame):
@@ -42,7 +46,12 @@ class DraftView:
         self.fs, self.d = self.app.fs, self.app.data
         self.width = max(220, int((dashboard.winfo_width() - 90) / 3))
         self.matchup_full = self.app.lola_matchup(me, result.get('role'), result.get('opp')) if me else None
-        self.selected_full = self.matchup_full if self.app.s.get('draft_build_context') == 'matchup' else full
+        self.offmeta=self.app.offmeta_build(me,result.get('role')) if me else None
+        self.players=self.app.player_builds(me,result.get('role')) if me else None
+        context=self.app.s.get('draft_build_context','general')
+        self.selected_full=(self.matchup_full if context=='matchup' else
+                            draft_external.selected(context,me,result.get('role'),self.offmeta,self.players) if context=='offmeta' or context.startswith('player:') else full)
+        if me:self.app._chosen_draft_build=(me,result.get('role'),context,self.selected_full)
         if me: self.app.ensure_skill_icons(me)
         if not hasattr(dashboard, '_draft_open'): dashboard._draft_open = set()
 
@@ -54,7 +63,7 @@ class DraftView:
 
     def label(self, parent, text='', color='fg', size=10, bold=False, **kw):
         label = tk.Label(parent, text=text, bg=parent.cget('bg'), fg=self.c[color],
-                         font=(self.f['font'], self.fs(size), 'bold' if bold else 'normal'), **kw)
+                         font=(self.f['font'], self.fs(max(10,size)), 'bold' if bold else 'normal'), **kw)
         if kw.get('wraplength'): self.wrapped_labels.append((label, kw['wraplength']/self.width))
         return label
 
@@ -67,7 +76,7 @@ class DraftView:
 
     def box(self, parent, title=None, accent=None):
         panel = RoundedPanel(parent, self.c['panel'], self.c[accent or 'line'], self.fs(10), self.fs(7))
-        panel.pack(fill='x', pady=(0, self.fs(8)))
+        panel.pack(fill='x', pady=(0, self.fs(10)))
         if title: self.label(panel.body, title, 'fg', 11, True).pack(anchor='w', pady=(0, 8))
         return panel.body
 
@@ -97,18 +106,31 @@ class DraftView:
                 card.configure(height=height, width=width)
             card.pack_configure(fill='none', anchor='w')
             card.pack_propagate(False)
+        self.w.update_idletasks()
+        # Grid rounds uneven pixel widths at fractional DPI; keep all cards at
+        # the smallest actual allocation, including after opening a curtain.
+        actual_width=min(card.winfo_width() for card in cards)
+        if actual_width<width:
+            for card in cards:card.configure(width=actual_width)
+            self.w.update_idletasks()
+        if hasattr(self, 'center_clip'):
+            first, last = cards[0], cards[4]
+            bottom = last.winfo_rooty()+last.winfo_height()
+            target = max(1, bottom-self.center_clip.winfo_rooty())
+            if self.center_clip.winfo_height() != target: self.center_clip.configure(height=target)
+            self.center_content_changed()
         self._sizing = False
 
     def styles(self):
         style = ttk.Style(self.w)
         style.configure('Draft.TCheckbutton', background=self.c['panel'], foreground=self.c['mute'],
-                        font=(self.f['font'], self.fs(8)))
+                        font=(self.f['font'], self.fs(10)))
         style.map('Draft.TCheckbutton', background=[('active', self.c['panel'])],
                   foreground=[('active', self.c['fg'])])
         style.configure('DraftLink.TButton', background=self.c['panel'], foreground=self.c['mute'],
                         bordercolor=self.c['panel'], lightcolor=self.c['panel'], darkcolor=self.c['panel'],
                         padding=0, borderwidth=0, relief='flat', anchor='w',
-                        font=(self.f['font'], self.fs(8)))
+                        font=(self.f['font'], self.fs(10)))
         style.map('DraftLink.TButton', background=[('active', self.c['panel'])],
                   foreground=[('active', self.c['gold'])], bordercolor=[('active', self.c['panel'])])
         for name, bg, fg, border in (
@@ -117,7 +139,7 @@ class DraftView:
                 ('DraftPrimary.TButton', self.c['gold'], self.c['on_gold'], self.c['gold'])):
             style.configure(name, background=bg, foreground=fg, bordercolor=border,
                 lightcolor=bg, darkcolor=bg, padding=(self.fs(9), self.fs(6)),
-                font=(self.f['font'], self.fs(9)), relief='flat')
+                font=(self.f['font'], self.fs(10)), relief='flat')
             style.map(name, background=[('active', self.c['raise'])],
                 foreground=[('active', self.c['fg'])], bordercolor=[('active', self.c['gold'])])
 
@@ -139,6 +161,7 @@ class DraftView:
                 if not built: draw(body); built = True
                 body.pack(fill='x', pady=(6, 0))
             else: body.pack_forget()
+            if hasattr(self, 'center_wheel'): self.bind_center_wheel(body)
             self.schedule_sizes()
         def toggle():
             self.w._draft_open.symmetric_difference_update({key})
@@ -214,19 +237,21 @@ class DraftView:
             from ui import hist_tags
             summary, _ = hist_tags(history)
             self.label(card, summary, 'mute', 8, wraplength=max(150, self.width-32), justify='left').pack(anchor='w', pady=(3, 2))
-            traits = tk.Frame(card, bg=self.c['panel']); traits.pack(fill='x', pady=(2, 0))
-            column = 0
-            for field, prefix, color in (('good', 'Силен: ', 'good2'), ('bad', 'Слаб: ', 'bad2'), ('tilt', 'Последние игры: ', 'warn')):
-                values = history.get(field) or []
-                if values:
-                    traits.columnconfigure(column % 2, weight=1, uniform='trait')
-                    trait = self.label(traits, prefix + '; '.join(values[:2]), color, 8,
-                               wraplength=max(120, (self.width-48)//2), justify='left', anchor='w', padx=5, pady=2)
-                    trait.configure(bg=self.c['tag_g' if field == 'good' else 'tag_r' if field == 'bad' else 'raise'])
-                    trait.grid(row=0 if column < 2 else 1, column=column % 2, sticky='nsew', padx=(0, 4))
-                    column += 1
-        else:
-            self.label(card, 'История игрока недоступна', 'mute', 8).pack(anchor='w', pady=(3, 2))
+        traits = tk.Frame(card, bg=self.c['panel']); traits.pack(fill='x', pady=(2, 0))
+        visible = player_comments.preview(history)
+        for tone in ('good','neutral','bad'):
+            entries = [row for row in visible if row[2] == tone]
+            if not entries: continue
+            group = tk.Frame(traits, bg=self.c['panel']); group.pack(fill='x', pady=(0, 2))
+            for column in range(2): group.columnconfigure(column, weight=1, uniform='trait')
+            for column, (_, text, _) in enumerate(entries):
+                background, foreground = player_comments.palette(self.c['dark'])[tone]
+                wrap = self.width-40 if len(entries) == 1 else (self.width-48)//2
+                trait = self.label(group, text, 'fg', 8, wraplength=max(120, wrap),
+                                   justify='left', anchor='w', padx=5, pady=2)
+                trait.configure(bg=background, fg=foreground)
+                trait.grid(row=column//2, column=column%2, columnspan=2 if len(entries)==1 else 1,
+                           sticky='nsew', padx=(0, 4))
         if not mine and lane:
             rows = self.pair_rows(ch, lane, enemy)
             if rows:
@@ -251,8 +276,15 @@ class DraftView:
             def history_details(box):
                 from ui import hist_tags, rank_short
                 if rank: self.label(box, rank_short(rank), 'mute', 8).pack(anchor='w')
-                _, tags = hist_tags(history)
+                tags = [(text, {'good':'g','neutral':'y','bad':'r'}[tone]) for _,text,tone in player_comments.comments(history)]
                 self.w.chips(box, tags, self.c['panel'])
+                rating = (history or {}).get('champion_rank')
+                if rating:
+                    checked = time.strftime('%d.%m.%Y %H:%M', time.localtime(rating['fetched_at']))
+                    self.label(box, 'Рейтинг на выбранном чемпионе · мир · проверено '+checked,
+                               'mute', 8, wraplength=max(150,self.width-40), justify='left').pack(anchor='w')
+                    tk.Button(box, text='Открыть рейтинг Lolalytics', command=lambda: webbrowser.open(rating['url']),
+                              bg=self.c['deep'], fg=self.c['gold'], relief='flat', font=('Segoe UI',8)).pack(anchor='w', pady=3)
                 self.w.mini_hist(box, pu, n=5)
             self.fold(card, 'Последние матчи', ('history', pu), history_details, compact=True)
 
@@ -275,7 +307,7 @@ class DraftView:
             self.label(tile, (self.d.cn(recommendation['champion'])+' · ' if narrow else '') + count, 'mute', 7).pack(anchor='w')
 
     def top_picks(self):
-        box = self.box(self.w.mid, 'Лучшие пики для тебя')
+        box = self.box(self.center, 'Лучшие пики для тебя')
         if not self.r['picks']:
             self.label(box, 'Нет доступных рекомендаций. Проверь пул и роль.', 'mute', 10,
                        wraplength=max(120, self.width-28)).pack(anchor='w')
@@ -297,7 +329,7 @@ class DraftView:
             self.label(tile, pick['why'], 'mute', 8, wraplength=max(80, (self.width-90)//3), justify='left').pack(anchor='w')
 
     def matchup(self):
-        box = self.box(self.w.mid, 'Твой матчап')
+        box = self.box(self.center, 'Твой матчап')
         opp, role = self.r.get('opp'), self.r.get('role')
         if not self.me or not opp:
             self.label(box, 'Выбери чемпиона' if not self.me else 'Оппонент ещё не выбран', 'mute', 10).pack(anchor='w')
@@ -351,10 +383,10 @@ class DraftView:
         title = 'Макс. винрейт' if context == 'matchup' and key == 'win' else option['title']
         self.label(caption, title + (' ✓' if active else ''), 'gold' if active else 'fg', 9,
                    width=13 if not narrow else 0, anchor='w').pack(anchor='w')
-        self.label(caption, 'Против оппонента' if context == 'matchup' else 'Все матчапы', 'mute', 7).pack(anchor='w')
+        self.label(caption, 'Против оппонента' if context == 'matchup' else 'Mobalytics · все матчапы' if context=='offmeta' or context.startswith('player:') else 'Все матчапы', 'mute', 7).pack(anchor='w')
         stats = tk.Frame(row, bg=self.c['deep']); stats.pack(side='right', anchor='e')
         wr, n = option['rune_winrate'], option['rune_games']
-        metric = 'Руна' if variant.get('rune_stat_kind') == 'keystone' else 'Руны'
+        metric = 'Вариант' if context=='offmeta' or context.startswith('player:') else 'Руна' if variant.get('rune_stat_kind') == 'keystone' else 'Руны'
         self.label(stats, f'{metric} {wr:.1f}%' if wr is not None else metric+': —', 'good2', 9, True).pack(anchor='e')
         self.label(stats, f'{n:,} игр'.replace(',', ' ') if n else 'Нет выборки', 'mute', 7).pack(anchor='e')
         icons = tk.Frame(row, bg=self.c['deep']); icons.pack(side='top' if narrow else 'left', anchor='w', pady=2)
@@ -372,7 +404,7 @@ class DraftView:
         row.bind('<Return>', select); row.bind('<space>', select)
 
     def build_table(self):
-        box = self.box(self.w.mid)
+        box = self.box(self.center)
         header = tk.Frame(box, bg=self.c['panel']); header.pack(fill='x')
         self.image(header, 'champ', self.me, 24)
         self.label(header, 'Связки рун и сборок', 'fg', 11, True).pack(side='left')
@@ -406,11 +438,19 @@ class DraftView:
             state = self.app.lola_state.get(('matchup', self.me, self.r['role'], opponent))
             text = 'Оппонент пока не определён' if not opponent else 'Загрузка двух вариантов матчапа…' if state == 'loading' else 'Нет подтверждённых сборок против этого оппонента'
             self.label(box, text, 'mute', 9, wraplength=max(120, self.width-35)).pack(anchor='w', pady=5)
-        for title in ('Оффметовая', 'От мейнеров · 3 варианта', 'От профессионалов · 3 варианта'):
-            row = tk.Frame(box, bg=self.c['deep'], padx=7, pady=5, highlightthickness=1, highlightbackground=self.c['line'])
-            row.pack(fill='x', pady=(4, 0))
-            self.label(row, title, 'mute', 8).pack(side='left')
-            self.label(row, 'Источник не подключён', 'mute', 7).pack(side='right')
+        if self.offmeta and self.offmeta.get('variant'):
+            self.build_row(box,draft_external.option('Оффметовая',self.offmeta['variant'],self.offmeta.get('source_winrate'),self.offmeta.get('source_games')),'offmeta')
+        else:self.label(box,'Оффметовая: нет подтверждённого варианта' if self.offmeta else 'Оффметовая: загрузка источника…','mute',10,wraplength=max(120,self.width-35)).pack(anchor='w',pady=7)
+        for kind,title in (('OTP','Мейнеры'),('Pro','Профессионалы')):
+            rows=(self.players or {}).get('groups',{}).get(kind,[])[:3]
+            self.label(box,f'{title} · {len(rows)} из 3','gold',11,True).pack(anchor='w',pady=(10,3))
+            for player in rows:
+                if player.get('variant'):
+                    self.build_row(box,draft_external.option(player['name'],player['variant'],player['winrate'],player['games']),'player:'+player['id'])
+                else:self.label(box,player['name']+' · полная сборка ещё недоступна','mute',10,wraplength=max(120,self.width-35)).pack(anchor='w')
+            if len(rows)<3:self.label(box,'Недостающие варианты источник пока не подтвердил.','mute',10,wraplength=max(120,self.width-35),justify='left').pack(anchor='w')
+        if (self.offmeta or {}).get('stale') or (self.players or {}).get('stale'):
+            self.label(box,'Mobalytics: показаны сохранённые данные, обновить не удалось.','gold',10,wraplength=max(120,self.width-35),justify='left').pack(anchor='w',pady=5)
         self.label(box, 'Справа — статистика рун источника; для матчапа — ключевой руны. Общей выборки рун + предметов нет.',
                    'mute', 7, wraplength=max(120, self.width-35), justify='left').pack(anchor='w', pady=(6, 0))
         self.w.import_lbl = self.label(box, self.app.import_text, 'mute', 8,
@@ -420,7 +460,8 @@ class DraftView:
         if 'не получилось' in self.app.import_text: self.w.import_err.pack(anchor='w')
 
     def skills(self):
-        box = self.box(self.w.mid, 'Умения и ситуативные предметы')
+        box = self.box(self.center_bottom, 'Умения и ситуативные предметы')
+        box._panel.pack_configure(pady=0)
         selected = self.selected_full or {}
         variant = self.selected_variant()
         if not variant:
@@ -462,11 +503,47 @@ class DraftView:
                 self.label(row, core.SPELL_RU.get(spell, spell), 'fg', 8).pack(side='left', padx=(0, 6))
         self.fold(box, 'Полный разбор сборки', 'build-details', details, compact=True)
 
+    def center_viewport(self):
+        column = self.w.mid
+        heading = tk.Frame(column, bg=self.c['bg']); heading.pack(fill='x', pady=(0, 7))
+        self.label(heading, 'Подготовка к матчу' if self.cs.get('locked') else 'Рекомендации', 'fg', 13, True).pack(side='left')
+        if self.width >= self.fs(540): self.label(heading, 'Руны · предметы · умения', 'mute', 8).pack(side='right')
+        self.center_clip = tk.Frame(column, bg=self.c['bg'], height=1, highlightthickness=1, highlightbackground=self.c['line'])
+        self.center_clip.pack(fill='x'); self.center_clip.pack_propagate(False)
+        self.center_bottom = tk.Frame(self.center_clip, bg=self.c['bg'])
+        self.center_bottom.pack(side='bottom', fill='x')
+        scroll_area = tk.Frame(self.center_clip, bg=self.c['bg'])
+        scroll_area.pack(fill='both', expand=True)
+        self.center_canvas = tk.Canvas(scroll_area, bg=self.c['bg'], highlightthickness=0)
+        self.center_canvas.pack(side='left', fill='both', expand=True)
+        scrollbar = ttk.Scrollbar(scroll_area, orient='vertical', command=self.center_canvas.yview)
+        self.center_canvas.configure(yscrollcommand=scrollbar.set)
+        self.center = tk.Frame(self.center_canvas, bg=self.c['bg'])
+        window = self.center_canvas.create_window((0,0), window=self.center, anchor='nw')
+        def content_changed(event=None):
+            self.center_canvas.configure(scrollregion=self.center_canvas.bbox('all'))
+            if self.center.winfo_reqheight() > self.center_canvas.winfo_height(): scrollbar.pack(side='right', fill='y')
+            else: scrollbar.pack_forget()
+        self.center.bind('<Configure>', content_changed)
+        self.center_canvas.bind('<Configure>', lambda event: self.center_canvas.itemconfigure(window, width=event.width))
+        def wheel(event):
+            raw = getattr(event, 'delta', 0)
+            delta = (-1 if event.num == 4 else 1) if getattr(event,'num',None) in (4,5) else (-int(raw/120) or (-1 if raw > 0 else 1 if raw < 0 else 0))
+            self.center_canvas.yview_scroll(delta, 'units')
+            return 'break'
+        self.center_wheel = wheel
+        self.center_content_changed = content_changed
+
+    def bind_center_wheel(self, widget):
+        for sequence in ('<MouseWheel>', '<Button-4>', '<Button-5>'): widget.bind(sequence, self.center_wheel)
+        for child in widget.winfo_children(): self.bind_center_wheel(child)
+
     def draw(self):
         for col in self.w.cols + [self.w.mid]:
             for child in col.winfo_children(): child.destroy()
         self.styles()
         self.toolbar()
+        self.center_viewport()
         self.w._draft_cards = self.player_cards
         for col in self.w.cols: col.bind('<Configure>', self.schedule_sizes)
         for parent, text, color in ((self.w.cols[0], 'Союзники', 'blue2'), (self.w.cols[1], 'Противники', 'red2')):
@@ -483,12 +560,14 @@ class DraftView:
         if self.me and self.cs.get('locked'): self.build_table()
         else: self.top_picks()
         self.matchup()
-        self.fold(self.w.mid, 'Композиции · сильные и слабые стороны', 'composition',
+        self.fold(self.center, 'Композиции · сильные и слабые стороны', 'composition',
                   lambda body: self.draw_composition(body, allies))
         if self.me: self.skills()
-        self.fold(self.w.mid, 'Кого банить', 'bans', self.draw_bans)
+        self.fold(self.center, 'Кого банить', 'bans', self.draw_bans)
         if self.me and not self.cs.get('locked'):
-            self.fold(self.w.mid, 'Предварительная сборка', 'preview-build', lambda body: self.w.build_box(body, self.me, self.full, self.r['role']))
+            self.fold(self.center, 'Предварительная сборка', 'preview-build', lambda body: self.w.build_box(body, self.me, self.full, self.r['role']))
+        self.bind_center_wheel(self.center)
+        self.bind_center_wheel(self.center_bottom)
 
     def draw_composition(self, parent, allies):
         original = self.w.mid
