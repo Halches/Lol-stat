@@ -7,3 +7,6 @@ app/__pycache__/
 app/version.txt
 app/selftest.txt
 app/assets.json
+
+# Generated match archive, rebuilt from tools/games.json.
+app/history-details.json

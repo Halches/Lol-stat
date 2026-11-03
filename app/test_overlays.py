@@ -101,13 +101,14 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNone(w._drag)
         w.app.s.save.assert_called_once()
 
-    def test_legacy_settings_keep_layout_and_enable_new_widget(self):
+    def test_legacy_settings_keep_choices_and_do_not_enable_new_widget(self):
         import json
         from pathlib import Path
         with tempfile.TemporaryDirectory() as home:
-            Path(home, 'settings.json').write_text(json.dumps({'widgets': {'gold': False}, 'tab_rect': [-.5, .2, 1., .4]}))
+            Path(home, 'settings.json').write_text(json.dumps({'widgets': {'gold': False,'lane': True}, 'tab_rect': [-.5, .2, 1., .4]}))
             s = ui.Settings(home)
-        self.assertTrue(s['widgets']['inventory'])
+        self.assertFalse(s['widgets']['inventory'])
+        self.assertTrue(s['widgets']['lane'])
         self.assertFalse(s['widgets']['gold'])
         self.assertEqual(s['tab_rect'], [-.5, .2, 1., .4])
         self.assertTrue(s['tab_auto'])

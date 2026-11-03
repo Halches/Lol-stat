@@ -4,7 +4,10 @@ import base64, io, json, os, platform, queue, subprocess, sys, threading, time, 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-import core, lcu, phone, tab_detect
+from scroll_canvas import ScrollCanvas
+
+import performance_model
+import core, lcu, phone, tab_detect, player_comments, player_traits, player_evidence, champion_rank, champion_pool, profile_ranks
 
 RELEASES = 'https://github.com/Halches/Lol-stat/releases'   # список всех версий с изменениями
 from voice import Voice, VOICES, SOUNDS
@@ -148,15 +151,15 @@ DEFAULTS = {
     'hints': {h[0]: h[3] for h in core.HINTS if h[0] not in core.HINT_ROLES},
     'hints_role': {r: {h[0]: h[3] for h in core.HINTS if h[0] in core.HINT_ROLES and r in core.HINT_ROLES[h[0]]} for r in core.ROLES},
     'hint_preset': 'TOP',
-    'widgets': {k: True for k in WIDGETS},
+    'widgets': {k: False for k in WIDGETS},
     'widget_pins': {},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
     'phone': False, 'phone_port': 8765, 'phone_token': '',
-    'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
+    'draft_scope': 'pool', 'draft_build_context': 'general', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
     'theme': 'lol', 'accent': 'theme', 'font': 'Golos Text', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
-    'layout': {},
+    'layout': {}, 'champion_pools': {}, 'home_period': 'season',
     'keys': {'mute': 'ctrl+shift+m', 'hide': 'ctrl+shift+h', 'scoreboard': 'tab', 'drag': 'alt', },
     'voice': 'dmitri', 'volume': 80, 'rate': 1.0, 'master': 100, 'beep_volume': 70, 'sound': 'bell',
     'obj': dict(core.OBJ), 'who': '', 'auto_update': True,
@@ -172,12 +175,16 @@ class Settings(dict):
     def __init__(self, home):
         super().__init__()
         self.path = os.path.join(home, 'settings.json')
-        try: saved = json.load(open(self.path, encoding='utf-8'))
+        try:
+            with open(self.path, encoding='utf-8') as source: saved = json.load(source)
         except Exception: saved = {}
         for k, v in DEFAULTS.items():
             self[k] = ({**v, **saved.get(k, {})} if isinstance(v, dict) else saved.get(k, v))
         if saved.get('auto_import') and 'auto_parts' not in saved:   # раньше была одна галка на всё
             self['auto_parts'] = {'runes': True, 'items': True, 'spells': False}
+        if 'draft_auto_mode_v1' not in saved:
+            self['auto_import'] = any(self['auto_parts'].values())
+            self['draft_auto_mode_v1'] = True
         if not saved.get('design3'):   # дизайн 26.10: новые темы и шрифты включаются всем один раз
             self['theme'], self['font'], self['accent'], self['design3'] = 'lol', 'Golos Text', 'theme', True
         self['theme'] = OLD_THEMES.get(self['theme'], self['theme'])
@@ -212,7 +219,8 @@ class Settings(dict):
 
     def save(self):
         tmp = self.path + '.tmp'
-        json.dump(dict(self), open(tmp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        with open(tmp, 'w', encoding='utf-8') as output:
+            json.dump(dict(self), output, ensure_ascii=False, indent=1)
         os.replace(tmp, self.path)
 
 
@@ -459,7 +467,7 @@ class PerfOverlay(Overlay):
         c = self.card(width=0)
         c.row(('cell', '', 'mute', 9, False, 74, 'l'), ('cell', 'СЕЙЧАС', 'mute', 9, True, 56, 'r'), ('cell', 'ТЫ ОБЫЧНО', 'mute', 9, True, 64, 'r'),
               ('cell', 'АЛМАЗ', 'mute', 9, True, 64, 'r'), pad=3)
-        for name, v, col, n, u in (('CS/мин', '7,4', 'good', '6,8', '7,1'), ('Золото/мин', '412', 'warn', '398', '425'), ('KDA', '3,2', 'good', '2,9', '2,7'),
+        for name, v, col, n, u in (('CS/мин', '7,4', 'good', '6,8', '7,1'), ('Золото/мин', '—', 'fg', '398', '425'), ('KDA', '3,2', 'good', '2,9', '2,7'),
                                    ('Участие, %', '48', 'fg', '52', '—'), ('Обзор/мин', '0,62', 'fg', '0,55', '—')):
             c.row(('cell', name, 'mute', 11, False, 74, 'l'), ('cell', v, col, 15, True, 56, 'r'), ('cell', n, 'fg', 12, False, 64, 'r'), ('cell', u, 'fg', 12, False, 64, 'r'), pad=3)
         self.put(c)
@@ -467,20 +475,15 @@ class PerfOverlay(Overlay):
     def __init__(self, app, xy):
         super().__init__(app, 'perf', xy)
 
-    def values(self, g):
-        me, m = g.me, max(1, g.t / 60)
-        team_k = sum(p['k'] for p in g.allies) or 1
-        return {'csm': me['cs'] / m, 'gpm': (me['igold'] + g.gold) / m, 'kda': (me['k'] + me['a']) / max(1, me['d']),
-                'kp': min(100, (me['k'] + me['a']) / team_k * 100), 'vsm': me['ward'] / m}
+    def values(self, g):return performance_model.live_values(g)
 
     def refs(self, g):
-        cfg, me = self.app.s['perf'], g.me
-        if cfg['compare'] == 'emerald':
-            lo = self.app.data.lola.get(f"{me['c']}|{g.role}")
-            if not lo: return {}, 'Изумруд+: нет данных по чемпиону'
-            return {'csm': lo['cs'] / 28, 'gpm': lo['g'] / 28, 'kda': (lo['k'] + lo['a']) / max(.1, lo['d'])}, f"Изумруд+ на {self.app.data.cn(me['c'])}"
-        n = self.app.player.norm(me['c'], g.role) if self.app.player else {}
-        return n, (f"твоя норма · {n['n']} игр" if n.get('n') else 'нормы пока нет')
+        cfg,me=self.app.s['perf'],g.me
+        if cfg['compare']=='emerald':
+            lo=self.app.data.lola.get(f"{me['c']}|{g.role}")
+            return performance_model.benchmark(lo),('Изумруд+ · среднее за матч' if lo else 'Изумруд+: нет данных')
+        n=performance_model.personal(self.app.player,me['c'],g.role)
+        return n,(f"Твой чемпион и роль · {n['n']} игр" if n.get('n') else 'Нужно 3 игры на чемпионе и роли')
 
     def show(self, g):
         cfg = self.app.s['perf']
@@ -489,7 +492,7 @@ class PerfOverlay(Overlay):
         c = self.card(width=0)
         if cfg['layout'] == 'vertical':
             app = self.app
-            norm = app.player.norm(g.me['c'], g.role) if app.player else {}
+            norm = performance_model.personal(app.player,g.me['c'],g.role)
             up = app.tier_bench(g.me['c'], g.role)
             tier = up['tier'] if up else app.next_tier()[1]
             c.row(('cell', '', 'mute', 9, False, 74, 'l'), ('cell', 'СЕЙЧАС', 'mute', 9, True, 56, 'r'), ('cell', 'ТЫ ОБЫЧНО', 'mute', 9, True, 64, 'r'),
@@ -498,7 +501,7 @@ class PerfOverlay(Overlay):
                 name, dec = self.METRICS[k]
                 v, n, u = vals[k], norm.get(k), (up or {}).get(k)
                 ref = u if u is not None else n
-                col = 'fg' if ref is None else 'good' if v >= ref else 'warn'
+                col = 'fg' if ref is None or v is None else 'good' if v >= ref else 'warn'
                 f = lambda x: '—' if x is None else f'{x:.{dec}f}'.replace('.', ',')
                 c.row(('cell', name, 'mute', 11, False, 74, 'l'), ('cell', f(v), col, 15, True, 56, 'r'), ('cell', f(n), 'fg', 12, False, 64, 'r'),
                       ('cell', f(u), 'fg', 12, False, 64, 'r'), pad=3)
@@ -508,8 +511,8 @@ class PerfOverlay(Overlay):
             for k in on:
                 name, dec = self.METRICS[k]
                 v, r = vals[k], ref.get(k)
-                col = 'fg' if not r else 'good' if v >= r else 'warn'
-                segs += [('text', name, 'mute', 10, False), ('text', f'{v:.{dec}f}', col, 12, True)]
+                col = 'fg' if r is None or v is None else 'good' if v >= r else 'warn'
+                segs += [('text', name, 'mute', 10, False), ('text', '—' if v is None else f'{v:.{dec}f}', col, 12, True)]
                 if r: segs.append(('text', f'/{r:.{dec}f}', 'mute', 10, False))
                 segs.append(('gap', 8))
             c.row(*segs)
@@ -739,7 +742,6 @@ class TabPlates(Overlay):
         if not self.unlocked or not self.winfo_viewable() or (self.app.s.get('tab_auto') and self.auto_layout):
             self.handle.withdraw(); return
         X, Y, W, H, side, tp = self.geom()
-        self.handle.update_idletasks()
         vx, vy, vw, vh = screens()[2]
         hw, hh = self.handle.winfo_reqwidth(), self.handle.winfo_reqheight()
         x = max(vx, min(int(X), vx + vw - hw))
@@ -750,11 +752,17 @@ class TabPlates(Overlay):
 
     def deiconify(self):
         super().deiconify()
-        self.update_idletasks()
-        self._place_handle()
+        if not getattr(self,'_handle_job',None):
+            def place():
+                self._handle_job=None
+                if self.winfo_exists():self._place_handle()
+            self._handle_job=self.after_idle(place)
 
     def withdraw(self):
         handle = self.__dict__.get('handle')
+        job=getattr(self,'_handle_job',None)
+        if job:
+            self.after_cancel(job);self._handle_job=None
         if handle: handle.withdraw()
         super().withdraw()
 
@@ -774,7 +782,11 @@ class TabPlates(Overlay):
         self.draw(*self.data)
 
     def _stop_detection(self, event):
-        if event.widget is self: self._auto_cancel.set()
+        if event.widget is self:
+            self._auto_cancel.set()
+            job=getattr(self,'_handle_job',None)
+            if job:
+                self.after_cancel(job);self._handle_job=None
 
     def _detection_status(self, text):
         if text == self.auto_status: return
@@ -845,9 +857,12 @@ class TabPlates(Overlay):
 
     def unlock(self, on):
         if not on and self._drag: self._end(None)
+        if self.unlocked==on:
+            if not on:self.handle.withdraw()
+            return
         self.unlocked = on
         click_through(self, True)   # в том числе при Alt: игровая таблица остаётся кликабельной
-        if self.data: self.draw(*self.data)
+        if self.data and self.winfo_viewable(): self.draw(*self.data)
         if not on: self.handle.withdraw()
 
     def _start(self, e):
@@ -889,31 +904,22 @@ def no_flicker(win, fn):
 def hist_lines(h):
     """Характеристика игрока на всю ширину карточки: итог последних игр и паттерны (тильт, сильные и слабые стороны)."""
     if not h: return []
+    if not h.get('n'): return [('История игрока недоступна','gold')] + [(text, {'good':'good','neutral':'gold','bad':'bad'}[tone]) for _,text,tone in player_comments.comments(h) if _ != 'N3']
     st = h['streak']
     top = [f"{h['w']}–{h['n'] - h['w']} за {h['n']}"]
     if abs(st) >= 2: top.append(f"серия {'+' if st > 0 else '−'}{abs(st)}")
     if h['on']: top.append(f"на чемпионе {h['on']} игр, {round(h['on_w'] / h['on'] * 100)}%")
-    elif h['tags'] and 'не играл' in h['tags'][-1]: top.append('новый чемпион')
-    if any('почти только' in t for t in h['tags']): top.append('мейн чемпиона')
     top.append(f"KDA {h['kda']}")
     out = [(' · '.join(top), 'fg')]
-    if h.get('tilt'): out.append(('Тильт: ' + ', '.join(h['tilt']), 'bad'))
-    if h.get('good'): out.append(('Силён: ' + ', '.join(h['good']), 'good'))
-    if h.get('bad'): out.append(('Слаб: ' + ', '.join(h['bad']), 'gold'))
+    out.extend((text, {'good':'good', 'neutral':'gold', 'bad':'bad'}[tone]) for _,text,tone in player_comments.comments(h))
     return out
 
 
 def hist_tags(h):
     """Метки игрока в стиле Porofessor: (текст, вид g|r|y|n) и строка итога последних игр."""
     if not h: return '', []
-    st, tags = h['streak'], []
-    if any('почти только' in t for t in h['tags']): tags.append(('★ Мейн чемпиона', 'g'))
-    elif h['tags'] and 'не играл' in h['tags'][-1]: tags.append(('✦ Новый чемпион', 'y'))
-    if st >= 3: tags.append((f'▲ Серия побед: {st}', 'g'))
-    elif st <= -3 and not h.get('tilt'): tags.append((f'▼ Серия поражений: {-st}', 'r'))
-    for t in h.get('tilt') or []: tags.append(('▼ Тильт: ' + t, 'r'))
-    for t in h.get('good') or []: tags.append((t[:1].upper() + t[1:], 'g'))
-    for t in h.get('bad') or []: tags.append((t[:1].upper() + t[1:], 'y'))
+    tags = [(text, {'good':'g','neutral':'y','bad':'r'}[tone]) for _,text,tone in player_comments.comments(h)]
+    if not h.get('n'): return 'История игрока недоступна', tags
     top = [f"{h['w']}–{h['n'] - h['w']} за {h['n']}"]
     if h['on']: top.append(f"на чемпионе {h['on']} игр, {round(h['on_w'] / h['on'] * 100)}%")
     top.append(f"KDA {h['kda']}")
@@ -950,13 +956,13 @@ class Dashboard(tk.Toplevel):
         self.bar = tk.Frame(self, bg=C['bg'])   # в драфте: смена линии и импорт рун/предметов
         # карточки внутри прокручиваемой области: не всё помещается на маленьком мониторе
         self.wrap = tk.Frame(self, bg=C['bg']); self.wrap.pack(fill='both', expand=True, padx=10, pady=8)
-        self.cv = tk.Canvas(self.wrap, bg=C['bg'], highlightthickness=0)
+        self.cv = ScrollCanvas(self.wrap, bg=C['bg'], highlightthickness=0)
         sb = ttk.Scrollbar(self.wrap, orient='vertical', command=self.cv.yview)
         self.body = tk.Frame(self.cv, bg=C['bg'])
         self.body.bind('<Configure>', lambda e: (self.cv.configure(scrollregion=self.cv.bbox('all')),
                                                  sb.pack(side='right', fill='y') if self.body.winfo_reqheight() > self.cv.winfo_height() else sb.pack_forget()))
         win = self.cv.create_window((0, 0), window=self.body, anchor='nw'); self.cv.configure(yscrollcommand=sb.set)
-        self.cv.bind('<Configure>', lambda e: self.cv.itemconfigure(win, width=e.width))
+        self.cv.bind('<Configure>', lambda e: self.cv.itemconfigure(win, width=e.width), add='+')
         self.cv.pack(side='left', fill='both', expand=True)
         self.low = tk.Frame(self, bg=C['bg'])
         lf = tk.Frame(self.low, bg=C['bg'])
@@ -980,11 +986,18 @@ class Dashboard(tk.Toplevel):
         self.app.s.save()
 
     def close(self):
-        self.app.s['dashboard'] = False; self.app.s.save(); self.app.dash = None; self.destroy()
+        self._manual_hidden=True
+        self.withdraw()
 
     def clear(self, mode):
         if self.mode == mode: return
         self.mode = mode
+        if mode != 'draft':
+            self._draft_view = None
+            self.configure(bg=C['bg'])
+            self.head.configure(bg=C['bg'], font=(F['head'], self.app.fs(22)))
+            for surface in (self.sub, self.body, self.cv, self.wrap, self.bar, self.timer):
+                surface.configure(bg=C['bg'])
         self.sub.configure(fg=C['mute']); self._objs_sig = self._lanes_sig = None
         for w in self.body.winfo_children(): w.destroy()
         self.cards, self.draft_sig, self.load_sig = {}, None, None
@@ -1065,7 +1078,7 @@ class Dashboard(tk.Toplevel):
         app = self.app
         me = cs.get('me')
         lo = app.lola_fetch('arena', me, 'ARENA') if me else None
-        sig = json.dumps(['arena', me, bool(lo), [(a['c'], bool(a.get('rank')), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
+        sig = json.dumps(['arena', me, bool(lo), [(a['c'], bool(a.get('rank')), a.get('hist')) for a in cs.get('allies', [])]], default=str)
         self.clear('draft')
         if sig == self.draft_sig: return
         self.draft_sig = sig
@@ -1120,7 +1133,7 @@ class Dashboard(tk.Toplevel):
     # --- экран загрузки: обе команды целиком (в драфте противники скрыты)
     def show_loading(self, ps):
         app, d = self.app, self.app.data
-        sig = json.dumps([(p['c'], p['pos'], p['ok'], bool(p['rank'])) for p in ps], default=str)
+        sig = json.dumps([(p['c'], p['pos'], p['ok'], bool(p['rank']), p.get('hist')) for p in ps], default=str)
         self.clear('load')
         if sig == self.load_sig: return
         self.load_sig = sig
@@ -1159,7 +1172,8 @@ class Dashboard(tk.Toplevel):
         eu = app.lola_build(me, r.get('role')) if me else None
         if cs.get('left'): self.deadline = time.time() + cs['left']
         sig = json.dumps([cs['role'], r.get('role'), me, cs['enemies'], sorted(cs['unavailable']), bool(eu), len(app.lola), bans,
-                          [(a['c'], a.get('pos'), bool(a.get('rank')), bool(a.get('hist'))) for a in cs.get('allies', [])], [x['c'] for x in r['picks']]], default=str)
+                          self.app.s.get('draft_scope'), cs.get('locked'), self.app.s.get('rune_pick'), self.app.s.get('draft_build_context'),
+                          [(a['c'], a.get('pos'), bool(a.get('rank')), a.get('hist')) for a in cs.get('allies', [])], [x['c'] for x in r['picks']]], default=str)
         self.clear('draft')
         if sig == self.draft_sig: return
         self.draft_sig = sig
@@ -1168,42 +1182,8 @@ class Dashboard(tk.Toplevel):
         self.cv.yview_moveto(y)   # прокрутка остаётся на месте
 
     def _show_draft(self, cs, r, bans, me, eu):
-        app, d = self.app, self.app.data
-        for col in self.cols + [self.mid]:
-            for w in col.winfo_children(): w.destroy()
-        fn, fs = F['font'], app.fs
-        self.draft_bar(r.get('role') or cs['role'], me)
-        role = core.ROLE_RU.get(r.get('role') or cs['role'], '')
-        self.head.configure(text='Выбор чемпионов' + (f' · ты: {role}' if role else ''), fg=C['fg'])
-        self.sub.configure(text=(f"Вероятный оппонент: {d.cn(r['opp'])}" if r['opp'] else 'Оппонент ещё не выбран'))
-        order = {x: i for i, x in enumerate(core.ROLES)}
-        for col, t, c in ((self.cols[0], 'Твоя команда', 'blue'), (self.cols[1], 'Противники', 'red')):
-            tk.Label(col, text=t.upper(), bg=C['bg'], fg=C[c], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
-        allies = sorted(cs.get('allies') or [], key=lambda a: order.get(a.get('pos'), 9))
-        enemies = sorted(({'c': c, 'pos': r['roles'].get(c, '')} for c in cs['enemies']), key=lambda a: order.get(a['pos'], 9))
-        for col, team in enumerate((allies, enemies + [{}] * (5 - len(enemies)))):
-            for p in team: self.draft_card(col, p, r, eu if p.get('me') else None, app.matchup_lines(p, col, allies, r))
-        if r['picks'] and not cs.get('locked'):   # сверху: кого взять — три карточки, лучшая подсвечена
-            tk.Label(self.mid, text='КОГО ВЗЯТЬ', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
-            row = tk.Frame(self.mid, bg=C['bg']); row.pack(fill='x', pady=(0, 6))
-            for i, x in enumerate(r['picks'][:3]):
-                bg = C['raise'] if i == 0 else C['panel']
-                c = tk.Frame(row, bg=bg, padx=fs(10), pady=fs(8)); c.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0))
-                row.columnconfigure(i, weight=1, uniform='p')
-                tk.Label(c, image=app.img('champ', x['c'], 1.1) or '', bg=bg).pack(anchor='w')
-                tk.Label(c, text=x['name'], bg=bg, fg=C['gold'] if i == 0 else C['fg'], font=(fn, fs(11), 'bold'), anchor='w').pack(anchor='w', pady=(4, 0))
-                tk.Label(c, text=x['why'], bg=bg, fg=C['mute'], font=(fn, fs(9)), wraplength=fs(150), justify='left', anchor='w').pack(anchor='w')
-        self.matchup_card(me, r)
-        self.comp_card(cs, r, allies)
-        if me: self.build_box(self.mid, me, eu, r.get('role'))
-        self.bottom = tk.Frame(self.mid, bg=C['bg']); self.bottom.pack(fill='x', pady=(12, 0))
-        b = self.bottom   # снизу: кого банить
-        if bans:
-            tk.Label(b, text=f'КОГО БАНИТЬ · {role.upper()}', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12))).grid(row=5, column=0, columnspan=2, sticky='w', pady=(0, 2))
-            for i, (c, sc, why) in enumerate(bans):
-                tk.Label(b, text='  ' + d.cn(c), image=app.img('champ', c, 1.0) or '', compound='left', bg=C['bg'], fg=C['bad'],
-                         font=(fn, fs(11), 'bold')).grid(row=6 + i, column=0, sticky='w', pady=1)
-                tk.Label(b, text='  ' + why, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), wraplength=fs(250), justify='left').grid(row=6 + i, column=1, sticky='w')
+        from draft_ui import render_draft
+        render_draft(self, cs, r, bans, me, eu, C, F)
 
     def draft_bar(self, role, me):
         """Над карточками: линия, вариант рун, импорт в клиент и автоимпорт."""
@@ -1224,10 +1204,16 @@ class Dashboard(tk.Toplevel):
         else: tk.Label(row, text='ARAM: сборка и руны по всем рангам (lolalytics)', bg=C['deep'], fg=C['gold'], font=(fn, fs(10), 'bold')).pack(side='left', padx=(0, 10))
         ttk.Button(row, text='Импортировать в клиент', style='A.TButton', command=app.do_import).pack(side='left')
         row2 = tk.Frame(box, bg=C['deep']); row2.pack(anchor='w', fill='x', pady=(6, 0))
-        tk.Label(row2, text='АВТОИМПОРТ, КАК ТОЛЬКО ВЫБЕРЕШЬ ЧЕМПИОНА:', bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack(side='left')
+        auto_mode = tk.BooleanVar(value=app.s['auto_import'])
+        def save_auto_mode():
+            app.s['auto_import'] = auto_mode.get(); app.s.save()
+            app.draft_sig = None
+            if app.draft: app.on_draft(app.draft)
+        ttk.Checkbutton(row2, text='Автоэкспорт', variable=auto_mode, command=save_auto_mode, style='D.TCheckbutton').pack(side='left')
+        tk.Label(row2, text='Экспортировать:', bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack(side='left')
         for key, t in (('runes', 'руны'), ('items', 'предметы'), ('spells', 'заклинания призывателя')):
             ttk.Checkbutton(row2, text=t, variable=app.auto_vars[key], style='D.TCheckbutton',
-                            command=lambda key=key: (app.s['auto_parts'].__setitem__(key, app.auto_vars[key].get()), app.s.save())).pack(side='left', padx=(10, 0))
+                            command=lambda key=key: app.set_import_part(key)).pack(side='left', padx=(10, 0))
         self.import_err = ttk.Button(row2, text='Скопировать ошибку для Claude', command=app.copy_report)
         bad = 'не получилось' in app.import_text
         if bad: self.import_err.pack(side='right', padx=(8, 0))
@@ -1368,12 +1354,14 @@ class Dashboard(tk.Toplevel):
     def chips(self, parent, items, bg, maxw=44):
         """Метки строками: Tk не умеет переносить, поэтому раскладываем по примерной длине."""
         fn, fs = F['font'], self.app.fs
-        row, used = None, maxw
-        for text, kind in items:
-            if used + len(text) > maxw: row = tk.Frame(parent, bg=bg); row.pack(anchor='w', pady=(4, 0)); used = 0
-            cbg, cfg = {'g': (C['tag_g'], C['good2']), 'r': (C['tag_r'], C['bad2']), 'y': (C['tag_y'], C['warn'])}.get(kind, (C['raise'], C['fg']))
+        row, used, previous_kind = None, maxw, None
+        for text, kind in sorted(items, key=lambda item: {'g':0,'y':1,'r':2}.get(item[1],3)):
+            if kind != previous_kind or used + len(text) > maxw: row = tk.Frame(parent, bg=bg); row.pack(anchor='w', pady=(4, 0)); used = 0
+            colours = player_comments.palette(C['dark'])
+            cbg, cfg = {key:colours[tone] for key,tone in (('g','good'),('r','bad'),('y','neutral'))}.get(kind, (C['raise'], C['fg']))
             tk.Label(row, text=text, bg=cbg, fg=cfg, font=(fn, fs(9), 'bold'), padx=8, pady=2, wraplength=fs(330), justify='left').pack(side='left', padx=(0, 6))
             used += len(text) + 3
+            previous_kind = kind
 
     def draft_card(self, col, p, r, eu, extra=None):
         """Карточка игрока в драфте: портрет, звание, метки игрока и строки контрпиков/синергии."""
@@ -1554,7 +1542,7 @@ class Dashboard(tk.Toplevel):
                     for c in w['chars'].winfo_children(): c.destroy()
                     summary, tags = hist_tags(h)
                     if summary: tk.Label(w['chars'], text=summary, bg=C['panel'], fg=C['mute'], font=(F['font'], app.fs(9)), anchor='w').pack(anchor='w')
-                    if tags: self.chips(w['chars'], tags[:4], C['panel'], 70)
+                    if tags: self.chips(w['chars'], [(text, {'good':'g','neutral':'y','bad':'r'}[tone]) for _,text,tone in player_comments.preview(h)], C['panel'], 70)
                 sps = (p['spells'] if sh['spells'] else [])[:2]
                 imgs = [app.img('spell', s, .6) for s in sps] + ([app.img('rune', p['keystone'], .6)] if sh['runes'] else [])
                 for l, im in zip(w['sp'], imgs + [None] * 3): l.configure(image=im or '')
@@ -1694,6 +1682,8 @@ class App:
         self.ranks = {}
         self.hists = {}
         self.rank_pu, self.hraw, self.jg_cache = {}, {}, {}   # звание и история игр по puuid: с экрана загрузки переходят в игру без повторных запросов
+        self.evidence = player_evidence.Evidence()
+        self.evidence_region, self.evidence_region_at = None, 0
         self.pus, self.hist_exp = {}, set()   # puuid по Riot ID; чьи истории раскрыты кликом
         self.role_override = None
         self.lola, self.lola_state = {}, {}
@@ -1720,7 +1710,7 @@ class App:
         try: self.root.iconphoto(True, tk.PhotoImage(file=os.path.join(bundle_dir(), 'icon.png')))   # логотип в заголовке и на панели задач
         except Exception: pass
         self.root.geometry('1060x740')
-        self.root.minsize(820, 560)
+        self.root.minsize(self.fs(820), self.fs(560))
         self.icons = Icons(self)
         self.set_who(self.s['who'] or 'halch')
         self.build_all()
@@ -1729,11 +1719,13 @@ class App:
         threading.Thread(target=self.load_lanes, daemon=True).start()
         self.root.after(300, self.drain)
         self.root.after(40, self.keys)
+        self.root.bind('<Escape>', self.stop_demo, add='+')
         self.root.after(1000, self.tick_ui)
 
     def build_all(self, tab=0):
         """Создать (или пересоздать после смены вида/сброса) все окна."""
         apply_theme(self.s)
+        self.root.minsize(self.fs(820), self.fs(560))
         for w in self.root.winfo_children(): w.destroy()
         self.root.configure(bg=C['bg'])
         self.style()
@@ -1782,7 +1774,7 @@ class App:
         try: st.theme_use('clam')
         except Exception: pass
         fn = F['font']
-        st.configure('.', background=C['bg'], foreground=C['fg'], fieldbackground=C['panel'], font=(fn, self.fs(10)),
+        st.configure('.', background=C['bg'], foreground=C['fg'], fieldbackground=C['panel'], font=(fn, self.fs(11)),
                      bordercolor=C['raise'], lightcolor=C['panel'], darkcolor=C['panel'], troughcolor=C['panel'], focuscolor=C['gold'])
         st.configure('TNotebook', background=C['bg'], borderwidth=0, tabmargins=0)
         st.configure('TNotebook.Tab', background=C['panel'], foreground=C['mute'], padding=(12, 5), bordercolor=C['line'])
@@ -1791,7 +1783,7 @@ class App:
         st.layout('Rail.TNotebook', [('Notebook.client', {'sticky': 'nswe'})])   # без рамки вокруг страницы
         st.layout('Rail.TNotebook.Tab', [])   # вкладки переключает боковое меню
         st.configure('TButton', background=C['raise'], foreground=C['fg'], padding=(14, 7), bordercolor=C['raise'],
-                     lightcolor=C['raise'], darkcolor=C['raise'], font=(F['numb'], self.fs(10)))
+                     lightcolor=C['raise'], darkcolor=C['raise'], font=(F['font'], self.fs(11)))
         st.map('TButton', background=[('active', C['line'])], bordercolor=[('active', C['line'])], foreground=[('active', C['fg'])])
         st.configure('A.TButton', background=C['gold'], foreground=C['on_gold'], bordercolor=C['gold'], lightcolor=C['gold'], darkcolor=C['gold'])
         st.map('A.TButton', background=[('active', C['warn'])], bordercolor=[('active', C['warn'])], foreground=[('active', C['on_gold'])])
@@ -1804,6 +1796,7 @@ class App:
         st.configure('TCombobox', fieldbackground=C['panel'], background=C['line'], foreground=C['fg'], arrowcolor=C['gold'])
         st.map('TCombobox', fieldbackground=[('readonly', C['panel'])], foreground=[('readonly', C['fg'])],
                selectbackground=[('readonly', C['panel'])], selectforeground=[('readonly', C['fg'])])
+        self.root.option_add('*TCombobox*Listbox.font',(fn,self.fs(11)))
         self.root.option_add('*TCombobox*Listbox.background', C['panel'])
         self.root.option_add('*TCombobox*Listbox.foreground', C['fg'])
         self.root.option_add('*TCombobox*Listbox.selectBackground', C['gold'])
@@ -1812,16 +1805,43 @@ class App:
         st.layout('Vertical.TScrollbar', [('Vertical.Scrollbar.trough', {'sticky': 'ns', 'children': [('Vertical.Scrollbar.thumb', {'expand': '1', 'sticky': 'nswe'})]})])
         st.configure('Vertical.TScrollbar', background=C['raise'], troughcolor=C['bg'], bordercolor=C['bg'], lightcolor=C['raise'], darkcolor=C['raise'],
                      gripcount=0, arrowsize=self.fs(6), width=self.fs(6))
-        st.configure('H.TLabel', foreground=C['gold'], font=(F['head'], self.fs(13)))
-        st.configure('Cap.TLabel', foreground=C['mute'], font=(F['num'], self.fs(8)))
-        st.configure('M.TLabel', foreground=C['mute'])
+        st.configure('H.TLabel', foreground=C['gold'], font=(F['font'], self.fs(15), 'bold'))
+        st.configure('Cap.TLabel', foreground=C['fg'], font=(F['font'], self.fs(11)))
+        from view_components import readable_palette
+        st.configure('M.TLabel', foreground=readable_palette(C)['mute'])
         st.configure('V.TLabel', foreground=C['gold'])
 
     def set_who(self, who):
         if who not in self.data.d['players']: who = None
         self.player = core.Player(self.data, who) if who else None
         self.who = who
+        if self.player: self.player.pool = self.current_pool()
+        view = getattr(self, 'pool_view', None)
+        if view and view.winfo_exists(): view.refresh()
+        history=getattr(self,'history_view',None)
+        if history and history.winfo_exists(): history.profile_changed()
+        champion=getattr(self,'champion_view',None)
+        if champion and champion.winfo_exists(): champion.refresh()
         self.engine = None
+
+    def current_pool(self):
+        defaults = self.data.d.get('pools',{}).get(self.who or '',{})
+        return champion_pool.saved_pool(self.s,self.who or 'local',defaults,set(self.data.ids.values()))
+
+    def toggle_pool(self, champion, role):
+        if champion not in self.data.ids.values() or role not in core.ROLES: raise ValueError('Неизвестный чемпион или роль')
+        pool = self.current_pool()
+        if champion in pool[role]: pool[role].remove(champion)
+        else: pool[role].append(champion)
+        old = self.s.get('champion_pools',{})
+        self.s['champion_pools'] = {**(old if isinstance(old,dict) else {}), self.who or 'local':pool}
+        try: self.s.save()
+        except Exception:
+            self.s['champion_pools'] = old
+            raise
+        if self.player: self.player.pool = pool
+        self.draft_sig = None
+        if self.dash: self.dash.draft_sig = None
 
     def new_engine(self):
         self.engine = core.Engine(self.data, self.player, enabled=self.hint_flags(''))
@@ -1836,13 +1856,17 @@ class App:
     def prep_engine(self, g):
         """В начале игры: порядок умений, ситуативные предметы и темп Изумруда+ для подсказок."""
         self.engine.prepped = True
-        b = self.cached_build(g.me['c'], g.role)
-        if not b and g.role: self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); self.engine.prepped = False
+        chosen=getattr(self,'_chosen_draft_build',None)
+        context=self.s.get('draft_build_context','general')
+        external=context=='offmeta' or context.startswith('player:')
+        b=chosen[3] if chosen and chosen[:3]==(g.me['c'],g.role,context) else None
+        if not b and not external:b=self.cached_build(g.me['c'],g.role)
+        if not b and g.role and not external: self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); self.engine.prepped = False
         v = (b or {}).get(self.s['rune_pick']) or b or {}
         self.engine.skills, self.engine.skill_prio = v.get('skills', ''), v.get('skill_prio', '')
         self.engine.situ = (b or {}).get('situ') or []
         lo = self.data.lola.get(f"{g.me['c']}|{g.role}")
-        if lo: self.engine.bench = {'cs': lo['cs'], 'min': 28}
+        self.engine.bench={'csm':lo['csm']} if lo and type(lo.get('csm')) in (int,float) and lo['csm']<float('inf') and lo['csm']>=0 else None
 
     def hint_mode(self, hid, role=None):
         """Режим подсказки: общие — один на все роли, ролевые — свой у каждой роли."""
@@ -1859,13 +1883,22 @@ class App:
 
     def apply_visibility(self):
         arena = bool(self.last_game and self.last_game.arena)
-        for k, w in self.ov.items():
-            if k == 'hints': continue
-            if self.hidden or not self.s['widgets'].get(k) or not self.last_game or (arena and k in self.SR_ONLY) or (k == 'arena' and not arena): w.withdraw()
-            else: w.deiconify()
-        if self.hidden:
-            self.ov['hints'].withdraw()
-            for w in self.tab.values(): w.withdraw()
+        no_player=bool(self.last_game and not self.last_game.me)
+        non_sr=bool(self.last_game and not getattr(self.last_game,'sr',not arena))
+        demo=bool(getattr(self,'demo_on',False) and not self.hidden)
+        for k,w in self.ov.items():
+            enabled=self.s['widgets'].get(k)
+            if demo:
+                if enabled and w.unlocked:w.deiconify()
+                else:w.withdraw()
+                continue
+            if k=='hints':
+                if self.hidden or no_player or not enabled:w.withdraw()
+                continue
+            if self.hidden or no_player or not enabled or not self.last_game or (non_sr and k in self.SR_ONLY) or (k=='arena' and not arena):w.withdraw()
+            else:w.deiconify()
+        if self.hidden or no_player or not self.s.get('scoreboard') or (not demo and (not self.last_game or arena)):
+            for w in self.tab.values():w.withdraw()
 
     def arena_tick(self, g):
         """Арена: напоминание о покупке, когда скопилось 1000+ золота (раз в минуту, режим как у подсказки «Следующий предмет»)."""
@@ -1909,8 +1942,11 @@ class App:
                         last_me = now
                         me = self.client.me()
                         if me:
-                            me['rank'] = self.client.rank()
+                            me['ranks'] = self.client.ranked_overview()
+                            me['rank'] = profile_ranks.legacy_solo(me['ranks'])
                             self.q.put(('me', me, None, None))
+                        elif self.account:
+                            self.q.put(('me', None, None, None))
                     if now - last_lcu > 2:
                         last_lcu = now
                         ph = self.client.phase()
@@ -1946,17 +1982,41 @@ class App:
     def cid(self, key):
         return next((i for i, c in self.data.ids.items() if c == key), None)
 
+    def player_history(self, pu, champion_id, pos, riot=''):
+        """Вызывается фоновым опросом: готовые данные сразу, подробности догружаются."""
+        if not pu: return None
+        raw = self.hraw.get(pu)
+        champion = self.data.ids.get(str(champion_id))
+        self.evidence.request(self.client, pu, raw, champion, champion_id, pos, riot)
+        metrics, board = self.evidence.snapshot(pu, champion)
+        out = core.summarize_history(raw, champion_id, pos)
+        extras = player_traits.traits(raw, champion_id, pos, metrics)
+        if board and champion_rank.identity(riot):
+            if time.time() - self.evidence_region_at > 300:
+                self.evidence_region = self.client.region()
+                self.evidence_region_at = time.time()
+            rank = champion_rank.lookup(board, champion, riot, self.evidence_region)
+            if rank:
+                extras.insert(0, ('G10', f"Топ-1000 · №{rank['rank']} в мире · {rank['source']}", 'good'))
+                if out is None: out = {'n':0,'w':0,'streak':0,'on':0,'on_w':0,'kda':0,'tags':[], 'good':[], 'bad':[], 'tilt':[]}
+                out['champion_rank'] = rank
+        if out is not None: out['extra_comments'] = extras
+        return out
+
     def fetch_people(self, g):
         """Звание и история последних игр каждого из десяти через клиент (как в профиле). По одному за проход."""
         for p in g.players:
-            if p['riot'] in self.ranks: continue
+            if p['riot'] in self.ranks:
+                pu = self.pus.get(p['riot'])
+                self.hists[p['riot']] = self.player_history(pu, self.cid(p['c']), p['pos'], p['riot'])
+                continue
             pu = self.pus.get(p['riot']) or self.client.puuid(p['riot'])
             if pu and pu in self.hraw: raw, self.ranks[p['riot']] = self.hraw[pu], self.rank_pu.get(pu)   # уже скачано на экране загрузки
             else:
                 self.ranks[p['riot']] = self.rank_pu[pu] = self.client.rank(pu) if pu else None
                 raw = self.client.history(pu) if pu else None
             if pu: self.hraw[pu], self.pus[p['riot']] = raw, pu
-            self.hists[p['riot']] = core.summarize_history(raw, self.cid(p['c']), p['pos']) if pu else None
+            self.hists[p['riot']] = self.player_history(pu, self.cid(p['c']), p['pos'], p['riot'])
             return
 
     def draft_allies(self, sess):
@@ -1970,9 +2030,10 @@ class App:
                 self.ranks[pu] = self.rank_pu[pu] = self.client.rank(pu)
                 self.hraw[pu] = self.client.history(pu)
             champ_id = p.get('championId') or p.get('championPickIntent') or 0
+            riot = (p['gameName']+'#'+p['tagLine']) if not hidden and p.get('gameName') and p.get('tagLine') else ''
+            if not riot and pu and pu == (self.account or {}).get('puuid'): riot = self.account.get('riot','')
             out.append({'c': self.data.ids.get(str(champ_id)), 'pos': core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''),
-                        'rank': self.ranks.get(pu), 'hist': core.summarize_history(self.hraw.get(pu), champ_id,
-                                                                   core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), '')) if pu else None,
+                        'rank': self.ranks.get(pu), 'hist': self.player_history(pu, champ_id, core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''), riot),
                         'me': p.get('cellId') == sess.get('localPlayerCellId'), 'pu': pu})
         return out
 
@@ -1996,7 +2057,7 @@ class App:
             pu, pos = p['pu'], core.LCU_ROLE.get(p['pos'], '')
             out.append({'c': self.data.ids.get(str(p['champ'])), 'pos': pos, 'col': 0 if p['team'] == my_team else 1, 'pu': pu,
                         'me': bool(pu) and pu == mine, 'name': p['name'], 'ok': not pu or pu in self.hraw, 'rank': self.rank_pu.get(pu),
-                        'hist': core.summarize_history(self.hraw.get(pu), p['champ'], pos) if pu else None})
+                        'hist': self.player_history(pu, p['champ'], pos, p['name'])})
         self.q.put(('load', out, None, None))
 
     def on_loading(self, ps):
@@ -2034,7 +2095,11 @@ class App:
         self.root.after(300, self.drain)
 
     def on_me(self, me):
-        self.account, self.my_rank = me, me.get('rank')
+        self.account, self.my_rank = me, (me or {}).get('rank')
+        history=getattr(self,'history_view',None)
+        if history and history.winfo_exists(): history.account_changed(me)
+        if not me:
+            self.panel_sync(); return
         who = self.data.who_by_riot(me['riot'])
         if who and who != self.who:
             self.s['who'] = who; self.s.save(); self.set_who(who)
@@ -2043,6 +2108,10 @@ class App:
     def on_game(self, g, hints, result):
         first = self.last_game is None
         self.last_game, self.result = g, result or self.result
+        self.apply_visibility()
+        if not g.me:
+            self.status.configure(text='Ожидаю данные твоего игрока из клиента')
+            return
         if first:
             if not self.account:
                 who = self.data.who_by_riot(g.my_riot)
@@ -2059,8 +2128,8 @@ class App:
             elif mode == 'voice': self.voice.say(h.say)
         if hints: self.ov['hints'].show()
         if g.arena: self.arena_tick(g)
-        for k in ('perf', 'lane', 'gold', 'item', 'timers', 'arena', 'inventory'):
-            if not self.s['widgets'].get(k) or (g.arena and k in self.SR_ONLY) or (k == 'arena' and not g.arena): continue
+        for k in ('perf', 'lane', 'item', 'timers', 'arena', 'inventory'):
+            if not self.s['widgets'].get(k) or (not getattr(g,'sr',not g.arena) and k in self.SR_ONLY) or (k == 'arena' and not g.arena): continue
             try: self.ov[k].show(g)
             except Exception as e: log_error(f'виджет {k}', e)
         if self.dash and g.arena:
@@ -2086,7 +2155,7 @@ class App:
     def on_end(self):
         g = self.last_game
         if g and g.arena and self.s['postgame'] and self.hint_mode('postgame') != 'off': self.root.after(20000, self.arena_post)
-        if g and not g.arena and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
+        if g and g.me and getattr(g,'sr',not g.arena) and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
             res = core.postgame(self.engine, g, self.player)
             if res: show_postgame(self, res, self.result)
         self.last_game, self.result, self.engine, self.scout = None, None, None, {}
@@ -2101,6 +2170,7 @@ class App:
     # ---------------- Драфт ----------------
     def on_draft(self, cs):
         """Драфт целиком во втором окне (дашборд): карточки, линия, импорт, кого взять и банить."""
+        new_draft=self.draft is None and cs is not None
         self.draft = cs
         if cs is None:
             if self.phone_srv: self.phone_srv.state = {'mode': 'idle'}
@@ -2108,8 +2178,10 @@ class App:
             if self.dash and self.draft_sig not in (None, 'none'): self.dash.idle()
             self.draft_sig = 'none'
             self.imported = None; return
-        if not self.dash: self.open_dash()
-        sig = json.dumps([cs['role'], self.role_override, cs['me'], cs['enemies'], sorted(cs['unavailable']), len(self.lola), [(a['c'], bool(a['rank']), bool(a.get('hist'))) for a in cs.get('allies', [])]], default=str)
+        if not self.dash:self.open_dash()
+        elif new_draft and getattr(self.dash,'_manual_hidden',False):
+            self.dash._manual_hidden=False;self.dash.deiconify()
+        sig = json.dumps([cs['role'], self.role_override, self.s.get('draft_scope'), cs.get('locked'), cs['me'], cs['enemies'], sorted(cs['unavailable']), len(self.lola), [(a['c'], bool(a['rank']), a.get('hist')) for a in cs.get('allies', [])]], default=str)
         if sig == self.draft_sig: return
         self.draft_sig = sig
         p, d = self.player, self.data
@@ -2128,10 +2200,13 @@ class App:
             except Exception as e: log_error('второе окно: ARAM', e)
             self.phone_draft(cs, {'role': 'ARAM', 'picks': [], 'opp': None}, [])
             auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
-            if auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
+            if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
             return
-        r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'])
+        r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'], scope=self.s.get('draft_scope', 'pool'))
         r['role'], r['how'] = role, how
+        export_target = (cs['me'], role, self.s.get('draft_build_context'), r.get('opp') if self.s.get('draft_build_context') == 'matchup' else None)
+        if getattr(self, '_draft_export_target', None) != export_target:
+            self.imported = None; self._draft_export_target = export_target
         for a in cs.get('allies') or []:
             if a.get('me') and (not a.get('pos') or a.get('auto')): a['pos'], a['auto'] = role, True
         pool = core.ban_pool(p, role)
@@ -2141,7 +2216,7 @@ class App:
         except Exception as e: log_error('второе окно: драфт', e)
         self.phone_draft(cs, r, bans)
         auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
-        if auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
+        if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
 
     def draft_role(self, cs):
         """Линия для подсказок: выбранная вручную, назначенная клиентом или основная линия игрока."""
@@ -2170,18 +2245,130 @@ class App:
         return up.lower(), TIER_RU[up]
 
     def tier_bench(self, champ, role):
-        """Средние ранга выше на чемпионе и роли (lolalytics, грузится в фоне): CS, золото и KDA в минуту за ~28 минут игры."""
+        """Подтверждённые средние ранга выше; длительность матча не угадывается."""
         slug, name = self.next_tier()
         if not slug or role not in core.ROLES: return None
         b = self.lola_fetch('tier_' + slug, champ, role)
         if not b: return None
-        return {'tier': name, 'csm': b['cs'] / 28, 'gpm': b['g'] / 28, 'kda': (b['k'] + b['a']) / max(.1, b['d'])}
+        return {'tier':name,**performance_model.benchmark(b)}
 
     def role_pil(self, role, k=.5):
         """Значок роли в золоте для карточек виджетов (PIL)."""
         if Image is None or not role: return None
         im = self.icons._pil('role', role)
         return render.tint(im, C['gold'], max(10, int(self.s['icon'] * k * self.s['scale'] / 100))) if im else None
+
+    def ensure_skill_icons(self, champion):
+        """Load the selected champion's official Data Dragon spell images off the Tk thread."""
+        import re
+        keys = [champion+letter for letter in 'QWER']
+        if all(key in self.icons.a.get('skill', {}) for key in keys): return
+        version = str(self.icons.a.get('v') or '')
+        if not re.fullmatch(r'\d+\.\d+\.\d+', version) or not re.fullmatch(r'[A-Za-z0-9]+', champion): return
+        if not hasattr(self, '_skill_loading'): self._skill_loading = set()
+        if champion in self._skill_loading: return
+        self._skill_loading.add(champion)
+        path = os.path.join(self.home, 'skills', version, champion+'.json')
+        def job():
+            images = {}
+            try:
+                try:
+                    with open(path, encoding='utf-8') as source: images = json.load(source)
+                except (OSError, ValueError): pass
+                if not all(images.get(key) for key in keys):
+                    base = 'https://ddragon.leagueoflegends.com/cdn/'+version
+                    with urllib.request.urlopen(base+'/data/en_US/champion/'+champion+'.json', timeout=15) as response:
+                        spells = json.load(response)['data'][champion]['spells']
+                    if len(spells) != 4: raise ValueError('Нет четырёх умений чемпиона')
+                    for key, spell in zip(keys, spells):
+                        filename = spell['image']['full']
+                        if not re.fullmatch(r'[A-Za-z0-9_.-]+', filename): raise ValueError('Некорректное имя изображения')
+                        with urllib.request.urlopen(base+'/img/spell/'+filename, timeout=15) as response:
+                            images[key] = base64.b64encode(response.read()).decode('ascii')
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path+'.tmp', 'w', encoding='utf-8') as output: json.dump(images, output)
+                    os.replace(path+'.tmp', path)
+            except Exception as error: log_error('иконки умений '+champion, error)
+            def done():
+                if not images: return
+                self.icons.a.setdefault('skill', {}).update(images)
+                for key in list(self.icons.raw):
+                    if key[0] == 'skill' and key[1] in images: self.icons.raw.pop(key, None)
+                self.redraw_draft()
+            try: self.root.after(0, done)
+            except (RuntimeError, tk.TclError): pass
+        threading.Thread(target=job, daemon=True, name='skill-images').start()
+
+    def draft_opponent(self, cs, role):
+        roles = core.guess_enemy_roles(self.data, cs.get('enemies') or [])
+        return next((champ for champ, lane in roles.items() if lane == role), None)
+
+    def selected_draft_build(self, cs=None):
+        cs = cs or self.draft
+        if not cs or not cs.get('me'): return None
+        role = self.draft_role(cs)[0]
+        context=self.s.get('draft_build_context','general') if role in core.ROLES else 'general'
+        if context=='matchup':return self.lola_matchup(cs['me'],role,self.draft_opponent(cs,role))
+        if context=='offmeta' or context.startswith('player:'):
+            from draft_external import selected
+            return selected(context,cs['me'],role,self.offmeta_build(cs['me'],role) if context=='offmeta' else None,
+                            self.player_builds(cs['me'],role) if context.startswith('player:') else None)
+        return self.lola_build(cs['me'],role)
+
+    def set_draft_build(self, context, variant):
+        if context not in ('general','matchup','offmeta') and not (context.startswith('player:') and context[7:].isdigit()):return
+        if variant not in ('pick','win') or (context not in ('general','matchup') and variant!='pick'):return
+        self.s['draft_build_context'] = context
+        self.s['rune_pick']=variant
+        if self.draft and self.draft.get('me'):
+            role=self.draft_role(self.draft)[0]
+            self._chosen_draft_build=(self.draft['me'],role,context,self.selected_draft_build(self.draft))
+        self.set_rune_pick(variant)
+
+    def lola_matchup(self, champion, role, opponent):
+        """Public matchup page only. Cache includes both champions and the verified source context."""
+        if not champion or not opponent or role not in core.ROLES: return None
+        key = ('matchup', champion, role, opponent)
+        if key in self.lola: return self.lola[key]
+        if self.lola_state.get(key): return None
+        self.lola_state[key] = 'loading'
+        path = os.path.join(self.home, 'lola', f'matchup_v1_{champion}_{role}_{opponent}.json')
+        def valid(value):
+            meta = (value or {}).get('matchup') or {}
+            return (meta.get('champion'), meta.get('role'), meta.get('opponent'), meta.get('region')) == (champion, role, opponent, 'all')
+        def job():
+            import matchup_data
+            value, saved = None, None
+            try:
+                try:
+                    with open(path, encoding='utf-8') as source: saved = json.load(source)
+                    if not valid(saved): saved = None
+                except (OSError, ValueError): pass
+                if saved and time.time()-saved.get('fetched_at',0) < 12*3600:
+                    value = saved
+                else:
+                    req = urllib.request.Request(matchup_data.url(champion, role, opponent), headers={'User-Agent':'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=20) as response: html = response.read().decode('utf-8')
+                    value = matchup_data.parse(html, champion, role, opponent, self.data)
+                    if value:
+                        value['fetched_at'] = time.time()
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        with open(path+'.tmp', 'w', encoding='utf-8') as output: json.dump(value, output)
+                        os.replace(path+'.tmp', path)
+                    else: raise ValueError('Источник не подтвердил состав, роль или выборку матчапа')
+            except Exception as error:
+                log_error(f'сборка {champion} против {opponent}, {role}', error)
+                if saved:
+                    value = dict(saved, stale=True)
+            def done():
+                if value: self.lola[key] = value
+                self.lola_state[key] = 'ok' if value else 'fail'
+                self.redraw_draft()
+                if getattr(self,'cp_sel',None)==(champion,role): self.cp_show()
+            try: self.root.after(0, done)
+            except (RuntimeError, tk.TclError): pass
+        threading.Thread(target=job, daemon=True, name='matchup-build').start()
+        return None
 
     def lola_build(self, champ, role):
         """Руны и сборка по Европе (lolalytics, EUW Изумруд+). Нет в памяти — грузим в фоне и перерисовываем драфт."""
@@ -2281,8 +2468,24 @@ class App:
                 out.append(('Тебе с ним из пула', [(x, f'({v:+.1f})', 'good' if v > .5 else 'fg') for v, x in pool[:4]]))
         return out
 
+    def set_draft_scope(self, scope):
+        self.s['draft_scope'] = scope
+        self.s.save()
+        self.draft_sig = None
+        if self.dash: self.dash.draft_sig = None
+        if self.draft: self.on_draft(self.draft)
+
+    def set_import_part(self, key):
+        self.s['auto_parts'][key] = self.auto_vars[key].get()
+        self.s.save()
+        self.imported = None
+        self.draft_sig = None
+        if self.dash: self.dash.draft_sig = None
+        if self.draft: self.on_draft(self.draft)
+
     def set_draft_role(self, role):
         self.role_override = role
+        self.imported = None
         self.draft_sig = None
         if self.dash: self.dash.draft_sig = None
         if self.draft: self.on_draft(self.draft)
@@ -2372,48 +2575,122 @@ class App:
             except tk.TclError: pass
 
     def do_import(self, parts=('runes', 'items', 'spells')):
-        """Импорт в клиент: руны, наборы предметов и заклинания призывателя. parts — что именно (для автоимпорта по галкам)."""
-        cs, p = self.draft, self.player
-        if not cs or not cs['me'] or not p:
-            self.set_import_msg('Сначала выбери чемпиона'); return
-        me = cs['me']
-        eu = self.lola_build(me, self.draft_role(cs)[0])
-        ev = (eu.get(self.s['rune_pick']) or eu) if eu else None
-        out = []
-        def attempt(name, fn):
-            self.client.last_error = ''
-            try: ok = fn()
-            except Exception as e: ok = False; self.client.last_error = self.client.last_error or repr(e)
-            out.append(f"{name}: {'готово' if ok else 'не получилось' + (f' ({self.client.last_error})' if self.client.last_error else '')}")
-            if not ok: log_error(f'импорт {name}, {me}', self.client.last_error or 'клиент ответил отказом без текста ошибки')
-        if 'runes' in parts:
-            def runes():
-                if ev: return self.client.set_runes(self.data.cn(me), ev['prim'], ev['sec'], ev['perks'], ev['shards'] if len(ev['shards']) == 3 else None)
-                ru = p.best_runes(me)
-                return bool(ru) and self.client.set_runes(self.data.cn(me), ru['prim'], ru['sec'], ru['perks'])
-            src = ('по Европе, ' + ('лучший винрейт' if self.s['rune_pick'] == 'win' else 'популярные')) if eu else 'из твоих игр'
-            attempt(f'Руны ({src})', runes)
-        if 'items' in parts:
-            def items():
-                acc = self.account or self.client.me() or {}
-                cid = next((k for k, v in self.data.ids.items() if v == me), None)
-                if eu: sets = core.lola_item_sets(eu, self.data.cn(me))
-                else: sets = [(self.data.cn(me), [('Сборка из твоих побед', p.best_build(me)), ('Тотемы', [2055, 3340, 3364])])]
-                return bool(cid and sets[0][1][0][1]) and self.client.set_items(acc.get('id'), cid, sets, None)
-            attempt('Предметы (2 набора)' if eu else 'Предметы', items)
-        if 'spells' in parts and ev and ev.get('spells'):
-            ids = [core.SPELL_ID.get(x) for x in ev['spells'][:2]]
-            attempt('Заклинания (' + ', '.join(core.SPELL_RU.get(x, x) for x in ev['spells'][:2]) + ')',
-                    lambda: None not in ids and self.client.set_spells(*ids))
-        self.imported = me
-        msg = ' · '.join(out)
-        self.set_import_msg(msg)
-        try:
-            with open(os.path.join(self.home, 'import.log'), 'a', encoding='utf-8') as f: f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + me + ' ' + msg + '\n')
-        except Exception: pass
+        """Snapshot the chosen variant in Tk, serialize client mutations in a worker."""
+        cs, player = self.draft, self.player
+        if not cs or not cs.get('me') or not player:
+            self.set_import_msg('Сначала выбери чемпиона в драфте'); return
+        parts = tuple(k for k in parts if k in ('runes', 'items', 'spells'))
+        if not parts:
+            self.set_import_msg('Выбери, что экспортировать: руны, предметы или заклинания'); return
+        me, role = cs['me'], self.draft_role(cs)[0]
+        context = self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general'
+        opponent = self.draft_opponent(cs, role) if context == 'matchup' else None
+        full = self.selected_draft_build(cs)
+        if context!='general' and not full:
+            self.set_import_msg('Выбранная сборка ещё не подтверждена или не загружена. Экспорт не выполнен.');return
+        if context == 'matchup' and not full.get(self.s['rune_pick']):
+            self.set_import_msg('Выбранный вариант матчапа недоступен. Экспорт не выполнен.'); return
+        variant = (full.get(self.s['rune_pick']) or full) if full else None
+        signature = (me, role, self.s['rune_pick'], parts, context, opponent)
+        if getattr(self, '_import_pending', None) == signature: return
+        self._import_pending = signature
+        self._import_generation = getattr(self, '_import_generation', 0) + 1
+        generation = self._import_generation
+        if not hasattr(self, '_import_lock'): self._import_lock = threading.Lock()
+        name, client = self.data.cn(me) + (' против ' + self.data.cn(opponent) if opponent else ''), self.client
+        account = dict(self.account or {})
+        cid = next((key for key, value in self.data.ids.items() if value == me), None)
+        chosen = self.s['rune_pick']
+        # Copy data before starting a worker; no Tk/settings calls in the worker.
+        variant = json.loads(json.dumps(variant)) if variant else None
+        personal_runes = player.best_runes(me) if not variant else None
+        if full and full.get('external'):
+            sets=core.lola_item_sets(dict(variant,situ=full.get('situ',[])),name)[:1]
+            sets=[(name+': '+full['external']+' · '+full.get('external_name','выбранный вариант'),sets[0][1])]
+        elif full:sets=core.lola_item_sets(full,name)
+        else:sets=[(name,[('Сборка из твоих побед',player.best_build(me)),('Тотемы',[2055,3340,3364])])]
+        if full and chosen == 'win': sets.reverse()
+        sets = json.loads(json.dumps(sets))
+        log_path = os.path.join(self.home, 'import.log') if getattr(self, 'home', None) else None
+        source = ((('Против ' + self.data.cn(opponent) + ', все регионы') if opponent else 'Европа') + ', ' + ('лучший винрейт' if chosen == 'win' else 'популярная')) if full else 'из твоих игр'
+        if full and full.get('external'):source=full['external']+' · патч '+str(full.get('patch') or '—')
+        self.set_import_msg('Экспортирую выбранные данные…')
+
+        def current():
+            draft = self.draft or {}
+            return (self._import_generation == generation and draft.get('me') == me
+                    and self.draft_role(draft)[0] == role and self.s['rune_pick'] == chosen
+                    and (self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general') == context
+                    and (context != 'matchup' or self.draft_opponent(draft, role) == opponent)
+                    and not self.last_game)
+
+        def job():
+            results = []
+            with self._import_lock:
+                for part in parts:
+                    if not current(): break
+                    client.last_error = ''
+                    try:
+                        if part == 'runes':
+                            runes = variant or personal_runes
+                            ok = bool(runes) and client.set_runes(name, runes['prim'], runes['sec'], runes['perks'],
+                                        runes.get('shards') if len(runes.get('shards') or []) == 3 else None)
+                        elif part == 'items':
+                            acc = account or client.me() or {}
+                            ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(acc.get('id'), cid, sets, None)
+                        else:
+                            spells = (variant or {}).get('spells') or []
+                            ids = [core.SPELL_ID.get(spell) for spell in spells[:2]]
+                            ok = len(ids) == 2 and None not in ids and client.set_spells(*ids)
+                        error = client.last_error or ('нет подходящих данных' if not ok else '')
+                    except Exception as exc:
+                        ok, error = False, str(exc)
+                    title = {'runes': 'Руны', 'items': 'Предметы', 'spells': 'Заклинания'}[part]
+                    results.append((ok, title + (': готово' if ok else ': не получилось (' + error + ')')))
+                    if not ok: log_error('импорт ' + title, error)
+            def done():
+                if self._import_generation != generation: return
+                self._import_pending = None
+                if not current():
+                    self.set_import_msg('Экспорт остановлен: выбор изменился или драфт завершён'); return
+                success = len(results) == len(parts) and all(ok for ok, _ in results)
+                self.imported = me if success else None
+                message = source + ' · ' + ' · '.join(text for _, text in results)
+                self.set_import_msg(message)
+                if log_path:
+                    try:
+                        with open(log_path, 'a', encoding='utf-8') as output:
+                            output.write(time.strftime('%Y-%m-%d %H:%M:%S ') + me + ' ' + message + '\n')
+                    except OSError: pass
+            try: self.root.after(0, done)
+            except (RuntimeError, tk.TclError): pass
+        threading.Thread(target=job, daemon=True, name='draft-import').start()
 
     # --- клавиши и Tab
     def keys(self):
+        try:
+            self._poll_keys()
+        except Exception as error:
+            self._recover_overlays(error)
+        finally:
+            try:self.root.after(40, self.keys)
+            except (tk.TclError,RuntimeError):pass
+
+    def _recover_overlays(self,error):
+        log_error('клавиши и виджеты',error)
+        self.demo_on=False
+        self._demo_epoch=getattr(self,'_demo_epoch',0)+1
+        self.keys_prev.update(tab=False,drag=False)
+        for window in list(self.tab.values())+list(self.ov.values()):
+            try:
+                window.withdraw()
+                window.unlocked=False
+                click_through(window,True)
+            except Exception:pass
+        try:self.demo_btn.configure(text='Показать все виджеты для расстановки')
+        except (AttributeError,tk.TclError):pass
+
+    def _poll_keys(self):
         k = self.s['keys']
         for name in ('mute', 'hide'):
             down = combo_down(k.get(name))
@@ -2427,7 +2704,10 @@ class App:
         drag = bool(combo_down(k.get('drag')) and self.last_game and not self.hidden and game_focused()) or self.demo_on   # Alt двигает виджеты только в игре
         tab_down = combo_down(k.get('scoreboard'))
         focused = game_focused()
-        tab = self.s['scoreboard'] and self.last_game and not self.last_game.arena and not self.hidden and tab_down and focused
+        tab = bool(self.s['scoreboard'] and self.last_game and self.last_game.me and not self.last_game.arena and not self.hidden and tab_down and focused)
+        if not tab and not self.demo_on:
+            for w in self.tab.values():
+                if w.winfo_viewable():w.withdraw()
         for w in self.tab.values():
             if tab_down and self.s.get('tab_auto'):
                 reason = ('включите оверлей таблицы Tab' if not self.s['scoreboard'] else
@@ -2442,44 +2722,70 @@ class App:
         if drag != self.keys_prev.get('drag'):
             self.set_unlocked(drag)
             self.keys_prev['drag'] = drag
-        if drag:
-            if self.s['scoreboard']:
-                for w in self.tab.values(): w.refresh_geometry()
-            else:
-                for w in self.tab.values(): w.withdraw()
-            return self.root.after(40, self.keys)
+        if self.demo_on:
+            for w in self.tab.values():
+                if not self.s['scoreboard']:w.withdraw()
+                elif w.winfo_viewable():w.refresh_geometry()
+            self.keys_prev['tab']=False
+            return
         if tab:
-            for w in self.tab.values(): w.refresh_geometry()
+            for w in self.tab.values():
+                if w.unlocked!=drag:w.unlock(drag)
+                w.refresh_geometry()
             if not self.keys_prev.get('tab') or time.time() - self.keys_prev.get('tab_t', 0) > 1:
                 for w in self.tab.values():
                     try: w.show(self.last_game); w.deiconify()
                     except Exception as e: log_error('Tab', e)
                 self.keys_prev['tab_t'] = time.time()
-        elif self.keys_prev.get('tab'):
-            for w in self.tab.values(): w.withdraw()
+        else:
+            for w in self.tab.values():
+                if w.winfo_viewable():w.withdraw()
         self.keys_prev['tab'] = bool(tab)
-        self.root.after(40, self.keys)
 
-    def set_unlocked(self, on):
+    def set_unlocked(self, on, keys=None):
         """Расстановка виджетов; у Tab мышь принимает только отдельная ручка."""
         if on and self.hidden and not self.demo_on: return
-        wins = dict(self.tab if self.s['scoreboard'] else {}, **self.ov)   # рамка Tab снизу, виджеты поверх неё
-        for key, w in wins.items():
-            w.unlock(on)
-            if not on: continue
-            if key in self.ov and not self.s['widgets'].get(key): continue
-            try:
-                if self.last_game and key != 'hints': w.show(self.last_game)
-                else: w.demo()
-            except Exception: w.demo()
-            w.deiconify(); w.lift()
         if not on:
-            for w in self.tab.values(): w.withdraw()
-            self.apply_visibility(); self.ov['hints'].show()
+            for w in self.tab.values():w.withdraw()
+        wins=dict(self.tab,**self.ov)
+        for key,w in wins.items():
+            if keys is not None and key not in keys:continue
+            enabled=self.s['scoreboard'] if key in self.tab else self.s['widgets'].get(key)
+            if not enabled:
+                w.withdraw();w.unlock(False);continue
+            if on and key in self.tab and not self.demo_on and not combo_down(self.s['keys'].get('scoreboard')):
+                w.withdraw();w.unlock(False);continue
+            w.unlock(on)
+            if not on:continue
+            if self.last_game and self.last_game.me and key!='hints':w.show(self.last_game)
+            else:w.demo()
+            w.deiconify();w.lift()
+        if not on:
+            self.apply_visibility();self.ov['hints'].show()
 
     def toggle_demo(self):
-        self.demo_on = not self.demo_on
-        self.demo_btn.configure(text='Готово, закрепить виджеты' if self.demo_on else 'Показать все виджеты для расстановки')
+        self.demo_on=not self.demo_on
+        self._demo_epoch=getattr(self,'_demo_epoch',0)+1
+        epoch=self._demo_epoch
+        self.demo_btn.configure(text='Завершить расстановку (Esc)' if self.demo_on else 'Показать все виджеты для расстановки')
+        self.keys_prev['drag']=self.demo_on
+        if not self.demo_on:
+            self.set_unlocked(False)
+            return
+        pending=iter(list(self.tab)+list(self.ov))
+        def show_next():
+            if not self.demo_on or epoch!=self._demo_epoch:return
+            key=next(pending,None)
+            if key is None:return
+            try:self.set_unlocked(True,keys=(key,))
+            except Exception as error:self._recover_overlays(error);return
+            self.root.after(16,show_next)
+        self.root.after(0,show_next)
+
+    def stop_demo(self,event=None):
+        if self.demo_on:
+            self.toggle_demo()
+            return 'break'
 
     def tick_ui(self):
         self.ov['hints'].show()
@@ -2487,7 +2793,7 @@ class App:
 
     # ---------------- Панель управления ----------------
     NAV = [('Главная', 'home'), ('История матчей', 'list'), ('Чемпион', 'search'), ('Подсказки', 'bulb'), ('Виджеты и окна', 'window'), ('Вид', 'look'),
-           ('Звук', 'sound'), ('Клавиши', 'keys'), ('Таймеры', 'clock'), ('Обновления', 'update')]
+           ('Звук', 'sound'), ('Клавиши', 'keys'), ('Таймеры', 'clock'), ('Обновления', 'update'), ('Мой пул', 'pool')]
     NAV_GROUPS = {0: 'Игра', 3: 'Настройки'}   # подписи групп перед пунктами меню
 
     def build_panel(self):
@@ -2516,17 +2822,21 @@ class App:
         self.tab_hints = self.page('Подсказки'); self.tab_win = self.page('Окна'); self.tab_look = self.page('Вид')
         self.tab_voice = self.page('Звук'); self.tab_keys = self.page('Клавиши')
         self.tab_time = self.page('Таймеры'); self.tab_upd = self.page('Обновления')
-        for i, (name, ic) in enumerate(self.NAV[:-1]):
+        self.tab_pool = self.page('Мой пул', scroll=False)
+        for i in (0, 1, 10, 2, 3, 4, 5, 6, 7, 8):
+            name, ic = self.NAV[i]
             if i in self.NAV_GROUPS:
                 tk.Label(rail, text=self.NAV_GROUPS[i].upper(), bg=C['deep'], fg=C['mute'], font=(F['num'], self.fs(9)), anchor='w').pack(fill='x', padx=8, pady=(10 if i else 0, 2))
             self.nav_item(rail, i, name, ic)
         tk.Frame(rail, bg=C['deep']).pack(fill='both', expand=True)
         low = tk.Frame(rail, bg=C['deep']); low.pack(fill='x', side='bottom')
         tk.Label(low, text=self.version, bg=C['deep'], fg=C['mute'], font=(F['num'], self.fs(9))).pack(side='right', padx=(0, 6))
-        self.nav_item(low, len(self.NAV) - 1, self.NAV[-1][0], self.NAV[-1][1])
+        self.nav_item(low, 9, self.NAV[9][0], self.NAV[9][1])
         self.nb.bind('<<NotebookTabChanged>>', lambda e: self.nav_sync())
         self.build_status(); self.build_history(); self.build_champ(); self.build_hints(); self.build_windows(); self.build_look()
         self.build_voice(); self.build_keys(); self.build_timers(); self.build_updates()
+        from pool_ui import PoolScreen
+        self.pool_view = PoolScreen(self.tab_pool, self)
         if getattr(self, 'upd', None): self.update_state(*self.upd)
 
     def logo_img(self):
@@ -2544,12 +2854,12 @@ class App:
         lb.bind('<Button-1>', lambda e, i=i: self.nb.select(i))
         lb.bind('<Enter>', lambda e: lb.configure(bg=C['panel']) if lb.cget('fg') != C['gold'] else None)
         lb.bind('<Leave>', lambda e: self.nav_sync())
-        self.nav_items.append((lb, icons))
+        self.nav_items.append((i, lb, icons))
 
     def nav_sync(self):
         try: cur = self.nb.index('current')
         except Exception: return
-        for i, (lb, icons) in enumerate(self.nav_items):
+        for i, lb, icons in self.nav_items:
             on = i == cur
             lb.configure(bg=C['raise'] if on else C['deep'], fg=C['gold'] if on else C['fg'])
         self.page_title.configure(text=self.NAV[cur][0].upper())
@@ -2558,12 +2868,12 @@ class App:
         """Вкладка панели; с прокруткой колесом мыши, если содержимое не помещается."""
         outer = tk.Frame(self.nb, bg=C['bg'], padx=14, pady=6); self.nb.add(outer, text=name)
         if not scroll: outer.outer = outer; return outer
-        cv = tk.Canvas(outer, bg=C['bg'], highlightthickness=0); sb = ttk.Scrollbar(outer, orient='vertical', command=cv.yview)
+        cv = ScrollCanvas(outer, bg=C['bg'], highlightthickness=0); sb = ttk.Scrollbar(outer, orient='vertical', command=cv.yview)
         inner = tk.Frame(cv, bg=C['bg'])
-        inner.bind('<Configure>', lambda e: (cv.configure(scrollregion=cv.bbox('all')),
-                                             sb.pack(side='right', fill='y') if inner.winfo_reqheight() > cv.winfo_height() else sb.pack_forget()))
+        sb.pack(side='right', fill='y')
+        inner.bind('<Configure>', lambda e: cv.configure(scrollregion=cv.bbox('all')))
         win = cv.create_window((0, 0), window=inner, anchor='nw'); cv.configure(yscrollcommand=sb.set)
-        cv.bind('<Configure>', lambda e: cv.itemconfigure(win, width=e.width))
+        cv.bind('<Configure>', lambda e: cv.itemconfigure(win, width=e.width), add='+')
         cv.pack(side='left', fill='both', expand=True)
         self.__dict__.setdefault('canvases', {})[str(outer)] = cv
         if not getattr(self, '_wheel', False):
@@ -2573,14 +2883,19 @@ class App:
                 except Exception: top = None
                 if self.dash and top is self.dash: c = self.dash.cv   # колесо над вторым окном — крутим его
                 else: c = self.canvases.get(self.nb.select())
-                if c and c.winfo_exists() and c.bbox('all') and c.bbox('all')[3] > c.winfo_height(): c.yview_scroll(-e.delta // 120, 'units')
+                if c and c.winfo_exists() and top is c.winfo_toplevel() and c.bbox('all') and c.bbox('all')[3] > c.winfo_height(): return c.wheel(e)
             self.root.bind_all('<MouseWheel>', wheel)
+            self.root.bind_all('<Button-4>', wheel)
+            self.root.bind_all('<Button-5>', wheel)
         inner.outer = outer
         return inner
 
-    def h(self, parent, text): ttk.Label(parent, text=text.upper(), style='H.TLabel').pack(anchor='w', pady=(12, 4))
+    def h(self, parent, text): ttk.Label(parent, text=text, style='H.TLabel').pack(anchor='w', pady=(20, 9))
 
-    def note(self, parent, text): ttk.Label(parent, text=text, style='M.TLabel', wraplength=self.fs(660), justify='left').pack(anchor='w')
+    def note(self, parent, text):
+        label=ttk.Label(parent,text=text,style='M.TLabel',wraplength=self.fs(660),justify='left')
+        label.pack(anchor='w',pady=(0,6))
+        parent.bind('<Configure>',lambda e:label.configure(wraplength=max(self.fs(220),e.width-self.fs(24))) if label.winfo_exists() else None,add='+')
 
     def reset_btn(self, parent, section, label='По умолчанию'):
         """Кнопка сброса раздела настроек к значениям по умолчанию."""
@@ -2594,185 +2909,88 @@ class App:
 
     # ---------------- История матчей ----------------
     def build_history(self):
-        f = self.tab_hist
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', fill='x')
-        ttk.Button(row, text='Обновить', command=self.hist_refresh).pack(side='left')
-        ttk.Button(row, text='Сайт со статистикой', command=self.open_site).pack(side='left', padx=8)
-        self.hist_msg = self.dl(row, '', 'mute', 10); self.hist_msg.pack(side='left', padx=8)
-        self.note(f, 'Последние игры из клиента. Нажми на игру — откроются обе команды и короткий разбор. '
-                     'LP за игру программа видит, только если была запущена до и после неё.')
-        self.hist_box = tk.Frame(f, bg=C['bg']); self.hist_box.pack(anchor='w', fill='x', pady=(6, 0))
+        from history_ui import HistoryScreen
         self.hist_data = []
-        self.root.after(4000, self.hist_refresh)
+        self.history_view = HistoryScreen(self.tab_hist,self)
+        self.root.after(4000,self.hist_refresh)
 
     # --- страница чемпиона вне драфта (как у U.GG и Mobalytics): сборка, умения, матчапы и твоя статистика
     def build_champ(self):
-        f = self.tab_champ
-        names = sorted(((self.data.cn(k), k) for k in self.data.ids.values()), key=lambda x: x[0])
-        self.cp_names = dict(names)
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', fill='x')
-        self.cp_var = tk.StringVar()
-        cb = ttk.Combobox(row, textvariable=self.cp_var, values=[n for n, _ in names], width=24); cb.pack(side='left')
-        def typed(e=None):   # поиск по первым буквам
-            q = self.cp_var.get().strip().lower()
-            cb.configure(values=[n for n, _ in names if q in n.lower()] or [n for n, _ in names])
-        cb.bind('<KeyRelease>', typed)
-        cb.bind('<<ComboboxSelected>>', lambda e: self.cp_pick(self.cp_names.get(self.cp_var.get()), None))
-        cb.bind('<Return>', lambda e: self.cp_pick(next((k for n, k in names if n.lower().startswith(self.cp_var.get().strip().lower())), None), None))
-        self.cp_roles = tk.Frame(row, bg=C['bg']); self.cp_roles.pack(side='left', padx=12)
-        self.note(f, 'Найди чемпиона: руны, сборка и умения по Европе (Изумруд+, lolalytics), сложные и удобные матчапы, твоя статистика на нём.')
-        self.cp_box = tk.Frame(f, bg=C['bg']); self.cp_box.pack(fill='x', pady=(8, 0))
+        from champion_ui import ChampionScreen
         self.cp_sel = None
+        self.champion_view = ChampionScreen(self.tab_champ,self)
+        self.cp_var = self.champion_view.query
 
-    def cp_pick(self, champ, role):
-        if not champ: return
-        role = role or self.data.role_of_champ(champ) or 'TOP'
-        self.cp_sel = (champ, role)
-        for w in self.cp_roles.winfo_children(): w.destroy()
-        for r in core.ROLES:
-            on = r == role
-            b = tk.Label(self.cp_roles, text=core.ROLE_RU[r].capitalize(), bg=C['gold'] if on else C['panel'], fg=C['on_gold'] if on else C['mute'],
-                         font=(F['font'], self.fs(10), 'bold'), padx=self.fs(10), pady=self.fs(3), cursor='hand2')
-            b.pack(side='left', padx=1); b.bind('<Button-1>', lambda e, r=r: self.cp_pick(champ, r))
-        self.cp_show()
+    def cp_pick(self, champ, role=None):
+        self.champion_view.choose(champ,role)
 
     def cp_show(self):
-        if not self.cp_sel: return
-        champ, role = self.cp_sel
-        box, d, fn, fs = self.cp_box, self.data, F['font'], self.fs
-        full = self.lola_fetch('build', champ, role)
-        cnt = core.lola_counters(self.lola_fetch('counter', champ, role), d)
-        def draw():
-            for w in box.winfo_children(): w.destroy()
-            hd = self.card(box, C['raise'], (16, 12)); hd.pack(fill='x')
-            tk.Label(hd, image=self.img('champ', champ, 1.6) or '', bg=C['raise']).pack(side='left', padx=(0, 14))
-            mid = tk.Frame(hd, bg=C['raise']); mid.pack(side='left')
-            tk.Label(mid, text=d.cn(champ), bg=C['raise'], fg=C['fg'], font=(F['num'], fs(20), 'bold')).pack(anchor='w')
-            eu = f"Европа, Изумруд+: {full['wr']:.1f}% · {full['games']} игр" if full and full.get('wr') and full.get('games') else 'Европа, Изумруд+: загружаю…'
-            tk.Label(mid, text=f'{core.ROLE_RU[role]} · {eu}', bg=C['raise'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
-            if self.player:
-                gs = self.player.on(champ)
-                if gs:
-                    w = sum(g['w'] for g in gs); kda = sum((g['k'] or 0) + (g['a'] or 0) for g in gs) / max(1, sum(g['d'] or 0 for g in gs))
-                    tk.Label(mid, text=f'Ты: {len(gs)} игр, {w}–{len(gs) - w} ({w / len(gs) * 100:.0f}%), KDA {kda:.1f}', bg=C['raise'], fg=C['gold'],
-                             font=(fn, fs(10), 'bold')).pack(anchor='w')
-            col = tk.Frame(box, bg=C['bg']); col.pack(fill='x')
-            from types import SimpleNamespace
-            Dashboard.build_box(SimpleNamespace(app=self), col, champ, full, role)
-            if cnt:
-                rows = sorted(cnt.items(), key=lambda kv: kv[1][0])
-                grid = tk.Frame(box, bg=C['bg']); grid.pack(fill='x', pady=(10, 0))
-                for i, (title, part, colr) in enumerate((('Сложные матчапы', rows[:6], 'bad'), ('Удобные матчапы', rows[::-1][:6], 'good'))):
-                    c = self.card(grid); c.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 10, 0)); grid.columnconfigure(i, weight=1, uniform='m')
-                    self.cap(c, title).pack(anchor='w', pady=(0, 4))
-                    for e, (wr, d2, n) in part:
-                        tk.Label(c, text=f'  {d.cn(e)}   {wr:.1f}% · {n} игр', image=self.img('champ', e, .6) or '', compound='left', bg=C['panel'],
-                                 fg=C[colr], font=(fn, fs(10), 'bold'), anchor='w').pack(anchor='w', pady=1)
-            else:
-                self.dl(box, 'Матчапы: ' + ('не удалось загрузить lolalytics' if self.lola_state.get(('counter', champ, role)) == 'fail' else 'загружаю…'), 'mute', 10).pack(anchor='w', pady=(8, 0))
-        no_flicker(self.root, draw)
+        view=getattr(self,'champion_view',None)
+        if view and view.winfo_exists():view.refresh()
 
-    def lp_snaps(self, rank=None):
+    def external_build_ready(self,champion,role):
+        if self.cp_sel==(champion,role):self.cp_show()
+        if self.draft and self.draft.get('me')==champion and self.draft_role(self.draft)[0]==role:
+            self.draft_sig=None
+            self._chosen_draft_build=(champion,role,self.s.get('draft_build_context','general'),self.selected_draft_build(self.draft))
+            if self.dash:self.dash.draft_sig=None
+            self.on_draft(self.draft)
+
+    def offmeta_build(self,champion,role):
+        from offmeta_source import OffmetaSource
+        if not hasattr(self,'_offmeta_source'):
+            self._offmeta_source=OffmetaSource(self.home,self.root.after,
+                self.external_build_ready)
+        return self._offmeta_source.get(champion,role)
+
+    def player_builds(self,champion,role):
+        from player_build_source import PlayerBuildSource
+        if not hasattr(self,'_player_build_source'):
+            self._player_build_source=PlayerBuildSource(self.home,self.root.after,
+                self.external_build_ready)
+        return self._player_build_source.get(champion,role)
+
+    def lp_snaps(self, rank=None, puuid=None):
         """Снимки звания [время мс, ladder] в %APPDATA%/LoLHelper/lp.json; с rank — дописать новый, если LP изменились."""
-        path = os.path.join(self.home, 'lp.json')
-        try: snaps = json.load(open(path, encoding='utf-8'))
-        except Exception: snaps = []
+        import hashlib
+        name = 'lp-'+hashlib.sha256(puuid.encode()).hexdigest()[:16]+'.json' if puuid else 'lp.json'
+        path = os.path.join(self.home,name)
+        try:
+            with open(path,encoding='utf-8') as source: snaps=json.load(source)
+        except (OSError,ValueError): snaps=[]
         v = core.ladder(rank)
         if v is not None and (not snaps or snaps[-1][1] != v or time.time() * 1000 - snaps[-1][0] > 6 * 3600 * 1000):
             snaps.append([int(time.time() * 1000), v]); snaps = snaps[-400:]
-            try: json.dump(snaps, open(path, 'w', encoding='utf-8'))
-            except Exception: pass
+            try:
+                with open(path+'.tmp','w',encoding='utf-8') as output: json.dump(snaps,output)
+                os.replace(path+'.tmp',path)
+            except OSError: pass
         return snaps
 
     def hist_refresh(self):
-        if getattr(self, '_hist_busy', False): return
-        self._hist_busy = True
-        self.hist_msg.configure(text='загружаю из клиента…')
-        def job():
-            me = self.account or self.client.me() or {}
-            pu = me.get('puuid')
-            hist = self.client.history(pu, 30) if pu else None
-            snaps = self.lp_snaps(self.client.rank(pu) if pu else None)
-            def done():
-                self._hist_busy = False
-                if hist is None:
-                    self.hist_msg.configure(text='клиент LoL не запущен' if not pu else 'клиент не отдал историю'); return
-                self.hist_msg.configure(text=f'{len(hist)} игр · обновлено {time.strftime("%H:%M")}')
-                self.hist_show(hist, core.lp_changes(hist, snaps), pu)
-            self.root.after(0, done)
-        threading.Thread(target=job, daemon=True).start()
+        view=getattr(self,'history_view',None)
+        if view and view.winfo_exists(): view.load_client(background=True)
 
-    def hist_show(self, hist, lp, puuid):
-        box, d, fn, fs = self.hist_box, self.data, F['font'], self.fs
-        for w in box.winfo_children(): w.destroy()
-        if not hist:
-            self.dl(box, 'Игр пока нет', 'mute').pack(anchor='w'); return
-        for h in hist:
-            c = d.ids.get(str(h['champ']))
-            bg = C['panel']
-            row = tk.Frame(box, bg=bg, padx=12, pady=4, cursor='hand2')
-            row.pack(fill='x', pady=2)
-            tk.Frame(row, bg=C['good'] if h['win'] else C['bad']).place(x=0, rely=.2, relheight=.6, width=3)   # полоска победы/поражения
-            mins = max(1, h.get('dur', 0) / 60)
-            pos = core.lcu_pos({'timeline': {'lane': h.get('lane'), 'role': h.get('role')}})
-            cells = [
-                (tk.Label(row, image=self.img('champ', c, 1.0) or '', text='' if c else '?', bg=bg), 0),
-                (tk.Label(row, text=('Победа' if h['win'] else 'Поражение'), bg=bg, fg=C['good' if h['win'] else 'bad'], font=(fn, fs(11), 'bold'), width=10, anchor='w'), 1),
-                (tk.Label(row, text=f"{d.cn(c) if c else '?'}" + (f" · {core.ROLE_RU[pos]}" if pos else '') + '\n' + core.QUEUE_RU.get(h.get('q'), str(h.get('q')))
-                          + (time.strftime(' · %d.%m %H:%M', time.localtime(h['t'] / 1000)) if h.get('t') else ''), bg=bg, fg=C['fg'],
-                          font=(fn, fs(10)), width=24, anchor='w', justify='left'), 2),
-                (tk.Label(row, text=f"{h['k']}/{h['d']}/{h['a']}", bg=bg, fg=C['fg'], font=(fn, fs(11), 'bold'), width=8, anchor='w'), 3),
-                (tk.Label(row, text=f"{h.get('cs', 0)} CS ({h.get('cs', 0) / mins:.1f})\n{core.mmss(h.get('dur', 0))}", bg=bg, fg=C['mute'], font=(fn, fs(10)),
-                          width=12, anchor='w', justify='left'), 4),
-            ]
-            v = lp.get(h.get('gid'))
-            cells.append((tk.Label(row, text=f'{v:+d} LP' if v is not None else '', bg=bg, fg=C['good' if (v or 0) > 0 else 'bad'], font=(fn, fs(11), 'bold'), width=7, anchor='e'), 5))
-            for w, i in cells: w.grid(row=0, column=i, sticky='w', padx=3)
-            row.columnconfigure(5, weight=1)
-            for w in [row] + [w for w, _ in cells]: w.bind('<Button-1>', lambda e, h=h, v=v: self.hist_open(h, v, puuid))
-        self.hist_data = hist
+    def hist_show(self,hist,lp,puuid):
+        self.history_view.set_client(hist,lp,puuid,(self.account or {}).get('riot','') if puuid and puuid==(self.account or {}).get('puuid') else '')
 
-    def hist_open(self, h, lp, puuid):
-        """Окно с подробностями игры: обе команды и разбор."""
-        def job():
-            g = self.client.game(h['gid']) if h.get('gid') else None
-            res = core.review_game(g, puuid, self.data)
-            self.root.after(0, lambda: self.hist_window(h, lp, res))
-        threading.Thread(target=job, daemon=True).start()
+    def hist_open(self,h,lp,puuid):
+        from history_ui import MatchWindow
+        import history_model
+        row=history_model.client([h],self.data,puuid,{h.get('gid'):lp})[0]
+        window=MatchWindow(self,row)
+        if row.get('gid'):window.load()
+        return window
 
-    def hist_window(self, h, lp, res):
-        d, fn, fs = self.data, F['font'], self.fs
-        w = tk.Toplevel(self.root); w.title('LoL Helper — разбор игры'); w.configure(bg=C['bg'], padx=16, pady=12)
-        c = d.ids.get(str(h['champ']))
-        head = f"{'Победа' if h['win'] else 'Поражение'} · {d.cn(c) if c else '?'} · {h['k']}/{h['d']}/{h['a']} · {core.mmss(h.get('dur', 0))}"
-        if lp is not None: head += f' · {lp:+d} LP'
-        tk.Label(w, text='  ' + head, image=self.img('champ', c, 1.4) or '', compound='left', bg=C['bg'], fg=C['good' if h['win'] else 'bad'],
-                 font=(fn, fs(15), 'bold')).pack(anchor='w', pady=(0, 8))
-        if not res:
-            self.dl(w, 'Клиент не отдал подробности этой игры', 'mute').pack(anchor='w'); return
-        for text, col in res['lines']:
-            tk.Label(w, text=text, bg=C['bg'], fg=C[col], font=(fn, fs(11)), wraplength=fs(860), justify='left', anchor='w').pack(anchor='w', fill='x')
-        mins = res['min']
-        for team in sorted({r['team'] for r in res['rows']}):
-            rows = [r for r in res['rows'] if r['team'] == team]
-            win = rows and rows[0]['win']
-            ours = res['me'] and res['me']['team'] == team
-            tk.Label(w, text=('Твоя команда' if ours else 'Противники') + (' · победа' if win else ' · поражение'), bg=C['bg'],
-                     fg=C['blue' if ours else 'red'], font=(fn, fs(12), 'bold')).pack(anchor='w', pady=(10, 2))
-            order = {x: i for i, x in enumerate(core.ROLES)}
-            for r in sorted(rows, key=lambda r: order.get(r['pos'], 9)):
-                bg = C['panel']
-                f = tk.Frame(w, bg=bg, padx=6, pady=2, highlightthickness=1, highlightbackground=C['gold'] if r['me'] else bg); f.pack(fill='x', pady=1)
-                tk.Label(f, image=self.img('champ', r['c'], .9) or '', bg=bg).grid(row=0, column=0, padx=(0, 6))
-                tk.Label(f, text=f"{d.cn(r['c']) if r['c'] else '?'}\n{r['name']}", bg=bg, fg=C['fg'], font=(fn, fs(10)), width=18, anchor='w', justify='left').grid(row=0, column=1, sticky='w')
-                tk.Label(f, text=f"{r['k']}/{r['d']}/{r['a']}", bg=bg, fg=C['fg'], font=(fn, fs(11), 'bold'), width=9, anchor='w').grid(row=0, column=2)
-                tk.Label(f, text=f"{r['cs']} CS ({r['cs'] / mins:.1f})\n{r['dmg'] / 1000:.1f}k урона · обзор {r['vis']}", bg=bg, fg=C['mute'],
-                         font=(fn, fs(9)), width=24, anchor='w', justify='left').grid(row=0, column=3)
-                its = tk.Frame(f, bg=bg); its.grid(row=0, column=4, sticky='w')
-                for it in r['items']:
-                    im = self.img('item', it, .6) if it else None
-                    if im: tk.Label(its, image=im, bg=bg).pack(side='left', padx=1)
-        ttk.Button(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(10, 0))
+    def hist_window(self,h,lp,res):
+        """Совместимый вход для существующих симуляций готового разбора."""
+        from history_ui import MatchWindow
+        import history_model
+        row=history_model.client([h],self.data,None,{h.get('gid'):lp})[0]
+        window=MatchWindow(self,row,res)
+        if res is None:
+            window.loading=False;window.error='Клиент не отдал подробности этой игры';window.render()
+        return window
 
     def death_map(self, box, res):
         """Карта смертей в окне итога: таймлайн появляется в клиенте не сразу, поэтому пробуем несколько раз."""
@@ -2843,50 +3061,8 @@ class App:
         return tk.Label(parent, text=text.upper(), bg=bg or C['panel'], fg=C[color], font=(F['num'], self.fs(9)), anchor='w')
 
     def build_status(self):
-        """Главная: карточка звания с кнопками, 4 плитки за 20 игр, последние игры, пул и один совет."""
-        f, fs, fn = self.tab_status, self.fs, F['font']
-        hero = self.card(f, C['panel'], (18, 14)); hero.pack(fill='x', pady=(4, 10))
-        self.acc_icon = tk.Label(hero, bg=C['panel']); self.acc_icon.pack(side='left', padx=(0, 16))
-        mid = tk.Frame(hero, bg=C['panel']); mid.pack(side='left', fill='x', expand=True)
-        self.acc_cap = self.cap(mid, 'Одиночная / парная'); self.acc_cap.pack(anchor='w')
-        self.acc_rank = tk.Label(mid, bg=C['panel'], fg=C['gold'], font=(F['head'], fs(24)), anchor='w'); self.acc_rank.pack(anchor='w')
-        self.acc_lbl = tk.Label(mid, bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), anchor='w'); self.acc_lbl.pack(anchor='w')
-        self.acc_sub = tk.Label(mid, bg=C['panel'], fg=C['mute'], font=(fn, fs(9)), anchor='w', justify='left'); self.acc_sub.pack(anchor='w')
-        right = tk.Frame(hero, bg=C['panel']); right.pack(side='right', anchor='n')
-        ttk.Button(right, text='Открыть окно драфта и игры', style='A.TButton', command=self.open_dash).pack(fill='x')
-        ttk.Button(right, text='Сайт со статистикой', command=self.open_site).pack(fill='x', pady=(6, 0))
-        self.acc_emb = tk.Label(hero, bg=C['panel'])   # не показывается: эмблема стоит слева
-        self.tiles = tk.Frame(f, bg=C['bg']); self.tiles.pack(fill='x')
-        for i in range(4): self.tiles.columnconfigure(i, weight=1, uniform='t')
-        row = tk.Frame(f, bg=C['bg']); row.pack(fill='both', expand=True, pady=(12, 0))
-        row.columnconfigure(0, weight=3, uniform='r'); row.columnconfigure(1, weight=2, uniform='r')
-        g = tk.Frame(row, bg=C['bg']); g.grid(row=0, column=0, sticky='nsew', padx=(0, 12))
-        hd = tk.Frame(g, bg=C['bg']); hd.pack(fill='x', pady=(0, 6))
-        tk.Label(hd, text='ПОСЛЕДНИЕ ИГРЫ', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12))).pack(side='left')
-        more = tk.Label(hd, text='вся история →', bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), cursor='hand2'); more.pack(side='right')
-        more.bind('<Button-1>', lambda e: self.nb.select(1))
-        self.home_games = tk.Frame(g, bg=C['bg']); self.home_games.pack(fill='both', expand=True)
-        side = tk.Frame(row, bg=C['bg']); side.grid(row=0, column=1, sticky='nsew')
-        hd = tk.Frame(side, bg=C['bg']); hd.pack(fill='x', pady=(0, 6))
-        self.home_pool_cap = tk.Label(hd, text='ПУЛ', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12))); self.home_pool_cap.pack(side='left')
-        self.home_pool_n = tk.Label(hd, bg=C['bg'], fg=C['mute'], font=(fn, fs(9))); self.home_pool_n.pack(side='right')
-        pc = self.card(side); pc.pack(fill='x')
-        self.home_pool = tk.Frame(pc, bg=C['panel']); self.home_pool.pack(fill='x')
-        self.home_tip = tk.Frame(side, bg=C['tag_y'], padx=fs(12), pady=fs(10)); self.home_tip.pack(fill='x', pady=(10, 0))
-        pl = tk.Frame(side, bg=C['bg']); pl.pack(fill='x', pady=(12, 0))
-        tk.Label(pl, text='Чья статистика', bg=C['bg'], fg=C['mute'], font=(fn, fs(9))).pack(side='left')
-        self.who_var = tk.StringVar()
-        names = {w: p['riot'] for w, p in self.data.d['players'].items()}
-        cb = ttk.Combobox(pl, state='readonly', values=list(names.values()), textvariable=self.who_var, width=18); cb.pack(side='left', padx=(8, 0))
-        def pick(_):
-            who = next(w for w, n in names.items() if n == self.who_var.get())
-            self.s['who'] = who; self.s.save(); self.set_who(who); self.panel_sync()
-        cb.bind('<<ComboboxSelected>>', pick)
-        self.data_lbl = tk.Label(side, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), anchor='w', wraplength=fs(300), justify='left')
-        self.data_lbl.pack(anchor='w', pady=(4, 0))
-        tk.Label(side, text="LoL Helper isn't endorsed by Riot Games. League of Legends — товарный знак Riot Games, Inc.", bg=C['bg'], fg=C['mute'],
-                 font=(fn, fs(8)), anchor='w', wraplength=fs(300), justify='left').pack(anchor='w', pady=(6, 0))
-        self.panel_sync()
+        from home_ui import HomeScreen
+        self.home_view = HomeScreen(self.tab_status, self)
 
     TIPS = {'csm': 'Фарм просел к сезону: добивай волну перед каждым возвращением на базу и забирай боковые линии в середине игры.',
             'vsm': 'Обзор просел к сезону: ставь контрольный вард при каждом возвращении на базу.',
@@ -2905,87 +3081,8 @@ class App:
         return ph
 
     def home_fill(self):
-        """Плитки, последние игры и пул выбранного игрока (из статистики сайта)."""
-        d, fs, fn = self.data, self.fs, F['font']
-        games = sorted(self.player.games, key=lambda g: g.get('t') or 0, reverse=True) if self.player else []
-        def stats(gs):
-            if not gs: return None
-            n = len(gs); avg = lambda k: sum(g[k] for g in gs if g.get(k) is not None) / max(1, sum(1 for g in gs if g.get(k) is not None))
-            return {'wr': sum(g['w'] for g in gs) / n * 100, 'kda': sum((g['k'] + g['a']) / max(1, g['d']) for g in gs) / n,
-                    'csm': avg('csm'), 'vsm': avg('vsm')}
-        last, allg = stats(games[:20]), stats(games)
-        for w in self.tiles.winfo_children(): w.destroy()
-        tiles = [('Винрейт · 20 игр', 'wr', '{:.0f}%', 1), ('KDA · 20 игр', 'kda', '{:.1f}', .1), ('CS в минуту', 'csm', '{:.1f}', .1), ('Обзор в минуту', 'vsm', '{:.2f}', .02)]
-        worst = (None, 0)
-        for i, (t, k, fmt, eps) in enumerate(tiles):
-            c = self.card(self.tiles); c.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 5, 0 if i == 3 else 5))
-            self.cap(c, t).pack(anchor='w')
-            v, base = (last or {}).get(k), (allg or {}).get(k)
-            low = v is not None and base and v < base - eps
-            tk.Label(c, text=(fmt.format(v) if v is not None else '—').replace('.', ','), bg=C['panel'], fg=C['warn'] if low else C['fg'],
-                     font=(F['numb'], fs(22)), anchor='w').pack(anchor='w')
-            if v is not None and base is not None:
-                dv = v - base
-                txt, col = (('▲ ' if dv > 0 else '▼ ') + fmt.format(abs(dv)).replace('.', ',') + ' к сезону', 'good' if dv > 0 else 'bad') if abs(dv) >= eps else ('как в сезоне', 'mute')
-                tk.Label(c, text=txt, bg=C['panel'], fg=C[col], font=(fn, fs(9)), anchor='w').pack(anchor='w')
-                if low and (base - v) / max(abs(base), 1e-6) > worst[1]: worst = (k, (base - v) / max(abs(base), 1e-6))
-        box = self.home_games
-        for w in box.winfo_children(): w.destroy()
-        if not games: tk.Label(box, text='Игр пока нет', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
-        for g in games[:6]:
-            bg = C['panel']
-            r = tk.Frame(box, bg=bg, padx=fs(12), pady=fs(6)); r.pack(fill='x', pady=3)
-            tk.Frame(r, bg=C['good'] if g['w'] else C['bad']).place(x=-fs(12), rely=.2, relheight=.6, width=3)   # полоска победы/поражения
-            tk.Label(r, image=self.round_img('champ', g['c'], .95) or '', bg=bg).pack(side='left', padx=(0, 10))
-            res = tk.Frame(r, bg=bg); res.pack(side='right')
-            tk.Label(res, text='ПОБЕДА' if g['w'] else 'ПОРАЖЕНИЕ', bg=bg, fg=C['good'] if g['w'] else C['bad'], font=(F['numb'], fs(10)), anchor='e').pack(anchor='e')
-            meta = [core.QUEUE_RU.get(g.get('q'), ''), f"{int(g['dur'])}:{int(g['dur'] % 1 * 60):02d}" if g.get('dur') else '',
-                    time.strftime('%d.%m', time.localtime(g['t'])) if g.get('t') else '']
-            tk.Label(res, text=' · '.join(m for m in meta if m), bg=bg, fg=C['mute'], font=(fn, fs(9)), anchor='e').pack(anchor='e')
-            kd = tk.Frame(r, bg=bg); kd.pack(side='right', padx=(8, 14))
-            tk.Label(kd, text=f"{g['k']}/{g['d']}/{g['a']}", bg=bg, fg=C['fg'], font=(F['numb'], fs(12)), anchor='e').pack(anchor='e')
-            tk.Label(kd, text=f"CS {g.get('csm', 0):.1f}".replace('.', ','), bg=bg, fg=C['mute'], font=(fn, fs(9)), anchor='e').pack(anchor='e')
-            t1 = tk.Frame(r, bg=bg); t1.pack(side='left', fill='x', expand=True)
-            hd = tk.Frame(t1, bg=bg); hd.pack(anchor='w')
-            tk.Label(hd, text=d.cn(g['c']), bg=bg, fg=C['fg'], font=(fn, fs(10), 'bold')).pack(side='left')
-            ri = self.role_img(g.get('pos'), .4)
-            if ri: tk.Label(hd, image=ri, bg=bg).pack(side='left', padx=(6, 3))
-            tk.Label(hd, text=(f"против {d.cn(g['opp'])}" if g.get('opp') else core.ROLE_RU.get(g.get('pos'), '')), bg=bg, fg=C['mute'],
-                     font=(fn, fs(9))).pack(side='left')
-            its = tk.Frame(t1, bg=bg); its.pack(anchor='w', pady=(3, 0))
-            for it in (g.get('it') or [])[:6]:
-                tk.Label(its, image=self.img('item', it, .5) or '', bg=bg).pack(side='left', padx=(0, 2))
-        box = self.home_pool
-        for w in box.winfo_children(): w.destroy()
-        if games:
-            roles = {}
-            for g in games[:100]: roles[g['pos']] = roles.get(g['pos'], 0) + 1
-            main = max(roles, key=roles.get)
-            self.home_pool_cap.configure(text=f"ПУЛ · {core.ROLE_RU.get(main, '').upper()}")
-            self.home_pool_n.configure(text=f'{min(100, len(games))} игр')
-            by = {}
-            for g in games[:100]:
-                if g['pos'] == main: by.setdefault(g['c'], []).append(g['w'])
-            few = []
-            for c, ws in sorted(by.items(), key=lambda x: -len(x[1]))[:4]:
-                wr = sum(ws) / len(ws)
-                if len(ws) < 5: few.append(d.cn(c))
-                r = tk.Frame(box, bg=C['panel']); r.pack(fill='x', pady=4)
-                tk.Label(r, image=self.round_img('champ', c, .8) or '', bg=C['panel']).pack(side='left', padx=(0, 10))
-                tk.Label(r, text=d.cn(c), bg=C['panel'], fg=C['fg'], font=(fn, fs(10)), width=11, anchor='w').pack(side='left')
-                tk.Label(r, text=str(len(ws)), bg=C['panel'], fg=C['mute'], font=(F['num'], fs(9)), width=3, anchor='e').pack(side='right')
-                tk.Label(r, text=f'{wr * 100:.0f}%', bg=C['panel'], fg=C['fg'], font=(F['numb'], fs(11)), width=5, anchor='e').pack(side='right')
-                bar = tk.Frame(r, bg=C['raise'], height=6); bar.pack(side='left', fill='x', expand=True, padx=(4, 8))
-                tk.Frame(bar, bg=C['good'] if wr >= .5 else C['bad'], height=6).place(relx=0, rely=0, relwidth=max(.02, wr), relheight=1)
-            if few: tk.Label(box, text='мало игр у ' + ', '.join(few[:2]) + ', ненадёжно', bg=C['panel'], fg=C['mute'], font=(fn, fs(9)), anchor='w').pack(anchor='w', pady=(4, 0))
-        tip = self.home_tip
-        for w in tip.winfo_children(): w.destroy()
-        txt = self.TIPS.get(worst[0]) if worst[0] else ('Все показатели последних 20 игр не хуже сезона. Так держать.' if games else '')
-        if txt:
-            tk.Label(tip, text='Совет', bg=C['tag_y'], fg=C['warn'], font=(F['numb'], fs(10))).pack(side='left', anchor='n', padx=(0, 10))
-            tk.Label(tip, text=txt, bg=C['tag_y'], fg=C['fg'], font=(fn, fs(10)), wraplength=fs(250), justify='left').pack(side='left', fill='x')
-            tip.pack(fill='x', pady=(10, 0))
-        else: tip.pack_forget()
+        view = getattr(self, 'home_view', None)
+        if view and view.winfo_exists(): view.refresh()
 
     def round_img(self, grp, key, k=1.0):
         """Круглая иконка (портрет в строке игры, как на сайте)."""
@@ -3001,69 +3098,55 @@ class App:
         self.icons.cache[ck] = ph = ImageTk.PhotoImage(im.resize((size, size), Image.LANCZOS))
         return ph
 
+    def ensure_home_icon(self, icon):
+        """Официальная иконка профиля загружается вне Tk, без подмены на другом профиле."""
+        key = str(icon)
+        if key in self.icons.a.get('profile',{}) or Image is None: return
+        pending = self.__dict__.setdefault('_home_icons',set())
+        failed = self.__dict__.setdefault('_home_icon_failures',{})
+        if key in pending or not key.isdigit() or time.time()-failed.get(key,0)<300: return
+        pending.add(key)
+        def job():
+            try:
+                value = self.client.image(f'/lol-game-data/assets/v1/profile-icons/{key}.jpg')
+                if not value:
+                    import re
+                    patch = self.data.d.get('patch','')
+                    if re.fullmatch(r'\d+\.\d+\.\d+',patch):
+                        with urllib.request.urlopen(f'https://ddragon.leagueoflegends.com/cdn/{patch}/img/profileicon/{key}.png',timeout=8) as response:
+                            value = response.read(1_000_001)
+                if not isinstance(value,bytes) or len(value)>1_000_000: raise ValueError('Нет иконки профиля')
+                with Image.open(io.BytesIO(value)) as image: image.verify()
+                def done():
+                    self.icons.a.setdefault('profile',{})[key] = base64.b64encode(value).decode()
+                    self.icons.raw.pop(('profile',key),None)
+                    pending.discard(key)
+                    self.home_fill()
+                self.root.after(0,done)
+            except Exception:
+                failed[key] = time.time()
+                pending.discard(key)
+        threading.Thread(target=job,daemon=True).start()
+
     def panel_sync(self):
-        a, d = self.account, self.data
-        if self.who: self.who_var.set(d.d['players'][self.who]['riot'])
-        pl = d.d['players'].get(self.who or '', {})
-        try: self.status_dot.configure(fg=C['good'] if a else C['mute'])
+        try:
+            self.status_dot.configure(fg=C['good'] if self.account else C['mute'])
+            if self.account and self.status.cget('text').startswith(('Ищу клиент','Клиент League of Legends недоступен')):
+                self.status.configure(text='Клиент League of Legends подключён')
+            elif not self.account and self.status.cget('text').startswith('Клиент League of Legends подключён'):
+                self.status.configure(text='Клиент League of Legends недоступен')
         except Exception: pass
-        if a and self.status.cget('text').startswith('Ищу клиент'): self.status.configure(text='Клиент найден')
-        rk = rank_text(self.my_rank) if self.my_rank else pl.get('rank', '')
-        parts = rk.split(' · ') if rk else []
-        self.acc_rank.configure(text=' · '.join(parts[:2]).upper() if parts else 'БЕЗ ЗВАНИЯ')
-        self.acc_cap.configure(text='ОДИНОЧНАЯ / ПАРНАЯ · EUW')
-        self.acc_lbl.configure(text=' · '.join([a['riot'] if a else pl.get('riot', '')] + parts[2:]))
-        self.acc_sub.configure(text=f"уровень {a.get('level') or '?'} · вошёл в клиент" if a else 'Клиент не найден: запусти League of Legends')
-        tier = TIER_RU.get(self.my_rank['tier']) if self.my_rank else tier_of(pl.get('rank'))
-        emb = self.img('emb', tier, 2.0) if tier and self.s['show']['ranks'] else None
-        self.acc_icon.configure(image=emb or (self.img('profile', a.get('icon'), 2) if a else None) or '')
-        g = sum(len(p['g']) for p in d.d['players'].values())
-        self.data_lbl.configure(text=f"Статистика от {d.d['t']} · патч {d.d['patch']} · {g} игр")
         self.home_fill()
 
     def open_dash(self):
         if not self.dash:
             self.s['dashboard'] = True; self.s.save(); self.dash = Dashboard(self)
-        else: self.dash.deiconify(); self.dash.lift()
+        else:
+            self.dash._manual_hidden=False;self.dash.deiconify();self.dash.lift()
 
     def build_hints(self):
-        inner = self.tab_hints
-        row = tk.Frame(inner, bg=C['bg']); row.pack(fill='x', pady=(0, 6))
-        ttk.Label(row, text='Все сразу: ').pack(side='left')
-        self.hint_vars = {}
-        for m, lab in MODES.items():
-            ttk.Button(row, text=lab, command=lambda m=m: self.set_all_hints(m)).pack(side='left', padx=2)
-        row = tk.Frame(inner, bg=C['bg']); row.pack(fill='x', pady=(0, 4))
-        ttk.Button(row, text='Режимы по умолчанию', command=lambda: (self.s.reset(SECTIONS['hints']), self.rebuild())).pack(side='left')
-        ttk.Label(row, text='  ▶ — проверить, как прозвучит подсказка · ✎ — свой текст', style='M.TLabel').pack(side='left')
-        pr = self.s['hint_preset']
-        row = tk.Frame(inner, bg=C['bg']); row.pack(fill='x', pady=(8, 0))
-        ttk.Label(row, text='Роль: ', style='H.TLabel').pack(side='left')
-        for rr in core.ROLES:
-            ttk.Button(row, text=core.ROLE_RU[rr], width=8, style='A.TButton' if rr == pr else 'TButton',
-                       command=lambda rr=rr: self.set_preset(rr)).pack(side='left', padx=1)
-        self.note(inner, 'Общие подсказки одинаковы для всех ролей. Подсказки роли настраиваются отдельно для каждой, '
-                         'в игре включается набор той роли, на которой ты стоишь.')
-        groups = [(f'Только для роли «{core.ROLE_RU[pr]}»', [h for h in core.HINTS if h[0] in core.HINT_ROLES and pr in core.HINT_ROLES[h[0]]])]
-        sec = None
-        for h in core.HINTS:
-            if h[0] in core.HINT_ROLES: continue
-            if h[1] != sec: sec = h[1]; groups.append((f'Общие: {sec.lower()}', []))
-            groups[-1][1].append(h)
-        for title, hs in groups:
-            ttk.Label(inner, text=title, style='H.TLabel').pack(anchor='w', pady=(8, 2))
-            for hid, _, name, _, _ in hs: self.hint_row(inner, hid, name)
-
-    def hint_row(self, inner, hid, name):
-        r = tk.Frame(inner, bg=C['bg']); r.pack(fill='x', pady=(3, 0))
-        v = tk.StringVar(value=MODES[self.hint_mode(hid)]); self.hint_vars[hid] = v
-        cb = ttk.Combobox(r, state='readonly', width=8, values=list(MODES.values()), textvariable=v); cb.pack(side='left')
-        cb.bind('<<ComboboxSelected>>', lambda e, hid=hid: self.set_hint(hid))
-        ttk.Button(r, text='▶', width=3, command=lambda hid=hid, name=name: self.test_hint(hid, name)).pack(side='left', padx=(4, 0))
-        ttk.Button(r, text='✎', width=3, command=lambda hid=hid, name=name: self.edit_hint(hid, name)).pack(side='left', padx=(2, 0))
-        ttk.Label(r, text=name + (' ✎' if self.s['hint_text'].get(hid) else ''), wraplength=self.fs(480)).pack(side='left', padx=8)
-        d = core.HINT_DESC.get(hid)
-        if d: ttk.Label(inner, text=d, style='M.TLabel', wraplength=self.fs(560)).pack(anchor='w', padx=(self.fs(130), 0))
+        from hints_ui import HintsScreen
+        self.hints_view = HintsScreen(self.tab_hints,self)
 
     def apply_text(self, h):
         """Свой текст подсказки: {текст} заменяется исходным."""
@@ -3075,25 +3158,8 @@ class App:
         elif o.get('text'): h.say = o['text'].replace('{текст}', orig_s)
 
     def edit_hint(self, hid, name):
-        o = self.s['hint_text'].get(hid, {})
-        w = tk.Toplevel(self.root); w.title('Текст подсказки'); w.configure(bg=C['bg']); w.transient(self.root)
-        f = tk.Frame(w, bg=C['bg'], padx=14, pady=12); f.pack(fill='both', expand=True)
-        ttk.Label(f, text=name, style='H.TLabel').pack(anchor='w')
-        if core.HINT_DESC.get(hid): ttk.Label(f, text=core.HINT_DESC[hid], style='M.TLabel', wraplength=self.fs(460)).pack(anchor='w', pady=(2, 8))
-        ttk.Label(f, text='Текст на экране. {текст} — подставит исходный текст подсказки, пусто — как было:').pack(anchor='w')
-        t = tk.StringVar(value=o.get('text', '')); ttk.Entry(f, textvariable=t, width=60).pack(fill='x', pady=(2, 8))
-        ttk.Label(f, text='Что говорит голос (пусто — то же, что на экране):').pack(anchor='w')
-        sy = tk.StringVar(value=o.get('say', '')); ttk.Entry(f, textvariable=sy, width=60).pack(fill='x', pady=(2, 10))
-        b = tk.Frame(f, bg=C['bg']); b.pack(fill='x')
-        def save():
-            tx, sv = t.get().strip(), sy.get().strip()
-            if tx or sv: self.s['hint_text'][hid] = {'text': tx, 'say': sv}
-            else: self.s['hint_text'].pop(hid, None)
-            self.s.save(); w.destroy(); self.rebuild()
-        def reset(): t.set(''); sy.set('')
-        ttk.Button(b, text='Сохранить', style='A.TButton', command=save).pack(side='left')
-        ttk.Button(b, text='Как было', command=reset).pack(side='left', padx=6)
-        ttk.Button(b, text='Отмена', command=w.destroy).pack(side='left')
+        from hints_ui import HintEditor
+        self.hint_editor = HintEditor(self.hints_view,hid,name)
 
     def test_hint(self, hid, name):
         """Проверка подсказки: звучит так, как настроено (сигнал, голос или только текст)."""
@@ -3111,24 +3177,19 @@ class App:
         self.s.save()
 
     def set_preset(self, role):
-        self.s['hint_preset'] = role; self.s.save(); self.rebuild()
+        self.hints_view.choose_role(role)
 
     def set_all_hints(self, m):
-        for hid, v in self.hint_vars.items(): v.set(MODES[m]); self.set_hint(hid)
+        self.hints_view.set_all(m)
 
     def build_windows(self):
-        f = self.tab_win
-        self.h(f, 'Виджеты поверх игры')
-        self.note(f, f"Клики проходят сквозь виджеты в игру. Чтобы передвинуть, зажми {self.s['keys']['drag'].upper()} и тяни мышью. "
-                     'Булавка в правом верхнем углу закрепляет виджет: даже с модификатором клики проходят сквозь него. Нажми булавку снова, чтобы открепить. '
-                     'Позиции запоминаются отдельно для каждого набора мониторов.')
-        self.w_vars = {}
-        for k, name in WIDGETS.items():
-            v = tk.BooleanVar(value=self.s['widgets'].get(k, True)); self.w_vars[k] = v
-            ttk.Checkbutton(f, text=name, variable=v, command=lambda k=k: self.toggle_widget(k)).pack(anchor='w')
-        for key, name in (('scoreboard', 'Золото против оппонента поверх игровой таблицы (Tab)'), ('postgame', 'Окно итога после игры')):
-            v = tk.BooleanVar(value=self.s[key])
-            ttk.Checkbutton(f, text=name, variable=v, command=lambda key=key, v=v: (self.s.__setitem__(key, v.get()), self.s.save())).pack(anchor='w')
+        from windows_ui import WindowsScreen
+        self.windows_view = WindowsScreen(self.tab_win,self)
+
+    def build_windows_options(self,parent):
+        f = parent
+        pg = tk.BooleanVar(value=self.s['postgame'])
+        ttk.Checkbutton(f,text='Окно итога после игры',variable=pg,command=lambda:(self.s.__setitem__('postgame',pg.get()),self.s.save())).pack(anchor='w')
         self.h(f, 'Драфт на телефоне')
         self.note(f, 'Телефон в той же Wi-Fi сети, что и компьютер, открывает адрес ниже и видит драфт: кого брать и банить, руны, сборку, умения. '
                      'Кнопка на телефоне импортирует руны и предметы в клиент. При первом включении Windows спросит разрешение для сети: разреши для частных сетей.')
@@ -3142,8 +3203,6 @@ class App:
         ttk.Label(row, text='Готовая раскладка:').pack(side='left')
         ttk.Button(row, text='По краям окна игры', command=lambda: self.preset_layout('edges')).pack(side='left', padx=6)
         ttk.Button(row, text='Ближе к центру (ультраширокий)', command=lambda: self.preset_layout('center')).pack(side='left')
-        self.demo_btn = ttk.Button(f, text='Показать все виджеты для расстановки', style='A.TButton', command=self.toggle_demo)
-        self.demo_btn.pack(anchor='w', pady=6)
         self.h(f, 'Показатели в игре')
         pf = self.s['perf']
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
@@ -3218,17 +3277,19 @@ class App:
 
     def slider(self, parent, name, key, lo, hi, on_change, fmt=lambda x: f'{x:.0f}%', live=True, test=None):
         """Ползунок с подписью значения. live=False — применяется, когда отпустишь мышь."""
-        row = tk.Frame(parent, bg=C['bg']); row.pack(anchor='w', pady=3)
-        ttk.Label(row, text=name, width=22).pack(side='left')
+        row = tk.Frame(parent, bg=C['bg']); row.pack(fill='x', pady=6)
+        ttk.Label(row, text=name, width=22,wraplength=self.fs(185)).pack(side='left')
         v = tk.DoubleVar(value=self.s[key])
         val = ttk.Label(row, width=7, style='V.TLabel', text=fmt(self.s[key]))
         sc = ttk.Scale(row, from_=lo, to=hi, variable=v, length=self.fs(300))
-        sc.pack(side='left'); val.pack(side='left', padx=8)
+        val.pack(side='right', padx=8)
+        if test: ttk.Button(row, text='Проверить', command=test).pack(side='right',padx=6)
+        sc.pack(side='left',fill='x',expand=True)
         if live: sc.configure(command=lambda _: (val.configure(text=fmt(v.get())), on_change(v.get())))
         else:
             sc.configure(command=lambda _: val.configure(text=fmt(v.get())))
             sc.bind('<ButtonRelease-1>', lambda e: on_change(v.get()))
-        if test: ttk.Button(row, text='Проверить', command=test).pack(side='left')
+            sc.bind('<KeyRelease>', lambda e: on_change(v.get()))
         return v
 
     def build_look(self):
@@ -3236,9 +3297,9 @@ class App:
         self.h(f, 'Тема')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
         for i, (k, (name, pal)) in enumerate(THEMES.items()):   # столбец — палитра, строки — ночь и день
-            b = tk.Label(row, text=name, bg=pal['panel'], fg=pal['gold'], font=(F['numb'], self.fs(10)), padx=12, pady=6, width=20,
+            b = tk.Label(row, text=name, bg=pal['panel'], fg=pal['gold'], font=(F['numb'], self.fs(11)), padx=10, pady=10, width=18,
                          highlightthickness=2, highlightbackground=C['gold'] if self.s['theme'] == k else pal['bg'], cursor='hand2')
-            b.grid(row=i % 2, column=i // 2, padx=(0, 6), pady=(0, 6), sticky='w')
+            b.grid(row=i//2, column=i%2, padx=(0, 8), pady=(0, 8), sticky='w')
             b.bind('<Button-1>', lambda e, k=k: self.set_look('theme', k))
         self.h(f, 'Акцентный цвет')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
@@ -3310,7 +3371,7 @@ class App:
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(6, 0))
         ttk.Button(row, text='▶ Проверить подсказку', style='A.TButton',
                    command=lambda: self.test_hint('gank1', 'Окно ганка через двадцать секунд, поставь вард в реку')).pack(side='left')
-        ttk.Label(row, text='  звучит так, как настроено для «Ганк 1» на вкладке «Подсказки»', style='M.TLabel').pack(side='left')
+        self.note(f,'Проверка использует режим «Ганк 1» для выбранной роли на вкладке «Подсказки».')
         self.h(f, 'Речь')
         self.slider(f, 'Скорость речи', 'rate', .7, 1.6, lambda x: self.set_voice_param('rate', x), fmt=lambda x: f'{x:.1f}×')
         self.note(f, 'Microsoft звучат лучше всех, но нужен интернет. Silero работают без интернета, пакет ~350 МБ скачивается один раз. '
@@ -3353,7 +3414,7 @@ class App:
         for key, name in (('mute', 'Выключить / включить звук'), ('hide', 'Скрыть / показать виджеты'),
                           ('scoreboard', 'Таблица Tab: стоимость предметов (держать)'), ('drag', 'Двигать виджеты и рамку Tab (держать)')):
             r = tk.Frame(f, bg=C['bg']); r.pack(anchor='w', pady=3, fill='x')
-            ttk.Label(r, text=name, width=34).pack(side='left')
+            ttk.Label(r, text=name, width=34,wraplength=self.fs(310)).pack(side='left')
             l = ttk.Label(r, text=self.s['keys'][key].upper(), width=18, style='V.TLabel'); l.pack(side='left')
             self.key_lbls[key] = l
             ttk.Button(r, text='Изменить', command=lambda key=key: self.capture(key)).pack(side='left')
@@ -3373,7 +3434,11 @@ class App:
             if k not in VK: return
             combo = [m for m, bit in (('ctrl', 0x4), ('shift', 0x1), ('alt', 0x20000)) if e.state & bit and m != k] + [k]
             if mods_only: combo = [k]
-            self.s['keys'][key] = '+'.join(combo); self.s.save()
+            value='+'.join(combo)
+            if any(other!=key and value==saved for other,saved in self.s['keys'].items()):
+                self.status.configure(text='Это сочетание уже назначено другому действию. Выбери другое или нажми Esc.')
+                return
+            self.s['keys'][key] = value; self.s.save()
             self.key_lbls[key].configure(text=self.s['keys'][key].upper()); done()
         def done(): self.root.unbind('<KeyPress>')
         self.root.bind('<KeyPress>', on)
@@ -3395,11 +3460,14 @@ class App:
         self.reset_btn(f, 'obj', 'Таймеры по умолчанию')
 
     def set_obj(self, k, v):
-        try:
-            m, s = v.get().split(':'); sec = int(m) * 60 + int(s)
-        except Exception:
-            v.set(core.mmss(self.s['obj'][k])); return
+        from settings_validation import clock_seconds
+        try:sec=clock_seconds(v.get(),positive=k.endswith('respawn'))
+        except ValueError:
+            v.set(core.mmss(self.s['obj'].get(k,core.OBJ[k])))
+            self.status.configure(text='Нужно время ММ:СС: секунды 00–59, без отрицательных значений')
+            return
         self.s['obj'][k] = core.OBJ[k] = sec; self.s.save()
+        v.set(core.mmss(sec));self.status.configure(text='Время объекта сохранено')
 
     def build_updates(self):
         f = self.tab_upd
@@ -3565,6 +3633,8 @@ class App:
         self.pending_data = None
         data.lanes = self.data.lanes
         self.data = data
+        if getattr(self,'pool_view',None) and self.pool_view.winfo_exists():
+            self.pool_view.rows, self.pool_view.source = champion_pool.load_catalog(data)
         self.set_who(self.who)
         self.panel_sync()
 

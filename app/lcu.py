@@ -1,5 +1,6 @@
 # Связь с клиентом LoL (LCU) и с игрой (Live Client Data). Только чтение, кроме импорта рун и набора предметов.
 import base64, json, os, re, ssl, subprocess, urllib.parse, urllib.request
+import profile_ranks
 
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -99,6 +100,19 @@ class LCU:
             if r and r.get('puuid'): return r['puuid']
         return None
 
+    def region(self):
+        """Платформа клиента; локаль интерфейса не определяет регион аккаунта."""
+        try:
+            result = self.call('/riotclient/region-locale')
+            return (result or {}).get('region') if isinstance(result, dict) else None
+        except Exception: return None
+
+    def ranked_overview(self):
+        """Текущие соло/флекс/TFT одним чтением; отсутствие очереди не означает нулевой ранг."""
+        try: raw = self.call('/lol-ranked/v1/current-ranked-stats')
+        except Exception: raw = None
+        return profile_ranks.parse(raw)
+
     def rank(self, puuid=None):
         """Одиночный рейтинг: {'tier': 'EMERALD', 'div': 'IV', 'lp': 17, 'w': 221, 'l': 211} или None."""
         try:
@@ -149,7 +163,7 @@ class LCU:
         for team, key in ((100, 'teamOne'), (200, 'teamTwo')):
             for p in gd.get(key) or []:
                 out.append({'pu': p.get('puuid') or None, 'champ': p.get('championId') or 0, 'team': team,
-                            'pos': (p.get('selectedPosition') or '').lower(), 'name': p.get('gameName') or p.get('summonerName') or ''})
+                            'pos': (p.get('selectedPosition') or '').lower(), 'name': (p['gameName']+'#'+p['tagLine']) if p.get('gameName') and p.get('tagLine') else (p.get('gameName') or p.get('summonerName') or '')})
         return out or None
 
     def queue(self):

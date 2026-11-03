@@ -1,0 +1,175 @@
+{
+  "source": "https://mobalytics.gg/lol/champions/ahri/build",
+  "retrieved": "2026-11-03",
+  "payload": {
+    "LolChampion:{\"id\":103,\"activeFilters\":{\"patch\":\"16.21\",\"queue\":\"RANKED_SOLO\",\"rank\":\"EmeraldPlus\",\"region\":\"ALL\",\"role\":\"MID\",\"slug\":\"ahri\"}}": {
+      "__typename": "LolChampion",
+      "activeFilters": {
+        "__ref": "LolChampionFilters:{\"patch\":\"16.21\",\"queue\":\"RANKED_SOLO\",\"rank\":\"EmeraldPlus\",\"region\":\"ALL\",\"role\":\"MID\",\"slug\":\"ahri\"}",
+        "patch": "16.21",
+        "queue": "RANKED_SOLO",
+        "rank": "EmeraldPlus",
+        "region": "ALL",
+        "role": "MID",
+        "slug": "ahri"
+      },
+      "buildsOptions": {
+        "options": [
+          {
+            "__ref": "LolChampionBuild:{\"id\":\"2892081894\",\"type\":\"OFF_META\",\"queue\":\"RANKED_SOLO\"}"
+          }
+        ]
+      }
+    },
+    "LolChampionBuild:{\"id\":\"2892081894\",\"type\":\"OFF_META\",\"queue\":\"RANKED_SOLO\"}": {
+      "__typename": "LolChampionBuild",
+      "id": "2892081894",
+      "championSlug": "ahri",
+      "type": "OFF_META",
+      "queue": "RANKED_SOLO",
+      "vsChampionSlug": null,
+      "vsRole": "UNKNOWN",
+      "role": "MID",
+      "stats": {
+        "__typename": "LolChampionBuildStats",
+        "wins": 3821,
+        "matchCount": 6739,
+        "totalMatches": 0
+      },
+      "perks": {
+        "__typename": "LolChampionBuildPerk",
+        "IDs": [
+          8992,
+          8226,
+          8210,
+          8237,
+          8139,
+          8106,
+          5005,
+          5008,
+          5001
+        ],
+        "style": 8200,
+        "subStyle": 8100
+      },
+      "items({\"filter\":{\"type\":[\"FirstCore\"]}})": [
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "FirstCore",
+          "items": [
+            2503
+          ],
+          "timeToTarget": 0,
+          "slots": null
+        }
+      ],
+      "topPlayer": null,
+      "items": [
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "Starter",
+          "items": [
+            1056,
+            2003,
+            2003,
+            3340
+          ],
+          "slots": null,
+          "timeToTarget": 10
+        },
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "Early",
+          "items": [
+            1052,
+            1001
+          ],
+          "slots": null,
+          "timeToTarget": 165
+        },
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "Core",
+          "items": [
+            2503,
+            3158,
+            3100
+          ],
+          "slots": null,
+          "timeToTarget": 1164
+        },
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "FullBuild",
+          "items": [
+            3157,
+            3089,
+            3135
+          ],
+          "slots": null,
+          "timeToTarget": 0
+        },
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "Situational",
+          "items": [
+            4645,
+            3137,
+            4629,
+            3102,
+            3118,
+            6653
+          ],
+          "slots": [
+            3,
+            3,
+            3,
+            4,
+            4,
+            5
+          ],
+          "timeToTarget": 0
+        },
+        {
+          "__typename": "LolChampionBuildItemsList",
+          "type": "FirstCore",
+          "items": [
+            2503
+          ],
+          "slots": null,
+          "timeToTarget": 0
+        }
+      ],
+      "patch": "16.21",
+      "skillOrder": [
+        2,
+        1,
+        3,
+        1,
+        1,
+        4,
+        1,
+        2,
+        1,
+        2,
+        4,
+        2,
+        2,
+        3,
+        3,
+        4,
+        3,
+        3
+      ],
+      "skillMaxOrder": [
+        1,
+        2,
+        3
+      ],
+      "spells": [
+        4,
+        14
+      ]
+    }
+  }
+}
