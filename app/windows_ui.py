@@ -17,7 +17,7 @@ class WindowsScreen(tk.Frame,Components):
     def __init__(self,parent,app):
         from ui import C,F,WIDGETS
         super().__init__(parent,bg=C['bg']);self.app,self.c,self.f=app,C,F;self.pack(fill='both',expand=True)
-        self.job=None;self.columns=None;self.photos={};self.previews={};self.cards={};self.advanced_open=False
+        self.job=None;self.columns=None;self.photos={};self.previews={};self.cards={};self.pin_photos={};self.advanced_open=False
         self.vars={key:tk.BooleanVar(value=app.s['widgets'].get(key,False)) for key in WIDGETS};app.w_vars=self.vars
         self.tab_var=tk.BooleanVar(value=app.s['scoreboard'])
         self.label(self,'Виджеты и окна',22,'gold',head=True).pack(anchor='w')
@@ -38,11 +38,16 @@ class WindowsScreen(tk.Frame,Components):
     def cleanup(self,e):
         if e.widget is self and self.job:self.after_cancel(self.job);self.job=None
     def mapped(self,e):
-        if e.widget is self:self.refresh()
+        if e.widget is self:
+            if not self.cards or self.columns!=(2 if self.winfo_width()>=self.app.fs(850) else 1):self.refresh()
+            else:self.update_states()
     def resized(self,e):
         if e.widget is self and self.columns!=(2 if e.width>=self.app.fs(850) else 1):
             if self.job:self.after_cancel(self.job)
-            self.job=self.after(100,self.refresh)
+            self.job=self.after(100,self.refresh_if_resized)
+    def refresh_if_resized(self):
+        self.job=None
+        if self.winfo_exists() and self.columns!=(2 if self.winfo_width()>=self.app.fs(850) else 1):self.refresh()
     def toggle_advanced(self):
         self.advanced_open=not self.advanced_open
         if self.advanced_open:self.advanced.pack(fill='x')
@@ -55,21 +60,23 @@ class WindowsScreen(tk.Frame,Components):
         self.app.phone_lbl.configure(wraplength=width)
     def only_tab(self):
         for key in self.vars:self.app.s['widgets'][key]=False
-        self.app.s['scoreboard']=True;self.app.s.save();self.app.apply_visibility();self.sync_demo();self.refresh()
-    def sync_demo(self):
+        self.app.s['scoreboard']=True;self.app.s.save();self.app.apply_visibility();self.sync_demo();self.update_states()
+    def sync_demo(self,key=None):
         if self.app.demo_on:
-            self.app.set_unlocked(True)
+            self.app.set_unlocked(True,keys=(key,) if key else None)
             if not self.app.s['scoreboard']:
                 for window in self.app.tab.values():window.withdraw()
     def toggle(self,key):
-        if key=='tab':self.app.s['scoreboard']=self.tab_var.get();self.app.s.save()
+        if key=='tab':
+            self.app.s['scoreboard']=self.tab_var.get();self.app.s.save();self.app.apply_visibility()
         else:self.app.toggle_widget(key)
-        self.sync_demo();self.refresh()
+        self.sync_demo(key);self.update_states()
     def pin(self,key):
         overlay=self.app.ov.get(key)
         if overlay:overlay.toggle_pin()
-        self.refresh()
+        self.update_states()
     def thumbnail(self,key):
+        if key in self.photos:return self.photos[key]
         from PIL import Image,ImageTk
         import widget_previews
         if key not in self.previews:self.previews[key]=widget_previews.render_preview(self.app,key)
@@ -95,7 +102,7 @@ class WindowsScreen(tk.Frame,Components):
         for child in self.grid_box.winfo_children():child.destroy()
         for col in (0,1):self.grid_box.columnconfigure(col,weight=0,uniform='')
         self.columns=2 if self.winfo_width()>=self.app.fs(850) else 1
-        self.cards={};self.toggles={};self.tab_var.set(self.app.s['scoreboard'])
+        self.cards={};self.toggles={};self.card_titles={};self.pin_buttons={};self.tab_var.set(self.app.s['scoreboard'])
         for key,var in self.vars.items():var.set(self.app.s['widgets'].get(key,False))
         count=int(self.tab_var.get())+sum(v.get() for v in self.vars.values());self.state_label.configure(text=f'Включено {count} / 8')
         for i,(key,(title,description)) in enumerate(DESCRIPTIONS.items()):
@@ -104,7 +111,7 @@ class WindowsScreen(tk.Frame,Components):
             box.grid(row=i//self.columns,column=i%self.columns,sticky='nsew',padx=(0,8) if i%self.columns==0 and self.columns==2 else 0,pady=(0,8));self.cards[key]=box
             self.grid_box.columnconfigure(i%self.columns,weight=1,uniform='widgets')
             head=tk.Frame(box,bg=self.c['panel']);head.pack(fill='x')
-            self.label(head,title,15,'gold' if enabled else 'fg',head=True).pack(side='left')
+            title_label=self.label(head,title,15,'gold' if enabled else 'fg',head=True);title_label.pack(side='left');self.card_titles[key]=title_label
             var=self.tab_var if key=='tab' else self.vars[key]
             toggle=ttk.Checkbutton(head,text='Включён' if enabled else 'Выключен',variable=var,command=lambda k=key:self.toggle(k));toggle.pack(side='right');self.toggles[key]=toggle
             preview=tk.Frame(box,bg=self.c['deep'],height=self.app.fs(160));preview.pack(fill='x',pady=(9,8));preview.pack_propagate(False)
@@ -118,10 +125,30 @@ class WindowsScreen(tk.Frame,Components):
             if photo is None:enlarge.configure(state='disabled')
             if key!='tab':
                 pinned=bool(self.app.s.get('widget_pins',{}).get(key))
-                pin=self.button(bottom,'Закреплён' if pinned else 'Закрепить',lambda k=key:self.pin(k),pinned);pin.pack(side='right')
+                pin=self.button(bottom,'Закреплён' if pinned else 'Закрепить',lambda k=key:self.pin(k),pinned);pin.pack(side='right');self.pin_buttons[key]=pin
                 if photo is not None:
                     from PIL import ImageTk
                     import render
-                    pin.pin_photo=ImageTk.PhotoImage(render.pin_icon(pinned,self.app.s['scale']/100))
+                    if pinned not in self.pin_photos:self.pin_photos[pinned]=ImageTk.PhotoImage(render.pin_icon(pinned,self.app.s['scale']/100))
+                    pin.pin_photo=self.pin_photos[pinned]
                     pin.configure(image=pin.pin_photo,compound='left')
             else:self.label(bottom,self.app.s['keys']['scoreboard'].upper()+' · при удержании',9,'gold').pack(side='right')
+
+    def update_states(self):
+        self.tab_var.set(self.app.s['scoreboard'])
+        for key,var in self.vars.items():var.set(self.app.s['widgets'].get(key,False))
+        count=int(self.tab_var.get())+sum(v.get() for v in self.vars.values())
+        self.state_label.configure(text=f'Включено {count} / 8')
+        for key,box in self.cards.items():
+            enabled=self.tab_var.get() if key=='tab' else self.vars[key].get()
+            box.configure(highlightbackground=self.c['gold' if enabled else 'line'])
+            self.card_titles[key].configure(fg=self.c['gold' if enabled else 'fg'])
+            self.toggles[key].configure(text='Включён' if enabled else 'Выключен')
+            if key in self.pin_buttons:
+                pin=self.pin_buttons[key];pinned=bool(self.app.s.get('widget_pins',{}).get(key))
+                pin.configure(text='Закреплён' if pinned else 'Закрепить',bg=self.c['raise'] if pinned else self.c['deep'])
+                if self.photos.get(key) is not None:
+                    from PIL import ImageTk
+                    import render
+                    if pinned not in self.pin_photos:self.pin_photos[pinned]=ImageTk.PhotoImage(render.pin_icon(pinned,self.app.s['scale']/100))
+                    pin.pin_photo=self.pin_photos[pinned];pin.configure(image=pin.pin_photo)

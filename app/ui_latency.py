@@ -48,7 +48,7 @@ class LatencyLog:
         self.job = self.root.after(50,self.tick)
 
     def save(self):
-        data = {'build':'scroll-v3','elapsed_s':round(time.perf_counter()-self.started,1),
+        data = {'build':'widgets-v4','elapsed_s':round(time.perf_counter()-self.started,1),
             'heartbeat_interval_ms':50,'samples':self.samples,'max_gap_ms':round(self.max_gap_ms,1),
             'long_gaps':self.gaps,'slow_callbacks':self.callbacks}
         try:self.path.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')

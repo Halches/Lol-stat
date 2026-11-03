@@ -742,7 +742,6 @@ class TabPlates(Overlay):
         if not self.unlocked or not self.winfo_viewable() or (self.app.s.get('tab_auto') and self.auto_layout):
             self.handle.withdraw(); return
         X, Y, W, H, side, tp = self.geom()
-        self.handle.update_idletasks()
         vx, vy, vw, vh = screens()[2]
         hw, hh = self.handle.winfo_reqwidth(), self.handle.winfo_reqheight()
         x = max(vx, min(int(X), vx + vw - hw))
@@ -753,11 +752,17 @@ class TabPlates(Overlay):
 
     def deiconify(self):
         super().deiconify()
-        self.update_idletasks()
-        self._place_handle()
+        if not getattr(self,'_handle_job',None):
+            def place():
+                self._handle_job=None
+                if self.winfo_exists():self._place_handle()
+            self._handle_job=self.after_idle(place)
 
     def withdraw(self):
         handle = self.__dict__.get('handle')
+        job=getattr(self,'_handle_job',None)
+        if job:
+            self.after_cancel(job);self._handle_job=None
         if handle: handle.withdraw()
         super().withdraw()
 
@@ -777,7 +782,11 @@ class TabPlates(Overlay):
         self.draw(*self.data)
 
     def _stop_detection(self, event):
-        if event.widget is self: self._auto_cancel.set()
+        if event.widget is self:
+            self._auto_cancel.set()
+            job=getattr(self,'_handle_job',None)
+            if job:
+                self.after_cancel(job);self._handle_job=None
 
     def _detection_status(self, text):
         if text == self.auto_status: return
@@ -848,6 +857,9 @@ class TabPlates(Overlay):
 
     def unlock(self, on):
         if not on and self._drag: self._end(None)
+        if self.unlocked==on:
+            if not on:self.handle.withdraw()
+            return
         self.unlocked = on
         click_through(self, True)   # в том числе при Alt: игровая таблица остаётся кликабельной
         if self.data: self.draw(*self.data)
@@ -1707,6 +1719,7 @@ class App:
         threading.Thread(target=self.load_lanes, daemon=True).start()
         self.root.after(300, self.drain)
         self.root.after(40, self.keys)
+        self.root.bind('<Escape>', self.stop_demo, add='+')
         self.root.after(1000, self.tick_ui)
 
     def build_all(self, tab=0):
@@ -1872,13 +1885,20 @@ class App:
         arena = bool(self.last_game and self.last_game.arena)
         no_player=bool(self.last_game and not self.last_game.me)
         non_sr=bool(self.last_game and not getattr(self.last_game,'sr',not arena))
-        for k, w in self.ov.items():
-            if k == 'hints': continue
-            if self.hidden or no_player or not self.s['widgets'].get(k) or not self.last_game or (non_sr and k in self.SR_ONLY) or (k == 'arena' and not arena): w.withdraw()
-            else: w.deiconify()
-        if self.hidden or no_player:
-            self.ov['hints'].withdraw()
-            for w in self.tab.values(): w.withdraw()
+        demo=bool(getattr(self,'demo_on',False) and not self.hidden)
+        for k,w in self.ov.items():
+            enabled=self.s['widgets'].get(k)
+            if demo:
+                if enabled and w.unlocked:w.deiconify()
+                else:w.withdraw()
+                continue
+            if k=='hints':
+                if self.hidden or no_player or not enabled:w.withdraw()
+                continue
+            if self.hidden or no_player or not enabled or not self.last_game or (non_sr and k in self.SR_ONLY) or (k=='arena' and not arena):w.withdraw()
+            else:w.deiconify()
+        if self.hidden or no_player or not self.s.get('scoreboard') or (not demo and (not self.last_game or arena)):
+            for w in self.tab.values():w.withdraw()
 
     def arena_tick(self, g):
         """Арена: напоминание о покупке, когда скопилось 1000+ золота (раз в минуту, режим как у подсказки «Следующий предмет»)."""
@@ -2648,6 +2668,29 @@ class App:
 
     # --- клавиши и Tab
     def keys(self):
+        try:
+            self._poll_keys()
+        except Exception as error:
+            self._recover_overlays(error)
+        finally:
+            try:self.root.after(40, self.keys)
+            except (tk.TclError,RuntimeError):pass
+
+    def _recover_overlays(self,error):
+        log_error('клавиши и виджеты',error)
+        self.demo_on=False
+        self._demo_epoch=getattr(self,'_demo_epoch',0)+1
+        self.keys_prev.update(tab=False,drag=False)
+        for window in list(self.tab.values())+list(self.ov.values()):
+            try:
+                window.withdraw()
+                window.unlocked=False
+                click_through(window,True)
+            except Exception:pass
+        try:self.demo_btn.configure(text='Показать все виджеты для расстановки')
+        except (AttributeError,tk.TclError):pass
+
+    def _poll_keys(self):
         k = self.s['keys']
         for name in ('mute', 'hide'):
             down = combo_down(k.get(name))
@@ -2661,7 +2704,10 @@ class App:
         drag = bool(combo_down(k.get('drag')) and self.last_game and not self.hidden and game_focused()) or self.demo_on   # Alt двигает виджеты только в игре
         tab_down = combo_down(k.get('scoreboard'))
         focused = game_focused()
-        tab = self.s['scoreboard'] and self.last_game and not self.last_game.arena and not self.hidden and tab_down and focused
+        tab = bool(self.s['scoreboard'] and self.last_game and self.last_game.me and not self.last_game.arena and not self.hidden and tab_down and focused)
+        if not tab and not self.demo_on:
+            for w in self.tab.values():
+                if w.winfo_viewable():w.withdraw()
         for w in self.tab.values():
             if tab_down and self.s.get('tab_auto'):
                 reason = ('включите оверлей таблицы Tab' if not self.s['scoreboard'] else
@@ -2676,12 +2722,12 @@ class App:
         if drag != self.keys_prev.get('drag'):
             self.set_unlocked(drag)
             self.keys_prev['drag'] = drag
-        if drag:
-            if self.s['scoreboard']:
-                for w in self.tab.values(): w.refresh_geometry()
-            else:
-                for w in self.tab.values(): w.withdraw()
-            return self.root.after(40, self.keys)
+        if self.demo_on:
+            for w in self.tab.values():
+                if not self.s['scoreboard']:w.withdraw()
+                elif w.winfo_viewable():w.refresh_geometry()
+            self.keys_prev['tab']=False
+            return
         if tab:
             for w in self.tab.values(): w.refresh_geometry()
             if not self.keys_prev.get('tab') or time.time() - self.keys_prev.get('tab_t', 0) > 1:
@@ -2689,31 +2735,55 @@ class App:
                     try: w.show(self.last_game); w.deiconify()
                     except Exception as e: log_error('Tab', e)
                 self.keys_prev['tab_t'] = time.time()
-        elif self.keys_prev.get('tab'):
-            for w in self.tab.values(): w.withdraw()
+        else:
+            for w in self.tab.values():
+                if w.winfo_viewable():w.withdraw()
         self.keys_prev['tab'] = bool(tab)
-        self.root.after(40, self.keys)
 
-    def set_unlocked(self, on):
+    def set_unlocked(self, on, keys=None):
         """Расстановка виджетов; у Tab мышь принимает только отдельная ручка."""
         if on and self.hidden and not self.demo_on: return
-        wins = dict(self.tab if self.s['scoreboard'] else {}, **self.ov)   # рамка Tab снизу, виджеты поверх неё
-        for key, w in wins.items():
-            w.unlock(on)
-            if not on: continue
-            if key in self.ov and not self.s['widgets'].get(key): continue
-            try:
-                if self.last_game and key != 'hints': w.show(self.last_game)
-                else: w.demo()
-            except Exception: w.demo()
-            w.deiconify(); w.lift()
         if not on:
-            for w in self.tab.values(): w.withdraw()
-            self.apply_visibility(); self.ov['hints'].show()
+            for w in self.tab.values():w.withdraw()
+        wins=dict(self.tab,**self.ov)
+        for key,w in wins.items():
+            if keys is not None and key not in keys:continue
+            enabled=self.s['scoreboard'] if key in self.tab else self.s['widgets'].get(key)
+            if not enabled:
+                w.withdraw();w.unlock(False);continue
+            w.unlock(on)
+            if not on:continue
+            if key in self.tab and not self.demo_on and not combo_down(self.s['keys'].get('scoreboard')):
+                w.withdraw();continue
+            if self.last_game and self.last_game.me and key!='hints':w.show(self.last_game)
+            else:w.demo()
+            w.deiconify();w.lift()
+        if not on:
+            self.apply_visibility();self.ov['hints'].show()
 
     def toggle_demo(self):
-        self.demo_on = not self.demo_on
-        self.demo_btn.configure(text='Завершить расстановку' if self.demo_on else 'Показать все виджеты для расстановки')
+        self.demo_on=not self.demo_on
+        self._demo_epoch=getattr(self,'_demo_epoch',0)+1
+        epoch=self._demo_epoch
+        self.demo_btn.configure(text='Завершить расстановку (Esc)' if self.demo_on else 'Показать все виджеты для расстановки')
+        self.keys_prev['drag']=self.demo_on
+        if not self.demo_on:
+            self.set_unlocked(False)
+            return
+        pending=iter(list(self.tab)+list(self.ov))
+        def show_next():
+            if not self.demo_on or epoch!=self._demo_epoch:return
+            key=next(pending,None)
+            if key is None:return
+            try:self.set_unlocked(True,keys=(key,))
+            except Exception as error:self._recover_overlays(error);return
+            self.root.after(16,show_next)
+        self.root.after(0,show_next)
+
+    def stop_demo(self,event=None):
+        if self.demo_on:
+            self.toggle_demo()
+            return 'break'
 
     def tick_ui(self):
         self.ov['hints'].show()
