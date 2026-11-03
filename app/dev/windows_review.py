@@ -53,7 +53,7 @@ def main():
             errors.append(str(ev))
             if SMOKE_TRACE is not None:traceback.print_exception(et,ev,tb,file=SMOKE_TRACE);SMOKE_TRACE.flush()
         app.root.report_callback_exception=callback_error
-    app.root.title('LoL Helper · ВИДЖЕТЫ v4 · отдельные настройки')
+    app.root.title('LoL Helper · ПУЛ И ИСТОРИЯ v5 · отдельные настройки')
     latency=None
     if not smoke and hasattr(app.root,'tk'):
         from ui_latency import LatencyLog

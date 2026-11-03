@@ -45,6 +45,14 @@ jobs:
           mv tools/dd/runesReforged.json tools/dd/runes.json
           python app/make_assets.py
 
+      - name: Подробности сохранённых матчей
+        run: python app/history_archive.py --source tools/games.json --output app/history-details.json
+
+      - name: Пул без мерцания и сохранённый состав матча
+        env:
+          POOL_HISTORY_CHECKS_OUT: dist/pool-history-checks.json
+        run: python app/dev/sim_pool_history_lifecycle.py
+
       - name: Включение виджетов, остановка расстановки и сбой клавиш
         env:
           WIDGET_CHECKS_OUT: dist/widget-checks.json
@@ -71,7 +79,7 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --onefile --noconsole --name LoLHelper-Review --paths app --hidden-import PIL._tkinter_finder `
             --collect-all edge_tts --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data certifi --hidden-import clr --hidden-import sitewin `
-            --add-data "app/data.json;." --add-data "app/champion_catalog.json;." --add-data "app/assets.json;." --add-data "app/fonts;fonts" --add-data "app/ui_assets;ui_assets" --add-data "app/icon.png;." --icon app/icon.ico `
+            --add-data "app/data.json;." --add-data "app/history-details.json;." --add-data "app/champion_catalog.json;." --add-data "app/assets.json;." --add-data "app/fonts;fonts" --add-data "app/ui_assets;ui_assets" --add-data "app/icon.png;." --icon app/icon.ico `
             --add-data "piper;piper" --add-data "voices;voices" app/dev/windows_review.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

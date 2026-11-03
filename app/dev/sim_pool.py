@@ -26,7 +26,7 @@ assets=Path(os.environ['SIM_ASSETS_JSON'])
 app.icons.a=json.loads(assets.read_text())
 portrait_dir=Path(os.environ['SIM_POOL_PORTRAITS']) if os.environ.get('SIM_POOL_PORTRAITS') else None
 for file in portrait_dir.glob('*.png') if portrait_dir else []:app.icons.a.setdefault('champ',{})[file.stem]=base64.b64encode(file.read_bytes()).decode()
-app.icons.cache.clear();app.icons.raw.clear()
+app._simulation_image_refs=list(app.icons.cache.values());app.icons.cache.clear();app.icons.raw.clear()
 app.pool_view.destroy()
 from pool_ui import PoolScreen
 app.pool_view=PoolScreen(app.tab_pool,app)
@@ -37,6 +37,9 @@ view=app.pool_view;view.role='MIDDLE';view.sort.set('Сначала выбран
 checks=[]
 
 def capture(name):
+    app.root.update()
+    if view.resize_job:
+        app.root.after(120,app.root.quit);app.root.mainloop();app.root.update()
     app.root.update_idletasks()
     width,height=app.root.winfo_width(),app.root.winfo_height()
     assert view.winfo_width()>0
@@ -51,11 +54,13 @@ def capture(name):
 
 def go():
     try:
+        cards_before=dict(view.cards)
         initial=app.current_pool();had='Ahri' in initial['MIDDLE']
         view.cards['Ahri'].event_generate('<Button-1>');app.root.update_idletasks()
         assert ('Ahri' in app.current_pool()['MIDDLE']) != had
         assert ui.Settings(settings.name)['champion_pools'][app.who]['MIDDLE']==app.current_pool()['MIDDLE']
         view.cards['Ahri'].event_generate('<Button-1>');assert app.current_pool()==initial
+        assert all(view.cards[key] is card for key,card in cards_before.items())
         view.choose_role('TOP');assert app.current_pool()==initial
         view.choose_role('MIDDLE');app.root.update_idletasks()
         # Add demo selections through the real interaction; settings are temporary.

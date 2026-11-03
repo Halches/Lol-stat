@@ -46,7 +46,7 @@ app.icons.a=json.loads(Path(os.environ['SIM_ASSETS_JSON']).read_text())
 for group,var in [('champ','SIM_POOL_PORTRAITS'),('item','SIM_HOME_ITEMS')]:
     folder=Path(os.environ[var]) if os.environ.get(var) else None
     for p in folder.glob('*.png') if folder else []:app.icons.a.setdefault(group,{})[p.stem]=base64.b64encode(p.read_bytes()).decode()
-app.icons.cache.clear();app.icons.raw.clear();app.account=dict(ME)
+app._simulation_image_refs=list(app.icons.cache.values());app.icons.cache.clear();app.icons.raw.clear();app.account=dict(ME)
 app.status.configure(text='Демонстрационные матчи · клиент не опрашивается')
 app.root.title('LoL Helper · История · демонстрация');app.root.geometry(os.environ.get('SIM_GEOMETRY','1440x1100+0+0'))
 app.nb.select(1);view=app.history_view
@@ -60,7 +60,10 @@ def settle(until=lambda:True):
     app.root.update_idletasks()
 
 def capture(name,window=None):
-    window=window or app.root;app.root.update_idletasks()
+    window=window or app.root;app.root.update();app.root.update_idletasks()
+    if window is not app.root and getattr(window,'job',None):
+        app.root.after(120,app.root.quit);app.root.mainloop()
+    app.root.update()
     if window is app.root:
         for card in view.row_widgets:
             assert card.winfo_width()<=view.winfo_width()
@@ -109,7 +112,12 @@ def go():
         app.client.game=delayed_game;popup=view.open_record(view.filtered[0]);assert entered.wait(1)
         popup.close();release.set();settle();assert not popup.winfo_exists()
         view.source='saved';view.refresh();popup=view.open_record(view.filtered[0])
-        assert not popup.loading and popup.review is None;capture('history-saved-detail.png',popup);popup.close()
+        assert not popup.loading
+        if view.filtered[0].get('match_id') in app.data.d.get('match_details',{}):assert popup.review and len(popup.review['rows'])==10
+        else:assert popup.review is None
+        capture('history-saved-detail.png',popup);popup.close()
+        popup=view.open_record(dict(view.filtered[0],match_id=None,gid=None))
+        assert popup.review is None;capture('history-saved-legacy.png',popup);popup.close()
         app.root.geometry('1060x740+0+0');settle();view.refresh();settle();capture('history-compact.png')
         assert not errors,errors
     except Exception as error:errors.append(repr(error));raise

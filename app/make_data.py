@@ -1,6 +1,7 @@
 # Собирает app/data.json для приложения LoL Helper из данных сайта (tools/*.json, tools/dd/*).
 # Запуск: python app/make_data.py (из корня репозитория или из app/).
 import json, os, time
+import history_archive
 HERE = os.path.dirname(os.path.abspath(__file__))
 T = os.path.join(HERE, '..', 'tools')
 def load(p): return json.load(open(os.path.join(T, p), encoding='utf-8'))
@@ -58,6 +59,7 @@ out = {
     'pools': POOLS, 'players': players,
     'arena': {w: [g for g in arena if g['who'] == w][:200] for w in players},   # игры Арены: место, чемпион, напарник
 }
+history_archive.attach(out,history_archive.build(games))
 p = os.path.join(HERE, 'data.json')
 json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
 print('data.json', os.path.getsize(p) // 1024, 'KB', {w: len(v['g']) for w, v in players.items()})

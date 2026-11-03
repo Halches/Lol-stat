@@ -1,5 +1,7 @@
 """History view adapters. Saved data use seconds/minutes; LCU uses milliseconds/seconds."""
+import re
 import core
+import history_archive
 import home_model
 from champion_pool import norm
 
@@ -23,15 +25,17 @@ def saved(games,data,profile):
     for i,g in enumerate(games or []):
         if not isinstance(g,dict):continue
         duration=round(g['dur']*60) if number(g.get('dur')) else None
-        result.append({'key':('saved',profile,i),'source':'saved','owner':None,'gid':None,'raw':g,
+        match_id=g.get('id') if isinstance(g.get('id'),str) else None
+        match=re.fullmatch(r'[A-Z0-9]+_([0-9]+)',match_id or '')
+        result.append({'key':('saved',profile,i),'source':'saved','owner':None,'gid':int(match.group(1)) if match else None,'match_id':match_id,'profile':profile,'raw':g,
             'champion':g.get('c'),'role':g.get('pos') if g.get('pos') in core.ROLES else '',
             'win':outcome(g.get('w')),'queue':g.get('q'),'timestamp':timestamp(g.get('t')),
             'duration':duration,'k':g.get('k') if number(g.get('k')) else None,
             'd':g.get('d') if number(g.get('d')) else None,'a':g.get('a') if number(g.get('a')) else None,
             'csm':g.get('csm') if number(g.get('csm')) else None,'vsm':g.get('vsm') if number(g.get('vsm')) else None,
             'kp':g.get('kp') if number(g.get('kp')) and g['kp']<=100 else None,
-            'items':list(g.get('it') or [])[:7],'spells':[],'perk':next(iter(g.get('pk') or []),None),
-            'opp':g.get('opp'),'lp':None,'cs':None,'dmg':None,'gold':None,'vis':None})
+            'items':list(g.get('it') or [])[:7],'spells':list(g.get('spells') or [])[:2],'perk':next(iter(g.get('pk') or []),None),
+            'opp':g.get('opp'),'lp':None,**{key:g.get(key) if number(g.get(key)) else None for key in ('cs','dmg','gold','vis')}})
     return sorted(result,key=lambda r:r['timestamp'] or 0,reverse=True)
 
 
@@ -61,6 +65,10 @@ def filtered(rows,data,query='',role='',queue='',result='all'):
 
 def stats(rows):
     return home_model.stats([{'w':int(r['win']) if r['win'] is not None else None,**{k:r.get(k) for k in ('k','d','a','csm','vsm')}} for r in rows])
+
+
+def saved_details(snapshot,profile,match_id):
+    return history_archive.review(snapshot,profile,match_id)
 
 
 def details(game,puuid,data):

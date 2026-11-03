@@ -19,16 +19,27 @@ def home():
     return d
 
 
+def with_history(data):
+    import history_archive
+    matches={}
+    try:
+        with open(os.path.join(HERE,'history-details.json'),encoding='utf-8') as source:archive=json.load(source)
+        if archive.get('version')==1 and isinstance(archive.get('matches'),dict):matches.update(archive['matches'])
+    except (OSError,ValueError,TypeError):pass
+    if isinstance(data.get('match_details'),dict):matches.update(data['match_details'])
+    return history_archive.attach(data,matches)
+
+
 def load_data():
     """Берём более свежую статистику: встроенную в exe или скачанную ранее."""
     best = None
     for p in (os.path.join(HERE, 'data.json'), os.path.join(home(), 'data.json')):
         try:
-            d = json.load(open(p, encoding='utf-8'))
+            with open(p, encoding='utf-8') as source:d = json.load(source)
             if not best or d['t'] > best['t']: best = d
         except Exception:
             pass
-    return core.Data(best)
+    return core.Data(with_history(best))
 
 
 def get(url, timeout=20):
@@ -43,7 +54,7 @@ def update_data(app):
         p = os.path.join(home(), 'data.json')
         json.dump(d, open(p + '.tmp', 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
         os.replace(p + '.tmp', p)
-        app.root.after(0, lambda: app.reload_data(core.Data(d)))
+        app.root.after(0, lambda: app.reload_data(core.Data(with_history(d))))
         return True
     except Exception:
         return False

@@ -202,7 +202,9 @@ class HistoryScreen(tk.Frame,Components):
         bind_all(row);row.configure(takefocus=1);row.bind('<Return>',lambda e:self.open_record(r));row.bind('<space>',lambda e:self.open_record(r))
 
     def open_record(self,record):
-        window=MatchWindow(self.app,record)
+        snapshot=self.app.data.d.get('match_details',{}).get(record.get('match_id'))
+        review=model.saved_details(snapshot,record.get('profile'),record.get('match_id')) if record['source']=='saved' else None
+        window=MatchWindow(self.app,record,review=review)
         self.last_window=window
         if record['source']=='client' and record.get('gid'):window.load()
         return window
@@ -248,7 +250,11 @@ class MatchWindow(tk.Toplevel,Components):
         mode=event.width>=self.app.fs(850)
         if mode!=self.layout or event.width!=self.last_width:
             if self.job:self.after_cancel(self.job)
-            self.job=self.after(80,self.render)
+            self.job=self.after(80,self.render_if_resized)
+
+    def render_if_resized(self):
+        self.job=None
+        if not self.closed and self.winfo_exists() and self.cv.winfo_width()>1 and self.cv.winfo_width()!=self.last_width:self.render()
 
     def load(self):
         record=dict(self.record)
@@ -322,7 +328,8 @@ class MatchWindow(tk.Toplevel,Components):
                     box=self.panel(self.body,8);box.configure(bg=bg);box.pack(fill='x',pady=(0,4))
                     label=self.label(box,text,10,'fg',wraplength=max(300,width-fs(70)),justify='left');label.configure(fg=fg);label.pack(anchor='w')
         elif not review.get('analysis_available'):
-            self.label(self.body,'Для этой игры короткий разбор недоступен: недостаточно данных или другой режим.',9,'mute',wraplength=max(300,width-fs(70)),justify='left').pack(anchor='w',pady=(12,4))
+            note='Состав из сохранённого архива. Автоматический разбор для этой записи не сохранён.' if review.get('source')=='saved' else 'Для этой игры короткий разбор недоступен: недостаточно данных или другой режим.'
+            self.label(self.body,note,9,'mute',wraplength=max(300,width-fs(70)),justify='left').pack(anchor='w',pady=(12,4))
         rows=review.get('rows') or [];participants_only=review.get('team_grouping')=='participants'
         teams=[None] if participants_only else list(dict.fromkeys(p['team'] for p in rows))
         if not participants_only and focus and focus['team'] in teams:teams.remove(focus['team']);teams.insert(0,focus['team'])
