@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-from tab_detect import Anchor, capture_and_detect, detect, fit_grid, find_frames
+from tab_detect import Anchor, Layout, capture_and_detect, detect, fit_grid, find_frames, recover_question_marks, assign_visible_faces
 
 
 PLAYERS = [{'c': f'C{i}', 'team': 'ORDER' if i < 5 else 'CHAOS'} for i in range(10)]
@@ -62,6 +62,12 @@ def framed_fixture(width=1280, height=720, step=50, visible=(0,), divider=True):
 
 
 class GridTests(unittest.TestCase):
+    def test_similar_faces_are_assigned_jointly_not_greedily(self):
+        scores={0:{'W':.80,'S':.3,'G':.4,'M':.4},1:{'W':.4,'S':.74,'G':.4,'M':.81},
+                3:{'W':.4,'S':.4,'G':.80,'M':.4},4:{'W':.4,'S':.60,'G':.4,'M':.79}}
+        self.assertEqual(assign_visible_faces(scores,['W','S','G','M']),{0:'W',1:'S',3:'G',4:'M'})
+        self.assertEqual(assign_visible_faces({0:{'A':.9,'B':.9},1:{'A':.9,'B':.9}},['A','B']),{})
+
     def test_scale_move_ultrawide_and_row_order(self):
         for w, h, step, dx, dy in ((1920, 1080, 76, 0, 0), (3440, 1440, 95, -90, 40), (1280, 720, 42, 30, -20)):
             with self.subTest(resolution=(w, h)):
@@ -98,6 +104,41 @@ class GridTests(unittest.TestCase):
 
 
 class ImageTests(unittest.TestCase):
+    def test_confirmed_frame_avoids_slow_full_screen_template_search(self):
+        import cv2
+        frame,portraits,players,_=framed_fixture(visible=range(10))
+        with patch.object(cv2,'matchTemplate',wraps=cv2.matchTemplate) as matching:
+            found=detect(frame,portraits,players)
+        self.assertIsNotNone(found)
+        self.assertTrue(matching.call_args_list)
+        self.assertTrue(all(c.args[0].shape[1]<frame.width*.2 for c in matching.call_args_list))
+
+    def test_existing_centre_badges_do_not_break_next_capture(self):
+        frame,portraits,players,box=framed_fixture(visible=range(10))
+        x0,y0,x1,y1=box; step=(y1-y0)/5; cx=(x0+x1)/2
+        d=ImageDraw.Draw(frame)
+        for row in range(5):
+            cy=y0+(row+.5)*step
+            d.rectangle((cx-step*.18,cy-step*.32,cx+step*.18,cy+step*.32),fill=(5,15,22))
+        found=detect(frame,portraits,players)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.columns,tuple(tuple(f'C{i}' for i in col) for col in ORDER))
+
+    def test_question_marks_recover_peripheral_faces_without_roster_order(self):
+        frame,portraits,points=fixture(); d=ImageDraw.Draw(frame)
+        for p in points[5:]:
+            d.rectangle((p.x-p.size*.14,p.y-p.size*.35,p.x+p.size*.14,p.y+p.size*.35),fill=(242,213,30))
+        step=50; x0=points[0].x-step*1.75; y0=points[0].y-step/2
+        layout=Layout(((x0-1280/2)/720,y0/720,step*15.25/720,step*5/720),
+                      (tuple(f'C{i}' for i in ORDER[0]),(None,)*5),('ORDER','CHAOS'),.95,'frame')
+        import cv2
+        sources={c:cv2.cvtColor(np.asarray(Image.open(io.BytesIO(base64.b64decode(v))).convert('RGB')),cv2.COLOR_RGB2GRAY) for c,v in portraits.items()}
+        found=recover_question_marks(layout,np.asarray(frame),sources,list(reversed(PLAYERS)))
+        self.assertEqual(found.columns,tuple(tuple(f'C{i}' for i in col) for col in ORDER))
+        ambiguous={c:sources['C5'] for c in sources}
+        found=recover_question_marks(layout,np.asarray(frame),ambiguous,PLAYERS)
+        self.assertEqual(found.columns[1],(None,)*5)
+
     def test_single_player_practice_at_different_scales(self):
         for w, h, step in ((1280, 720, 50), (2560, 1440, 86), (1720, 720, 52)):
             with self.subTest(resolution=(w, h)):
