@@ -403,11 +403,11 @@ class Overlay(tk.Toplevel):
         super().lift(aboveThis)
         if self.pin_window is not None: self._sync_pin()
 
-    CAPS = {'hints': 'Подсказки', 'perf': 'Стата', 'lane': 'Линия', 'inventory': 'Стоимость инвентаря',
+    CAPS = {'hints': 'Подсказки', 'perf': 'Твои показатели', 'lane': 'Линия', 'inventory': 'Стоимость инвентаря',
             'item': 'До предмета', 'timers': 'Таймеры', 'arena': 'Арена'}
 
     def card(self, accent=None, width=None, title=True):
-        return render.Card(C, F['font'], self.app.s['scale'] / 100, plate=self.app.s['widget_bg'] != 'none', accent=accent, width=width,
+        return render.Card(C, 'Forum', self.app.s['scale'] / 100, plate=self.app.s['widget_bg'] != 'none', accent=accent, width=width,
                            title=self.CAPS.get(self.key) if title else None)
 
     def put(self, card):
@@ -439,12 +439,13 @@ class HintsOverlay(Overlay):
             if not self.unlocked: self.withdraw()
             return
         c = self.card(accent='warn', width=400)
-        f = render.font(F['font'], c.px(13))
+        f = render.font('Forum', c.px(15))
         for i, (t, text, color, at) in enumerate(reversed(self.items)):
             new = i == 0
             col = (color if color != 'fg' else 'fg') if new else 'mute'
-            for j, ln in enumerate(render.wrap(text, f, c.px(320))):
-                c.row(('cell', at if j == 0 else '', 'warn' if new else 'mute', 11, True, 38, 'l'), ('text', ln, col, 13 if new else 12, new), pad=2)
+            for j, ln in enumerate(render.wrap(text, f, c.px(280))):
+                lead = ('img',render.warning_icon(c.px(24))) if new and j==0 else ('gap',24)
+                c.row(lead,('cell', at if j == 0 else '', 'warn' if new else 'mute', 11, True, 38, 'l'), ('text', ln, col, 15 if new else 12, new), pad=2)
             c.rows[-1] = (c.rows[-1][0], 7)
         self.put(c)
         if not self.app.hidden and self.app.s['widgets'].get('hints'): self.deiconify()
@@ -521,14 +522,23 @@ class LaneOverlay(Overlay):
 
     def show(self, g):
         if not g.opp: self.put(self.card().row(('text', 'Оппонент не определён', 'mute', 11, False))); return
-        d, o, me = g.lane_diff(), g.opp, g.me
-        col = 'good' if d > 300 else 'bad' if d < -300 else 'fg'
+        self.draw(g.opp,g.me,g.lane_diff())
+
+    def draw(self,o,me,delta):
+        col = 'blue' if delta>0 else 'red' if delta<0 else 'mute'
         c = self.card()
         icon = self.app.pimg('champ', o['c'], 1.0, gray=o['dead'], ring=C['red'])
-        segs = ([('img', icon)] if icon else []) + [('text', f"{d:+.0f}", col, 16, True), ('text', 'золота против ' + self.app.data.cn(o['c']), 'mute', 11, False)]
+        value=render.Card(C,'Forum',self.app.s['scale']/100,plate=False)
+        value.row(('text',f'{delta:+.0f}',render.HUD[col],24,True))
+        value.row(('text','против '+self.app.data.cn(o['c']),render.HUD['fg'],11,False))
+        segs = ([('img', icon)] if icon else []) + [('img',value.render())]
         c.row(*segs)
         c.row(('text', f"ур. {me['lvl']} / {o['lvl']} · CS {me['cs']} / {o['cs']} · {o['k']}/{o['d']}/{o['a']}", 'mute', 10, False))
         self.put(c)
+
+    def demo(self):
+        self.draw({'c':'Viktor','dead':False,'lvl':10,'cs':80,'k':2,'d':3,'a':1},
+                  {'lvl':11,'cs':92},850)
 
 
 class InventoryOverlay(Overlay):
@@ -574,16 +584,23 @@ class ItemOverlay(Overlay):
         d = self.app.data
         if not plan:
             self.put(self.card().row(('text', 'Сборка готова или нет данных', 'mute', 11, False))); return
+        self.draw_plan(plan)
+
+    def draw_plan(self,plan):
+        d=self.app.data
         it, cp = self.app.pimg('item', plan['item'], 1.0), self.app.pimg('item', plan['comp'], .8)
         c = self.card()
         if plan['comp_need'] == 0:
             segs = [('text', 'можно купить', 'good', 12, True)]
         else:
-            segs = [('text', f"ещё {int(plan['comp_need'])}", 'gold', 16, True)]
+            segs = [('text', f"ещё {int(plan['comp_need'])}", 'gold', 24, True)]
         c.row(*(([('img', it)] if it else []) + ([('img', cp)] if cp and plan['comp'] != plan['item'] else []) + segs))
         line = d.iname(plan['comp']) if plan['comp'] == plan['item'] else f"{d.iname(plan['comp'])} → {d.iname(plan['item'])}, всего ещё {int(plan['need'])}"
         c.row(('text', line, 'mute', 10, False))
         self.put(c)
+
+    def demo(self):
+        self.draw_plan({'item':1036,'comp':1036,'comp_need':350,'need':350})
 
 
 class ArenaOverlay(Overlay):
@@ -594,20 +611,23 @@ class ArenaOverlay(Overlay):
     def show(self, g):
         me = g.me
         if not me: return
-        c = self.card()
-        c.row(('cell', 'счёт', 'mute', 11, False, 80, 'l'), ('cell', f"{me['k']}/{me['d']}/{me['a']}", 'fg', 15, True, 80, 'r'))
-        c.row(('cell', 'золото', 'mute', 11, False, 80, 'l'), ('cell', f'{int(g.gold)}', 'gold' if g.gold >= 1000 else 'fg', 15, True, 80, 'r'))
-        c.row(('cell', 'в предметах', 'mute', 11, False, 80, 'l'), ('cell', f"{me['igold']:.0f}", 'fg', 12, False, 80, 'r'))
+        c = self.values_card(f"{me['k']}/{me['d']}/{me['a']}",int(g.gold),int(me['igold']))
         st = core.arena_stats(self.app.arena_games(), me['c'])
         if st: c.row(('text', f"на {self.app.data.cn(me['c'])}: среднее место {st['avg']:.1f} за {st['n']} игр".replace('.', ','), 'mute', 10, False))
         self.put(c)
 
     def demo(self):
-        c = self.card()
-        c.row(('cell', 'счёт', 'mute', 11, False, 80, 'l'), ('cell', '7/3/5', 'fg', 15, True, 80, 'r'))
-        c.row(('cell', 'золото', 'mute', 11, False, 80, 'l'), ('cell', '1350', 'gold', 15, True, 80, 'r'))
-        c.row(('cell', 'в предметах', 'mute', 11, False, 80, 'l'), ('cell', '6200', 'fg', 12, False, 80, 'r'))
-        self.put(c)
+        self.put(self.values_card('7/3/5',1350,6200))
+
+    def values_card(self,kda,gold,inventory):
+        c=self.card()
+        c.row(('cell',kda,'fg',22,True,82,'r'),
+              ('cell',f'{gold:,}'.replace(',',' '),'gold',22,True,82,'r'),
+              ('cell',f'{inventory:,}'.replace(',',' '),'fg',22,True,82,'r'))
+        c.row(('cell','счёт','mute',10,False,82,'r'),
+              ('cell','золото','mute',10,False,82,'r'),
+              ('cell','в предметах','mute',10,False,82,'r'))
+        return c
 
 
 class TimersOverlay(Overlay):
@@ -627,7 +647,8 @@ class TimersOverlay(Overlay):
         c = self.card()
         for name, left in rows:
             soon = 0 < left <= 60
-            c.row(('cell', name, 'fg' if left > 0 else 'mute', 11, False, 110, 'l'),
+            icon = render.objective_icon(name,c.px(24))
+            c.row(('img',icon) if icon else ('gap',24),('cell', name, 'fg' if left > 0 else 'mute', 11, False, 110, 'l'),
                   ('cell', core.mmss(left) if left > 0 else 'на карте', 'gold' if soon else 'fg' if left > 0 else 'good', 12, True, 62, 'r'))
         if cannon: c.row(('cell', 'Осадный миньон', 'mute', 10, False, 110, 'l'), ('cell', core.mmss(cannon), 'mute', 11, True, 62, 'r'))
         self.put(c)

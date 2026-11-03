@@ -199,6 +199,10 @@ def selftest():
             widget.withdraw()
         assert app.tab['tab'].pin_window is None
         out.append('widget pins OK: body click-through with Alt, button interactive, no-activate, unpin restores drag')
+        for key in ('perf','lane','item','timers','arena'): app.ov[key].demo()
+        app.ov['hints'].push('Дракон через 45 секунд. Подготовь обзор у реки.')
+        app.ov['hints'].show()
+        out.append('all overlay renderers OK: stats, lane, item, timers, arena, hints, inventory')
         app.root.after(2500, app.root.destroy)
         app.root.mainloop()
         n = len(app.icons.a.get('champ', {}))
@@ -207,6 +211,10 @@ def selftest():
         arrow = render.advantage_arrow(24, 14, -1)
         assert arrow.mode == 'RGBA' and arrow.getchannel('A').getbbox()
         out.append(f'tab arrow asset OK: {arrow.size}')
+        assert render.panel_frame(240,100,8).getchannel('A').getbbox()
+        assert render.hud_badge('850',-1,'blue',24,48).getchannel('A').getbbox()
+        assert render.objective_icon('Барон',24).getchannel('A').getbbox()
+        out.append('painted overlay assets OK: panel, badge, objective portraits')
         import cv2, numpy, tab_detect
         from PIL import Image
         assert tab_detect.detect(Image.new('RGB', (640, 480)), {}, []) is None

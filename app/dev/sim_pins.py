@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import tkinter as tk
-from PIL import ImageGrab
+from PIL import Image, ImageGrab
 import ui
 import test_core as T
 
@@ -24,6 +24,13 @@ for theme in ('lol','lol_day'):
     root.update()
     app = SimpleNamespace(root=root,s=s,data=T.D,hidden=False,layout=lambda:{},pimg=lambda *a,**kw:None,
                           role_pil=lambda *a:None,last_game=SimpleNamespace(t=760))
+    if os.environ.get('SIM_ASSETS'):
+        def load_icon(group,key):
+            path=Path(os.environ['SIM_ASSETS'])/(str(key)+'.png')
+            if not path.exists(): return None
+            with Image.open(path) as im: return im.convert('RGBA')
+        app.icons=SimpleNamespace(_pil=load_icon)
+        app.pimg=lambda *args,**kw:ui.App.pimg(app,*args,**kw)
     wins = []
     for cls,xy in ((ui.HintsOverlay,(40,80)),(ui.PerfOverlay,(660,80)),(ui.LaneOverlay,(1320,80)),
                    (ui.InventoryOverlay,(40,380)),(ui.ItemOverlay,(660,380)),(ui.TimersOverlay,(1320,380)),
@@ -31,11 +38,6 @@ for theme in ('lol','lol_day'):
         w = cls(app,xy); wins.append(w)
         if isinstance(w,ui.HintsOverlay):
             w.push('Дракон через 45 секунд. Подготовь обзор у реки.'); w.show()
-        elif isinstance(w,ui.LaneOverlay):
-            w.put(w.card().row(('text','+850','blue',24,True),('text','против Виктора','mute',11,False))
-                  .row(('text','Уровень 11 / 10 · CS 92 / 80','mute',10,False)))
-        elif isinstance(w,ui.ItemOverlay):
-            w.put(w.card().row(('text','ещё 350','gold',24,True)).row(('text','Длинный меч','fg',12,False)))
         else: w.demo()
         w.deiconify(); root.update()
         assert w.pin_window.winfo_viewable(), w.key
@@ -55,6 +57,10 @@ for theme in ('lol','lol_day'):
     tab = ui.TabPlates(app); assert tab.pin_window is None; tab.destroy()
     root.update()
     out = Path(os.environ.get('SIM_OUT','/tmp')); out.mkdir(parents=True,exist_ok=True)
-    ImageGrab.grab(xdisplay=os.environ.get('DISPLAY')).save(out/f'pins_{theme}.png')
+    shot=ImageGrab.grab(xdisplay=os.environ.get('DISPLAY'))
+    shot.save(out/f'pins_{theme}.png')
+    for w in wins:
+        x,y=w.winfo_rootx(),w.winfo_rooty()
+        shot.crop((x,y,x+w.winfo_width(),y+w.winfo_height())).save(out/f'{w.key}_{theme}.png')
     print('OK',theme,'all seven widgets: pin/unpin during Alt, no drag, hide/show, Tab excluded')
     root.destroy()

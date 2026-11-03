@@ -1,4 +1,16 @@
-# Tab advantage arrow
+# Графика игровых оверлеев
+
+`hextech-panel.png`, `hextech-badge.png`, `objective-portraits.png` — оригинальная
+графика, созданная встроенным ImageGen по согласованным макетам. Панель имеет
+фактурную тёмную подложку и золотую фаску, масштабируется по девяти частям.
+Щиток — пустая рамка; числа и стрелка остаются динамическими. Атлас 2×2 содержит
+иллюстрации категорий: дракон, личинка, Барон, Герольд. Это иллюстрации, не данные API.
+Все файлы включены в EXE и не скачиваются во время игры.
+
+Цифры рисуются шрифтом Cinzel (Google Fonts, лицензия OFL в app/fonts/OFL-cinzel.txt),
+а не запекаются в PNG с демонстрационными значениями.
+
+## Исходная стрелка (совместимость)
 
 `tab-advantage-arrow.png` is an original generated transparent PNG, made with the
 built-in imagegen tool for this project. The full source is retained here; the

@@ -17,6 +17,7 @@ FONT_FILES.update({'Golos Text': (_ff('GolosText-Regular'), _ff('GolosText-SemiB
                    'Fira Sans Condensed Medium': (_ff('FiraSansCondensed-Medium'), _ff('FiraSansCondensed-SemiBold')),
                    'Fira Sans Condensed SemiBold': (_ff('FiraSansCondensed-SemiBold'), _ff('FiraSansCondensed-SemiBold')),
                    'Forum': (_ff('Forum-Regular'), _ff('Forum-Regular'))})
+FONT_FILES['Cinzel'] = (_ff('Cinzel-Variable'), _ff('Cinzel-Variable'))
 FALLBACK = ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
 _cache = {}
 
@@ -36,6 +37,9 @@ def font(name, size, bold=False):
         try: f = ImageFont.load_default(size)
         except Exception: f = ImageFont.load_default()
     _cache[k] = f
+    if name=='Cinzel':
+        try: f.set_variation_by_axes([600])
+        except (OSError,AttributeError): pass
     return f
 
 
@@ -80,7 +84,7 @@ class Card:
 
     def _font(self, s):
         if s[1] and any(c.isdigit() for c in s[1]) and not any(c.isalpha() and c != 'k' for c in s[1]):
-            return font('Forum', self.px(s[3]+2), False)
+            return font('Cinzel', self.px(s[3]+2), False)
         return font(s[5] if s[0] == 'text' and len(s) > 5 else self.fn, self.px(s[3]), s[4])
 
     def _seg_size(self, s):
@@ -114,7 +118,7 @@ class Card:
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         if self.plate:
-            hud_frame(d, (0, 0, W-1, H-1), self.px(7))
+            im.alpha_composite(panel_frame(W,H,self.px(9)))
             if self.accent: d.rectangle((self.px(6), pady, self.px(6) + self.px(3) - 1, H - pady), fill=self._color(self.accent) + (255,))
         y = pady
         for row_index, ((segs, pad), sz, h) in enumerate(zip(self.rows, sizes, heights)):
@@ -124,18 +128,19 @@ class Card:
                     f = self._font(s)
                     col = self._color(s[2]) + (255,)
                     tx = x + (w - int(f.getlength(s[1])) if s[0] == 'cell' and s[6] == 'r' else 0)
+                    if row_index==0 and self.title: tx = (W-f.getlength(s[1]))/2
                     ty = y + (h - sh) // 2
                     if self.plate:
                         d.text((tx, ty+1), s[1], font=f, fill=OUTLINE)
-                        d.text((tx, ty), s[1], font=f, fill=col, stroke_width=1 if f.getname()[0]=='Forum' else 0)
+                        if f.getname()[0]=='Cinzel' or (f.getname()[0]=='Forum' and s[3]>=14): sculpted_text(im,(tx,ty),s[1],f,col)
+                        else: d.text((tx, ty), s[1], font=f, fill=col)
                     else: d.text((tx, ty), s[1], font=f, fill=col, stroke_width=max(1, round(self.k)), stroke_fill=OUTLINE)
                 elif s[0] == 'img':
                     im.alpha_composite(s[1].convert('RGBA'), (x, y + (h - sh) // 2))
                 elif s[0] == 'bar':
                     frac, c1, c2 = s[1], self._color(s[2]), self._color(s[3])
                     by = y + (h - sh) // 2
-                    d.rounded_rectangle((x, by, x + w, by + sh), sh // 2, fill=c2 + (255,))
-                    d.rounded_rectangle((x, by, x + max(sh, int(w * frac)), by + sh), sh // 2, fill=c1 + (255,))
+                    paint_balance(im,(x,by,x+w,by+sh),frac,c1,c2)
                 x += w + self.px(6)
             y += h + self.px(pad)
             if row_index == 0 and self.title and self.plate:
@@ -153,6 +158,90 @@ HUD = {'deep': '#10272d', 'gold': '#c9a56b', 'fg': '#ede5d2', 'mute': '#9aafa9',
        'red': '#ed8b76', 'good': '#91d8f3', 'bad': '#ed8b76', 'warn': '#e4c68b'}
 
 
+@lru_cache(maxsize=1)
+def panel_source():
+    with Image.open(os.path.join(HERE,'ui_assets','hextech-panel.png')) as image:
+        return image.convert('RGBA').crop((32,60,1953,735))
+
+
+@lru_cache(maxsize=1)
+def badge_source():
+    with Image.open(os.path.join(HERE,'ui_assets','hextech-badge.png')) as image:
+        return image.convert('RGBA').crop((94,115,773,1663))
+
+
+@lru_cache(maxsize=24)
+def objective_icon(name,size):
+    index = 0 if 'дракон' in name.lower() else 1 if 'личин' in name.lower() else 2 if 'барон' in name.lower() else 3 if 'герольд' in name.lower() else None
+    if index is None: return None
+    with Image.open(os.path.join(HERE,'ui_assets','objective-portraits.png')) as image:
+        w,h=image.size; col,row=index%2,index//2
+        im=image.convert('RGBA').crop((col*w//2,row*h//2,(col+1)*w//2,(row+1)*h//2))
+        box=im.getchannel('A').point(lambda a:255 if a>=32 else 0).getbbox()
+        if box: im=im.crop(box)
+        im.thumbnail((size,size),Image.Resampling.LANCZOS)
+        return im
+
+
+def warning_icon(size):
+    im=Image.new('RGBA',(size,size));d=ImageDraw.Draw(im);m=size/2
+    d.polygon([(m,0),(size-1,m),(m,size-1),(0,m)],fill='#0b2028',outline=HUD['gold'],width=max(1,size//16))
+    f=font('Forum',round(size*.7))
+    d.text((m,m),'!',font=f,fill=HUD['gold'],anchor='mm')
+    return im
+
+
+@lru_cache(maxsize=24)
+def panel_frame(width,height,corner):
+    """Nine-slice the painted frame: its bevels never stretch with the text."""
+    src = panel_source(); sw,sh = src.size
+    c = min(max(2,int(corner)),width//3,height//3)
+    out = Image.new('RGBA',(width,height))
+    sx,sy = (0,90,sw-90,sw),(0,90,sh-90,sh)
+    dx,dy = (0,c,width-c,width),(0,c,height-c,height)
+    for row in range(3):
+        for col in range(3):
+            tile=src.crop((sx[col],sy[row],sx[col+1],sy[row+1]))
+            tile=tile.resize((dx[col+1]-dx[col],dy[row+1]-dy[row]),Image.Resampling.LANCZOS)
+            out.alpha_composite(tile,(dx[col],dy[row]))
+    return out
+
+
+def sculpted_text(im,xy,text,f,color):
+    """Live text mask with a bright bevel and shaded serif strokes."""
+    col = rgb(color) if isinstance(color,str) else color[:3]
+    box = f.getbbox(text,stroke_width=1)
+    w,h = box[2]-box[0]+6,box[3]-box[1]+6
+    mask=Image.new('L',(w,h)); md=ImageDraw.Draw(mask)
+    md.text((3-box[0],3-box[1]),text,font=f,fill=255,stroke_width=1)
+    shade=Image.new('RGBA',(w,h)); sd=ImageDraw.Draw(shade)
+    for y in range(h):
+        t=y/max(1,h-1)
+        factor=1.28 if t<.24 else 1.08 if t<.48 else .78+(.15*t)
+        sd.line((0,y,w,y),fill=tuple(min(255,round(v*factor)) for v in col)+(255,))
+    shade.putalpha(mask)
+    im.alpha_composite(shade,(round(xy[0]+box[0]-3),round(xy[1]+box[1]-3)))
+
+
+def paint_balance(im,box,fraction,left,right):
+    x,y,r,b=map(round,box); w,h=max(1,r-x),max(3,b-y)
+    tile=Image.new('RGBA',(w,h));d=ImageDraw.Draw(tile)
+    left=rgb(left) if isinstance(left,str) else left[:3]
+    right=rgb(right) if isinstance(right,str) else right[:3]
+    split=round(w*min(1,max(0,fraction)))
+    for yy in range(h):
+        factor=1.22 if yy<h*.25 else 1.0 if yy<h*.5 else .72
+        a=tuple(min(255,round(c*factor)) for c in left)
+        z=tuple(min(255,round(c*factor)) for c in right)
+        d.line((0,yy,w,yy),fill=z+(255,))
+        if split: d.line((0,yy,split-1,yy),fill=a+(255,))
+    cut=min(h//2,w//3)
+    points=[(cut,0),(w-cut-1,0),(w-1,h//2),(w-cut-1,h-1),(cut,h-1),(0,h//2)]
+    mask=Image.new('L',(w,h));ImageDraw.Draw(mask).polygon(points,fill=255)
+    tile.putalpha(mask);d.line(points+[points[0]],fill=HUD['gold'],width=1)
+    im.alpha_composite(tile,(x,y))
+
+
 def hud_frame(d, box, cut=5):
     x, y, r, b = box
     cut = min(cut, (r-x)/3, (b-y)/3)
@@ -168,7 +257,7 @@ def hud_frame(d, box, cut=5):
 def pin_icon(pinned, k):
     size = max(18, round(22*k)); z = 3
     im = Image.new('RGBA', (size*z, size*z)); d = ImageDraw.Draw(im)
-    hud_frame(d, (0, 0, size*z-1, size*z-1), 3*z)
+    im.alpha_composite(panel_frame(size*z,size*z,3*z))
     c = HUD['gold'] if pinned else HUD['mute']
     def p(x,y): return round(x*size*z/22), round(y*size*z/22)
     d.polygon([p(7,5),p(15,5),p(14,8),p(14,11),p(17,13),p(5,13),p(8,11),p(8,8)], fill=c)
@@ -180,18 +269,18 @@ def pin_icon(pinned, k):
 def hud_badge(text, direction, color, width, height):
     z = 4; w, h = width*z, height*z
     im = Image.new('RGBA', (w,h)); d = ImageDraw.Draw(im)
-    hud_frame(d, (0,0,w-1,h-1), min(w*.24,h*.16))
+    im.alpha_composite(badge_source().resize((w,h),Image.Resampling.LANCZOS))
     if direction:
         # A solid, engraved silhouette survives the narrow real scoreboard gutter.
         pts = [(.16,.27),(.43,.16),(.43,.23),(.84,.25),(.43,.29),(.43,.36)]
         if direction > 0: pts = [(1-x,y) for x,y in pts]
         d.polygon([(round(x*w),round(y*h)) for x,y in pts], fill=HUD['gold'])
-    f = font('Forum', round(h*.40))
+    f = font('Cinzel', round(h*.40))
     box = f.getbbox(text); tw, th = box[2]-box[0], box[3]-box[1]
     glyph = Image.new('RGBA',(tw+4*z, th+4*z)); gd = ImageDraw.Draw(glyph)
     col = HUD.get(color, HUD['mute'])
     gd.text((2*z-box[0],2*z-box[1]+z//2),text,font=f,fill=OUTLINE)
-    gd.text((2*z-box[0],2*z-box[1]),text,font=f,fill=col,stroke_width=1)
+    sculpted_text(glyph,(2*z-box[0],2*z-box[1]),text,f,col)
     # Keep the serif numerals tall; compress horizontally only when needed.
     gw = min(glyph.width, w-4*z)
     glyph = glyph.resize((max(1,gw),glyph.height), Image.Resampling.LANCZOS)
@@ -280,25 +369,25 @@ def tab_plates(rect, rows, theme, k, frame=False, left_ally=True, totals=None):
         height = max(30, round(46*k))
         bx = round(X+(TW-width)/2)
         by = max(0, round(Y-TH*.35-height))
-        hud_frame(d, (bx,by,bx+width-1,by+height-1), max(3,round(8*k)))
+        im.alpha_composite(panel_frame(width,height,max(3,round(8*k))),(bx,by))
         title = font('Forum', max(8,round(10*k)))
         d.text((bx+width/2,by+3*k), 'ПЕРЕВЕС ПО ПРЕДМЕТАМ',font=title,fill=HUD['gold'],anchor='mt')
-        small = font('Forum', max(9,round(16*k)))
+        small = font('Cinzel', max(9,round(16*k)))
         lc, rc = (HUD['blue'],HUD['red']) if left_ally else (HUD['red'],HUD['blue'])
         d.text((bx+10*k,by+height*.58),f'{left/1000:.1f}k'.replace('.',','),font=small,fill=lc,anchor='lm')
         d.text((bx+width-10*k,by+height*.58),f'{right/1000:.1f}k'.replace('.',','),font=small,fill=rc,anchor='rm')
         a, b = bx+round(width*.21), bx+round(width*.79)
         yy = by+height-round(10*k)
         split = a+round((b-a)*left/max(1,left+right))
-        d.rectangle((a,yy,b,yy+max(3,round(5*k))),fill=rc,outline=HUD['gold'])
-        if split > a: d.rectangle((a+1,yy+1,min(b-1,split),yy+max(2,round(5*k))-1),fill=lc)
+        paint_balance(im,(a,yy,b,yy+max(3,round(5*k))),left/max(1,left+right),lc,rc)
         d.line(((a+b)/2,yy-2,(a+b)/2,yy+7*k),fill=HUD['gold'])
         label = f'{ours:+,.0f}'.replace(',',' ') if ours else '0'
-        f = font('Forum',max(11,round(19*k)))
+        f = font('Cinzel',max(11,round(19*k)))
         color = HUD['blue'] if ours>0 else HUD['red'] if ours<0 else HUD['mute']
         mid = bx+width/2
-        badge_w = f.getlength(label)+32*k
-        hud_frame(d, (mid-badge_w/2,by+height*.27,mid+badge_w/2,by+height*.75),max(2,round(4*k)))
+        badge_w = round(f.getlength(label)+50*k)
+        inset=badge_source().transpose(Image.Transpose.ROTATE_90).resize((badge_w,max(12,round(height*.48))),Image.Resampling.LANCZOS)
+        im.alpha_composite(inset,(round(mid-badge_w/2),round(by+height*.27)))
         d.text((mid+6*k,by+height*.51),label,font=f,fill=color,anchor='mm')
         if ours:
             arrow_x = mid-f.getlength(label)/2-7*k

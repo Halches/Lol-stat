@@ -4,8 +4,8 @@ Portrait templates come from the bundled Data Dragon assets. Coordinates are
 normalised to game height, like tab_rect. An uncertain match returns None.
 """
 import base64
-from dataclasses import dataclass
-from itertools import combinations
+from dataclasses import dataclass, replace
+from itertools import combinations, permutations
 import io
 import statistics
 
@@ -67,7 +67,11 @@ def find_frames(rgb):
         body_top = lo + int(headers.argmax())
         if not 2.6 < w / (bottom-body_top) < 3.4: continue
         cx = (x0+x1)//2
-        if tolerant[body_top+5:bottom-5, cx-2:cx+3].any(axis=1).mean() < .65: continue
+        divider = tolerant[body_top+5:bottom-5, cx-2:cx+3].any(axis=1)
+        # Some capture paths include our badges. Inspect the clear row gaps.
+        phase = ((np.arange(len(divider))+5)*5/(bottom-body_top)) % 1
+        clear = (phase<.16) | (phase>.84)
+        if not clear.any() or divider[clear].mean() < .65: continue
         if (gray[body_top+3:bottom-3, x0+3:x1-3] < 100).mean() < .75: continue
         frame = (x0, body_top, x1, bottom)
         if not any(max(abs(v-q) for v, q in zip(frame, f)) < 5 for f in frames): frames.append(frame)
@@ -81,6 +85,7 @@ def fit_frame(anchors, players, frame, width, height):
     x0, y0, x1, y1 = frame
     step = (y1-y0)/5
     columns, teams, scores, used = [[None]*5, [None]*5], [None, None], [], set()
+    matched = []
     for a in sorted(anchors, key=lambda p: p.score, reverse=True):
         if a.score < .76 or len(by_champ.get(a.champ, [])) != 1 or a.champ in used: continue
         if not step*.43 < a.size < step*.90: continue
@@ -93,6 +98,7 @@ def fit_frame(anchors, players, frame, width, height):
         if teams[col] not in (None, team) or teams[1-col] == team: continue
         columns[col][row], teams[col] = a.champ, team
         used.add(a.champ); scores.append(a.score)
+        matched.append((row,a))
     if not scores: return None
     for col in (0, 1):
         if teams[col] is None:
@@ -103,6 +109,12 @@ def fit_frame(anchors, players, frame, width, height):
         # Only a full five-player team has a uniquely inferable last row.
         if len(roster) == 5 and len(remaining) == 1 and columns[col].count(None) == 1:
             columns[col][columns[col].index(None)] = remaining[0]
+    slopes=[(b.y-a.y)/(rb-ra) for ra,a in matched for rb,b in matched if rb>ra]
+    if len({r for r,_ in matched})>=3 and slopes:
+        refined=statistics.median(slopes)
+        first=statistics.median(a.y-(r+.5)*refined for r,a in matched)
+        if abs(refined-step)<step*.08 and abs(first-y0)<step*.24:
+            y0,y1=first,first+5*refined
     rect = ((x0-width/2)/height, y0/height, (x1-x0)/height, (y1-y0)/height)
     return Layout(rect, tuple(tuple(c) for c in columns), tuple(teams), sum(scores)/len(scores), 'frame')
 
@@ -169,6 +181,120 @@ def fit_grid(anchors, players, width, height):
     return best
 
 
+def assign_visible_faces(candidates,remaining):
+    """Resolve the whole column jointly; reject a close alternative assignment."""
+    rows=sorted(candidates)
+    if not rows or len(remaining)<len(rows) or len(remaining)>5: return {}
+    ranked=[]
+    for order in permutations(remaining,len(rows)):
+        scores=[candidates[row].get(champ,-1.) for row,champ in zip(rows,order)]
+        ranked.append((sum(scores),min(scores),order))
+    ranked.sort(reverse=True)
+    total,weakest,order=ranked[0]
+    if weakest<.70 or total/len(rows)<.76: return {}
+    if len(ranked)<2 or total-ranked[1][0]<.08: return {}
+    return dict(zip(rows,order))
+
+
+def recover_question_marks(layout, rgb, sources, players, anchors=()):
+    """Read face edges around '?' inside a confirmed frame, never roster order."""
+    import cv2
+    import numpy as np
+    h,w = rgb.shape[:2]
+    dx,y,rw,rh = layout.rect
+    x, step = dx*h+w/2, rh*h/5
+    gray = cv2.cvtColor(rgb,cv2.COLOR_RGB2GRAY)
+    hsv = cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+    columns = [list(c) for c in layout.columns]
+    recovered_scores=[]
+    counts = {c:sum(p['c']==c for p in players) for c in sources}
+    for col,team in enumerate(layout.teams):
+        roster = [p['c'] for p in players if p['team']==team]
+        expected=x+step*(1.75+col*7.1)
+        known_points=[]
+        for row,champ in enumerate(columns[col]):
+            hits=[a for a in anchors if a.champ==champ and a.score>=.76 and abs(a.x-expected)<step*.4 and abs(a.y-(y*h+step*(row+.5)))<step*.3]
+            if hits: known_points.append(max(hits,key=lambda a:a.score))
+        known_centres=[a.x for a in known_points]
+        portrait_x=statistics.median(known_centres) if known_centres else expected
+        base_size=statistics.median(a.size for a in known_points) if known_points else step*.65
+        candidates = {}
+        for row,known in enumerate(columns[col]):
+            if known: continue
+            cx,cy = portrait_x, y*h+step*(row+.5)
+            q = hsv[max(0,round(cy-step*.23)):round(cy+step*.23),max(0,round(cx-step*.23)):round(cx+step*.23)]
+            if q.size==0: continue
+            yellow = cv2.inRange(q,np.array((15,110,120)),np.array((40,255,255)))
+            if np.count_nonzero(yellow)/yellow.size < .035: continue
+            roi = gray[max(0,round(cy-step*.5)):round(cy+step*.5),max(0,round(cx-step*.65)):round(cx+step*.65)]
+            scores = {}
+            for champ in roster:
+                if champ not in sources or counts[champ]!=1: continue
+                best = -1.
+                for size in range(max(14,round(base_size*.80)),round(base_size*1.20)+1):
+                    icon = cv2.resize(sources[champ],(size,size),interpolation=cv2.INTER_AREA)
+                    m = round(size*.18); template = icon[m:-m,m:-m]
+                    if template.shape[0]>roi.shape[0] or template.shape[1]>roi.shape[1]: continue
+                    mask = np.full(template.shape,255,np.uint8)
+                    mask[:,round(template.shape[1]*.25):round(template.shape[1]*.75)] = 0
+                    if template[mask>0].std()<8: continue
+                    matches = cv2.matchTemplate(roi,template,cv2.TM_CCOEFF_NORMED,mask=mask)
+                    matches = np.nan_to_num(matches,nan=-1.,posinf=-1.,neginf=-1.)
+                    yy,xx=np.indices(matches.shape)
+                    centred=(abs(xx+template.shape[1]/2-roi.shape[1]/2)<=step*.14) & (abs(yy+template.shape[0]/2-roi.shape[0]/2)<=step*.14)
+                    matches[~centred]=-1.
+                    best = max(best,float(matches.max()))
+                scores[champ] = best
+            candidates[row] = scores
+        used={c for side in columns for c in side if c}
+        remaining=[c for c in roster if c not in used and counts.get(c)==1]
+        for row,champ in assign_visible_faces(candidates,remaining).items():
+            columns[col][row]=champ
+            recovered_scores.append(candidates[row][champ])
+        remaining = [c for c in roster if c not in columns[col]]
+        if len(roster)==5 and len(set(roster))==5 and columns[col].count(None)==1 and len(remaining)==1:
+            columns[col][columns[col].index(None)] = remaining[0]
+    confidence=min(layout.confidence,sum(recovered_scores)/len(recovered_scores)) if recovered_scores else layout.confidence
+    return replace(layout,columns=tuple(tuple(c) for c in columns),confidence=confidence)
+
+
+def frame_portraits(gray,frames,sources,cancelled=None):
+    """Search portrait strips first; keep global search as a fallback."""
+    import cv2
+    found={c:[] for c in sources}
+    h,w=gray.shape
+    for x0,y0,x1,y1 in frames:
+        step=(y1-y0)/5
+        for col in (0,1):
+            cx=x0+step*(1.75+col*7.1)
+            left,right=max(0,round(cx-step*.6)),min(w,round(cx+step*.6))
+            strip=gray[y0:y1,left:right]
+            for champ,src in sources.items():
+                if cancelled and cancelled.is_set(): return []
+                for size in range(max(14,round(step*.43)//2*2),round(step*.90)+1,2):
+                    for crop in (0.,.08):
+                        trim=round(src.shape[0]*crop)
+                        source=src[trim:-trim,trim:-trim] if trim else src
+                        icon=cv2.resize(source,(size,size),interpolation=cv2.INTER_AREA)
+                        margin=round(size*.18); template=icon[margin:-margin,margin:-margin]
+                        if template.std()<5 or template.shape[0]>strip.shape[0] or template.shape[1]>strip.shape[1]: continue
+                        matches=cv2.matchTemplate(strip,template,cv2.TM_CCOEFF_NORMED)
+                        for _ in range(3):
+                            _,score,_,(xx,yy)=cv2.minMaxLoc(matches)
+                            if score<.68: break
+                            found[champ].append(Anchor(champ,left+xx+template.shape[1]/2,y0+yy+template.shape[0]/2,size,score))
+                            matches[max(0,yy-size):yy+size,max(0,xx-size):xx+size]=-1
+    out=[]
+    for candidates in found.values():
+        picked=[]
+        for a in sorted(candidates,key=lambda a:a.score,reverse=True):
+            if any(abs(a.x-b.x)<a.size*.7 and abs(a.y-b.y)<a.size*.7 for b in picked): continue
+            picked.append(a)
+            if len(picked)==4: break
+        out.extend(picked)
+    return out
+
+
 def detect(frame, portraits, players, cancelled=None):
     """Find bundled portraits at several scales, then validate their geometry.
 
@@ -193,13 +319,21 @@ def detect(frame, portraits, players, cancelled=None):
         for col in (0, 1):
             cx = x0 + step*1.75 + col*step*7.1
             allowed[y0:y1, max(0, round(cx-step*.6)):min(w, round(cx+step*.6))] = True
-    anchors, frame_anchors = [], []
+    sources={}
     for champ in sorted({p['c'] for p in players}):
         if cancelled and cancelled.is_set(): return None
         raw = portraits.get(champ)
         if not raw: continue
         with Image.open(io.BytesIO(base64.b64decode(raw))) as im:
-            src = cv2.cvtColor(np.asarray(im.convert('RGB')), cv2.COLOR_RGB2GRAY)
+            sources[champ] = cv2.cvtColor(np.asarray(im.convert('RGB')), cv2.COLOR_RGB2GRAY)
+    if frames:
+        local=frame_portraits(gray,frames,sources,cancelled)
+        confirmed=[layout for frame in frames if (layout:=fit_frame(local,players,frame,w,h))]
+        if len(confirmed)==1: return recover_question_marks(confirmed[0],rgb,sources,players,local)
+        if len(confirmed)>1: return None
+    anchors, frame_anchors = [], []
+    for champ,src in sources.items():
+        if cancelled and cancelled.is_set(): return None
         candidates, frame_candidates = [], []
         for size in range(max(14, round(h * .024)), round(h * .083) + 1, 2):
             if cancelled and cancelled.is_set(): return None
@@ -233,7 +367,7 @@ def detect(frame, portraits, players, cancelled=None):
                 if len(picked) == 4: break
             target.extend(picked)
     confirmed = [layout for f in frames if (layout := fit_frame(frame_anchors, players, f, w, h))]
-    if len(confirmed) == 1: return confirmed[0]
+    if len(confirmed) == 1: return recover_question_marks(confirmed[0],rgb,sources,players,frame_anchors)
     if len(confirmed) > 1: return None
     return fit_grid(anchors, players, w, h)
 
