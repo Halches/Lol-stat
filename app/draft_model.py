@@ -2,6 +2,19 @@
 import math
 
 
+def role_slots(players, roles):
+    """Keep each role's row reserved, including missing picks and unknown roles."""
+    assigned, waiting = {}, []
+    for player in players:
+        role = player.get('pos')
+        if role in roles and role not in assigned:
+            assigned[role] = player
+        else:
+            waiting.append(player)
+    return [assigned[role] if role in assigned else waiting.pop(0) if waiting else {'pos': role}
+            for role in roles]
+
+
 def recommendations(data, champion, lane, side, my_role, counters, teammates,
                     pools=None, scope='pool', unavailable=(), limit=3):
     """Verified pair win rates; enemy counter data is inverted once, never guessed across roles."""

@@ -9,6 +9,15 @@ import draft_model
 
 
 class PairRecommendations(unittest.TestCase):
+    def test_missing_pick_preserves_opposing_role_rows(self):
+        slots = draft_model.role_slots([{'c':'Lux', 'pos':'UTILITY'}, {'c':'Ahri', 'pos':'MIDDLE'}], core.ROLES)
+        self.assertEqual([player.get('c') for player in slots], [None, None, 'Ahri', None, 'Lux'])
+
+    def test_unknown_role_is_not_labelled_as_a_known_role(self):
+        slots = draft_model.role_slots([{'c':'X', 'pos':''}, {'c':'Ahri', 'pos':'MIDDLE'}], core.ROLES)
+        self.assertEqual(slots[0], {'c':'X', 'pos':''})
+        self.assertEqual(slots[2], {'c':'Ahri', 'pos':'MIDDLE'})
+
     def test_enemy_winrate_is_inverted_once_and_retains_role(self):
         rows = draft_model.recommendations(None, 'Viktor', 'MIDDLE', 'enemy', 'TOP',
                  {'Ahri': (46.8, -2.1, 1240)}, {}, scope='all')

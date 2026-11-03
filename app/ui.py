@@ -990,6 +990,12 @@ class Dashboard(tk.Toplevel):
     def clear(self, mode):
         if self.mode == mode: return
         self.mode = mode
+        if mode != 'draft':
+            self._draft_view = None
+            self.configure(bg=C['bg'])
+            self.head.configure(bg=C['bg'], font=(F['head'], self.app.fs(22)))
+            for surface in (self.sub, self.body, self.cv, self.wrap, self.bar, self.timer):
+                surface.configure(bg=C['bg'])
         self.sub.configure(fg=C['mute']); self._objs_sig = self._lanes_sig = None
         for w in self.body.winfo_children(): w.destroy()
         self.cards, self.draft_sig, self.load_sig = {}, None, None

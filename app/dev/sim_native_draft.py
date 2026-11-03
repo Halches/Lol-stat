@@ -51,6 +51,7 @@ def fetch(self, kind, champion, role):
     return value
 ui.App.lola_fetch = fetch
 errors=[]
+geometry_checks=[]
 app = ui.App(lolhelper.load_data(), 'Разработка · демонстрация')
 app.root.report_callback_exception = lambda et, ev, tb: errors.append(str(ev))
 assets_file = os.environ.get('SIM_ASSETS_JSON')
@@ -73,20 +74,31 @@ cs={'role':'MIDDLE','me':'Ahri','allies':allies,'enemies':['Renekton','LeeSin','
 app.draft=cs
 r={'role':'MIDDLE','roles':dict(zip(cs['enemies'],core.ROLES)),'opp':'Viktor',
    'picks':[{'c':c,'name':app.data.cn(c),'why':'Из пула · личная статистика и данные роли'} for c in ['Ahri','Orianna','Syndra']]}
-app.hraw={'demo'+str(i):[] for i in range(5)}
-app.root.withdraw(); app.dash.geometry(os.environ.get('SIM_GEOMETRY','1920x1080+0+0')); app.dash.update()
+app.hraw={'demo'+str(i):[{'champ':103, 'win':j%2==0, 'dur':1800, 'lane':'MIDDLE', 'role':'SOLO',
+           'k':8, 'd':3, 'a':11, 'cs':220, 't':0, 'gid':100+j} for j in range(5)] for i in range(5)}
+app.root.withdraw(); app.dash.geometry(os.environ.get('SIM_GEOMETRY','1920x1080+0+0')); app.dash.update_idletasks()
 app.dash.title('LoL Helper · драфт · демонстрационные данные')
 
 def capture(name):
     app.dash.update_idletasks()
+    check_geometry(name)
     subprocess.run(['import','-window',str(app.dash.winfo_id()),str(OUT/name)],check=True)
+
+def check_geometry(stage):
+    cards = app.dash._draft_cards
+    rects = [(card.winfo_x(), card.winfo_y(), card.winfo_width(), card.winfo_height()) for card in cards]
+    assert len(rects) == 10, (stage, rects)
+    assert len({r[2:] for r in rects}) == 1, (stage, rects)
+    assert [r[1] for r in rects[:5]] == [r[1] for r in rects[5:]], (stage, rects)
+    assert all(card.body.winfo_reqheight() <= card.winfo_height()-2*card.vpad for card in cards), stage
+    geometry_checks.append({'stage':stage, 'size':rects[0][2:], 'rows':[r[1] for r in rects[:5]]})
 
 def show(locked=False):
     cs['locked']=locked
     app.dash.draft_sig=None
     app.dash.show_draft(cs,r,[('Fizz',2,'Сложный матчап по истории')])
-    app.dash.head.configure(text=app.dash.head.cget('text')+' · ДЕМОНСТРАЦИЯ')
-    app.dash.deiconify(); app.dash.update()
+    ui.tk.Label.configure(app.dash.head, text=app.dash.head.cget('text')+' · демонстрация')
+    app.dash.deiconify(); app.dash.update_idletasks()
 
 def descendants(widget):
     for child in widget.winfo_children():
@@ -94,30 +106,48 @@ def descendants(widget):
         yield from descendants(child)
 
 def exercise_folds():
+    history = next(w for w in descendants(app.dash.cols[0])
+                   if isinstance(w, ui.ttk.Button) and 'Последние матчи' in w.cget('text'))
+    history.invoke(); app.dash.update_idletasks()
+    assert ('history', 'demo0') in app.dash._draft_open, 'history did not open'
+    check_geometry('history-open')
+    history.invoke(); app.dash.update_idletasks()
+    assert ('history', 'demo0') not in app.dash._draft_open, 'history did not close'
+    check_geometry('history-closed')
     for title in ('Разбор сборки', 'Композиции', 'Кого банить'):
         button = next(w for w in descendants(app.dash.mid)
                       if isinstance(w, ui.ttk.Button) and title in w.cget('text'))
-        button.invoke(); app.dash.update()
-        button.invoke(); app.dash.update()
+        button.invoke(); app.dash.update_idletasks()
+        button.invoke(); app.dash.update_idletasks()
     # Missing network/build data must still open a working preview drawer.
     app.lola_build = lambda champion, role: None
     show(False)
     button = next(w for w in descendants(app.dash.mid)
                   if isinstance(w, ui.ttk.Button) and 'Предварительная сборка' in w.cget('text'))
-    button.invoke(); app.dash.update()
+    button.invoke(); app.dash.update_idletasks()
 
 def finish():
-    Path(OUT/'native-checks.json').write_text(json.dumps({'errors':errors,'body_width':app.dash.body.winfo_width(),
+    Path(OUT/'native-checks.json').write_text(json.dumps({'errors':errors,'card_checks':geometry_checks,'body_width':app.dash.body.winfo_width(),
        'window_width':app.dash.winfo_width(),'window_height':app.dash.winfo_height(),
        'content_height':app.dash.body.winfo_reqheight(),
        'columns':[{'actual':col.winfo_width(),'requested':col.winfo_reqwidth()} for col in [app.dash.cols[0],app.dash.mid,app.dash.cols[1]]]},ensure_ascii=False))
     app.root.destroy()
+
+original_geometry = app.dash.geometry()
+def resize_for_check():
+    app.dash.geometry('1366x768+0+0' if app.dash.winfo_width() >= 1700 else '1920x1080+0+0')
+def restore_size():
+    app.dash.update_idletasks()
+    check_geometry('resized')
+    app.dash.geometry(original_geometry)
 app.root.after(300, lambda:show(False))
 app.root.after(900, lambda:capture('native-draft-selection.png'))
 app.root.after(1100, lambda:show(True))
 app.root.after(1500, lambda:capture('native-draft-builds.png'))
-app.root.after(1600,exercise_folds)
-app.root.after(2100,finish)
+app.root.after(1600,resize_for_check)
+app.root.after(1900,restore_size)
+app.root.after(2200,exercise_folds)
+app.root.after(2800,finish)
 app.run()
 if errors: raise RuntimeError(errors)
 print(OUT)
