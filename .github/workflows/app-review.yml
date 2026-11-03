@@ -6,6 +6,9 @@ on:
     paths: [app/**, .github/workflows/app-review.yml, tools/refresh_catalog_gameplay.py]
   workflow_dispatch:
 
+env:
+  PYTHONUTF8: '1'
+
 permissions:
   contents: read
 

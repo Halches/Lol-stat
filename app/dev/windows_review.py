@@ -44,7 +44,9 @@ def main():
         with report.open('a',encoding='utf-8') as output:
             if not smoke:output.write('\n'+app.report_text()+'\n')
             output.write(('SMOKE FAIL: '+repr(errors) if errors else 'SMOKE OK: интерфейс и ресурсы')+'\n' if smoke else 'Проверка закрыта пользователем. Результаты ручного прогона надо указать отдельно.\n')
-        print('Отчёт:',report)
+        if sys.stdout is not None:
+            try:print('Отчёт:',report)
+            except UnicodeEncodeError:print('Report:',ascii(str(report)))
         app.root.destroy()
     app.root.protocol('WM_DELETE_WINDOW',close)
     if smoke:

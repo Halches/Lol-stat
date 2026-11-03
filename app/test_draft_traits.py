@@ -141,7 +141,7 @@ class ChampionRankTests(unittest.TestCase):
 
     def test_real_public_page_has_only_fifty_entries_not_a_full_top_thousand(self):
         fixture=Path(__file__).parent/'dev/fixtures/lolalytics-leaderboard.html'
-        board=champion_rank.parse(fixture.read_text(),103,'Ahri',now=100)
+        board=champion_rank.parse(fixture.read_text(encoding='utf-8'),103,'Ahri',now=100)
         self.assertEqual(board['coverage'],50)
         self.assertEqual(board['rows'][0]['rank'],1)
         self.assertEqual(board['rows'][-1]['rank'],50)

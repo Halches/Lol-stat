@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 from player_build_source import PlayerBuildSource
 
-FIXTURE=json.loads((Path(__file__).parent/'dev/fixtures/mobalytics-players.json').read_text())
+FIXTURE=json.loads((Path(__file__).parent/'dev/fixtures/mobalytics-players.json').read_text(encoding='utf-8'))
 class LoaderTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.callbacks=[]
@@ -34,7 +34,7 @@ class LoaderTests(unittest.TestCase):
         self.assertTrue(packet['partial']);self.assertTrue(all(row.get('error') and row['variant'] is None for group in packet['groups'].values() for row in group))
     def test_stale_disk_fallback_keeps_dates_and_full_variants(self):
         with patch.object(self.source,'read',side_effect=self.read):self.source.get('Ahri','MIDDLE');self.finish()
-        path=Path(self.tmp.name,'players/ahri_MIDDLE.json');saved=json.loads(path.read_text());old=time.time()-90000;saved['fetched_at']=old;saved['dates']={bid:old for bid in saved['dates']};path.write_text(json.dumps(saved))
+        path=Path(self.tmp.name,'players/ahri_MIDDLE.json');saved=json.loads(path.read_text(encoding='utf-8'));old=time.time()-90000;saved['fetched_at']=old;saved['dates']={bid:old for bid in saved['dates']};path.write_text(json.dumps(saved))
         self.source.values.clear();self.source.attempts.clear()
         with patch.object(self.source,'read',side_effect=OSError('offline')):self.source.get('Ahri','MIDDLE');packet=self.finish()
         self.assertTrue(packet['stale']);self.assertEqual(packet['fetched_at'],old)

@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 import player_builds as model
 
-FIXTURE=json.loads((Path(__file__).parent/'dev/fixtures/mobalytics-players.json').read_text())
+FIXTURE=json.loads((Path(__file__).parent/'dev/fixtures/mobalytics-players.json').read_text(encoding='utf-8'))
 class PlayerBuildTests(unittest.TestCase):
     def setUp(self):self.cache=copy.deepcopy(FIXTURE['index'])
     def listing(self):return model.listing(self.cache,'Ahri','MIDDLE')

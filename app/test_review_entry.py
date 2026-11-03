@@ -37,10 +37,10 @@ class ReviewEntry(unittest.TestCase):
             argv=['review.exe']+(['--smoke-test'] if smoke else [])
             with patch.dict('sys.modules',{'ui':ui,'lolhelper':helper}),patch.object(entry,'os',SimpleNamespace(name='nt')),patch.object(entry.sys,'frozen',True,create=True),patch.object(entry.sys,'argv',argv),patch.object(entry.platform,'platform',return_value='Windows test adapter'),patch.object(entry.subprocess,'run') as run:
                 entry.main();run.assert_not_called()
-            self.assertEqual((home/'settings.json').read_text(),'working profile')
+            self.assertEqual((home/'settings.json').read_text(encoding='utf-8'),'working profile')
             review=home/'development-review'
             self.assertEqual(helper.home(),str(review))
-            text=(review/'review-report.txt').read_text()
+            text=(review/'review-report.txt').read_text(encoding='utf-8')
             self.assertIn('SMOKE OK' if smoke else 'diagnostic report',text)
             self.assertTrue(instances[0].root.closed)
 
