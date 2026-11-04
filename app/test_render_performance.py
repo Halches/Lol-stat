@@ -69,6 +69,21 @@ class RenderReuse(unittest.TestCase):
         card=self.card();first=card.render().tobytes()
         self.assertEqual(first,card.render().tobytes())
 
+    def test_tab_reuses_pixels_but_updates_values_geometry_and_edit_frame(self):
+        tab=SimpleNamespace(geom=lambda:(0,0,600,300,0,100),k=lambda:1,
+                            unlocked=False,_left_ally=True,totals=(100,90),lbl=Mock(),geometry=Mock(),
+                            app=SimpleNamespace(s={'scale':100}),rect=lambda:[0,0,1,1],_place_handle=Mock())
+        rows=[({'v':100},{'v':90})]
+        with patch.object(ui.ImageTk,'PhotoImage',return_value=object()),patch.object(ui,'game_rect',return_value=(0,0,1920,1080)),patch.object(ui.render,'tab_plates',return_value=Image.new('RGBA',(600,400))) as paint:
+            ui.TabPlates.draw(tab,rows);ui.TabPlates.draw(tab,rows)
+            self.assertEqual(paint.call_count,1)
+            rows[0][0]['v']=110;ui.TabPlates.draw(tab,rows)
+            self.assertEqual(paint.call_count,2)
+            tab.unlocked=True;ui.TabPlates.draw(tab,rows)
+            self.assertEqual(paint.call_count,3)
+            tab.geom=lambda:(10,0,600,300,0,100);ui.TabPlates.draw(tab,rows)
+            self.assertEqual(paint.call_count,4)
+
 
 class EventQueue(unittest.TestCase):
     def app(self,count=100):

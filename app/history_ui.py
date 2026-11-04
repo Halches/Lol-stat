@@ -254,7 +254,26 @@ class MatchWindow(tk.Toplevel,Components):
 
     def render_if_resized(self):
         self.job=None
-        if not self.closed and self.winfo_exists() and self.cv.winfo_width()>1 and self.cv.winfo_width()!=self.last_width:self.render()
+        if self.closed or not self.winfo_exists():return
+        width=self.cv.winfo_width()
+        if width<=1 or width==self.last_width:return
+        if self.layout_mode(width)!=self.layout_mode(self.last_width):
+            self.render()
+        else:
+            # Grid/pack already stretch the existing cards. Only rebuild when
+            # columns or the placement of player metrics actually changes.
+            self.last_width=width
+            for label in self.fluid_labels:
+                label.configure(wraplength=max(300,width-self.app.fs(70)))
+
+    def layout_mode(self,width):
+        wide=width>=self.app.fs(850)
+        return wide,width<self.app.fs(1150 if wide else 580)
+
+    def wide_label(self,parent,text,*args,**kwargs):
+        label=self.label(parent,text,*args,wraplength=max(300,self.last_width-self.app.fs(70)),**kwargs)
+        self.fluid_labels.append(label)
+        return label
 
     def load(self):
         record=dict(self.record)
@@ -288,7 +307,7 @@ class MatchWindow(tk.Toplevel,Components):
             if (self.review or {}).get('min'):r['duration']=round(self.review['min']*60)
             if focus.get('items') and all(item is not None for item in focus['items']):r['items']=focus['items']
         width=self.cv.winfo_width() if self.cv.winfo_width()>1 else app.fs(1200)
-        self.layout=width>=fs(850);self.last_width=width
+        self.layout=width>=fs(850);self.last_width=width;self.fluid_labels=[]
         head=self.panel(self.body,14);head.pack(fill='x')
         left=tk.Frame(head,bg=c['panel']);left.pack(side='left');self.image(left,'champ',r['champion'],62)
         text=tk.Frame(left,bg=c['panel']);text.pack(side='left')
@@ -309,9 +328,9 @@ class MatchWindow(tk.Toplevel,Components):
         if self.loading:self.label(self.body,'Загружаю состав и разбор из клиента…',11,'mute').pack(anchor='w',pady=18);return
         if self.error:
             self.metrics(self.body,None)
-            self.label(self.body,self.error,11,'mute',wraplength=max(300,width-fs(70)),justify='left').pack(anchor='w',pady=18);return
+            self.wide_label(self.body,self.error,11,'mute',justify='left').pack(anchor='w',pady=18);return
         if not self.review:
-            self.label(self.body,'В сохранённой записи нет полного состава. Доступные показатели этой игры:',11,'mute',wraplength=max(300,width-fs(70)),justify='left').pack(anchor='w',pady=(14,8))
+            self.wide_label(self.body,'В сохранённой записи нет полного состава. Доступные показатели этой игры:',11,'mute',justify='left').pack(anchor='w',pady=(14,8))
             self.metrics(self.body,None);return
         review=self.review;focus=review.get('me')
         self.metrics(self.body,focus)
@@ -326,10 +345,10 @@ class MatchWindow(tk.Toplevel,Components):
                     tone='good' if color=='good' else 'bad' if color=='bad' else 'neutral'
                     bg,fg=player_comments.palette(c['dark'])[tone]
                     box=self.panel(self.body,8);box.configure(bg=bg);box.pack(fill='x',pady=(0,4))
-                    label=self.label(box,text,10,'fg',wraplength=max(300,width-fs(70)),justify='left');label.configure(fg=fg);label.pack(anchor='w')
+                    label=self.wide_label(box,text,10,'fg',justify='left');label.configure(fg=fg);label.pack(anchor='w')
         elif not review.get('analysis_available'):
             note='Состав из сохранённого архива. Автоматический разбор для этой записи не сохранён.' if review.get('source')=='saved' else 'Для этой игры короткий разбор недоступен: недостаточно данных или другой режим.'
-            self.label(self.body,note,9,'mute',wraplength=max(300,width-fs(70)),justify='left').pack(anchor='w',pady=(12,4))
+            self.wide_label(self.body,note,9,'mute',justify='left').pack(anchor='w',pady=(12,4))
         rows=review.get('rows') or [];participants_only=review.get('team_grouping')=='participants'
         teams=[None] if participants_only else list(dict.fromkeys(p['team'] for p in rows))
         if not participants_only and focus and focus['team'] in teams:teams.remove(focus['team']);teams.insert(0,focus['team'])

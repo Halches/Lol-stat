@@ -258,7 +258,9 @@ class Icons:
     def __init__(self, app):
         self.app, self.cache, self.raw = app, {}, {}
         self.rounded = OrderedDict()
-        try: self.a = json.load(open(os.path.join(bundle_dir(), 'assets.json')))
+        try:
+            with open(os.path.join(bundle_dir(), 'assets.json'), encoding='utf-8') as source:
+                self.a = json.load(source)
         except Exception: self.a = {}
 
     def _pil(self, grp, key):
@@ -1752,6 +1754,10 @@ class App:
         apply_theme(self.s)
         self.root.minsize(self.fs(820), self.fs(560))
         for w in self.root.winfo_children(): w.destroy()
+        # References to destroyed pages and their Tk images must not accumulate
+        # each time a user changes the theme, scale or layout.
+        self.canvases = {}
+        self._imgs = []
         self.root.configure(bg=C['bg'])
         self.style()
         self.build_panel()
@@ -3051,7 +3057,7 @@ class App:
                 if marks is None or Image is None:
                     if tries < 6 and pu: return self.root.after(20000, lambda: threading.Thread(target=job, args=(tries + 1,), daemon=True).start())
                     return pic.configure(text='клиент не отдал таймлайн' if pu else 'нет связи с клиентом')
-                ph = ImageTk.PhotoImage(render.death_map(marks, self.fs(220), C)); self.keep(ph)
+                ph = ImageTk.PhotoImage(render.death_map(marks, self.fs(220), C)); pic.image = ph
                 pic.configure(image=ph, text='', width=0, height=0)
                 dd = [m for m in marks if m[3] == 'death']
                 note.configure(text=f"✕ смерти: {len(dd)}, до 14 мин: {sum(m[2] < 840 for m in dd)}\n● убийства и помощь: {len(marks) - len(dd)}")
@@ -3064,8 +3070,9 @@ class App:
         fn, fs = F['font'], self.fs
         tk.Label(box, text=f"ЗОЛОТО: ТЫ И {self.data.cn(self.data.ids.get(str(gs['oc']))).upper()}", bg=C['bg'], fg=C['gold'],
                  font=(fn, fs(9), 'bold')).pack(anchor='w')
-        ph = ImageTk.PhotoImage(render.gold_chart(gs, self.fs(220), self.fs(90), C)); self.keep(ph)
-        tk.Label(box, image=ph, bg=C['bg']).pack(anchor='w')
+        ph = ImageTk.PhotoImage(render.gold_chart(gs, self.fs(220), self.fs(90), C))
+        picture = tk.Label(box, image=ph, bg=C['bg']); picture.image = ph
+        picture.pack(anchor='w')
         tk.Label(box, text=core.gold_note(gs) + '\nвертикальные линии: каждые 5 минут', bg=C['bg'], fg=C['mute'], font=(fn, fs(9)),
                  justify='left', wraplength=self.fs(230)).pack(anchor='w')
 
