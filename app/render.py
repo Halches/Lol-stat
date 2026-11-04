@@ -67,12 +67,15 @@ class Card:
         self.t, self.fn, self.k, self.plate = theme, font_name, scale, plate
         self.accent, self.width = accent, width
         self.rows = []
+        self.row_tints = {}
         self.title = title
         if title: self.row(('text', title.upper(), 'gold', 11, False, 'Forum'), ('gap', 24), pad=7)
 
     def px(self, n): return max(1, round(n * self.k))
 
-    def row(self, *segs, pad=4):
+    def row(self, *segs, pad=4, tint=None):
+        if tint is not None:
+            self.row_tints[len(self.rows)] = tint
         self.rows.append((segs, pad)); return self
 
     def text(self, s, color='fg', size=12, bold=False, wrap_to=None):
@@ -97,7 +100,7 @@ class Card:
         return 0, 0
 
     def _color(self, c):
-        if self.plate and c in HUD: return rgb(HUD[c])
+        if self.plate and c in OVERLAY: return rgb(OVERLAY[c])
         return rgb(c if c.startswith('#') else self.t.get(c, c))
 
     def signature(self):
@@ -106,7 +109,7 @@ class Card:
                             if s[0] == 'img' else tuple(s) for s in segs), pad)
                      for segs, pad in self.rows)
         return (tuple(sorted(self.t.items())), self.fn, self.k, self.plate,
-                self.accent, self.width, self.title, rows)
+                self.accent, self.width, self.title, tuple(sorted(self.row_tints.items())), rows)
 
     def render(self):
         card = copy.copy(self)
@@ -126,11 +129,15 @@ class Card:
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
         if self.plate:
-            im.alpha_composite(panel_frame(W,H,self.px(9)))
+            im.alpha_composite(overlay_frame(W,H,self.px(7)))
             if self.accent: d.rectangle((self.px(6), pady, self.px(6) + self.px(3) - 1, H - pady), fill=self._color(self.accent) + (255,))
         y = pady
         for row_index, ((segs, pad), sz, h) in enumerate(zip(self.rows, sizes, heights)):
             x = padx + stripe
+            tint = self.row_tints.get(row_index)
+            if self.plate and tint:
+                d.rounded_rectangle((self.px(3),y-self.px(1),W-self.px(3),y+h+self.px(1)),
+                                    radius=self.px(2),fill=self._color(tint)+(38,))
             for s, (w, sh) in zip(segs, sz):
                 if s[0] in ('text', 'cell'):
                     f = self._font(s)
@@ -153,8 +160,8 @@ class Card:
             y += h + self.px(pad)
             if row_index == 0 and self.title and self.plate:
                 ly, mx, rad = y-self.px(3), W/2, self.px(2)
-                d.line((padx,ly,W-padx,ly),fill='#756243',width=max(1,self.px(.5)))
-                d.polygon([(mx-rad,ly),(mx,ly-rad),(mx+rad,ly),(mx,ly+rad)],fill=HUD['gold'])
+                d.line((padx,ly,W-padx,ly),fill=OVERLAY['line'],width=max(1,self.px(.5)))
+                d.polygon([(mx-rad,ly),(mx,ly-rad),(mx+rad,ly),(mx,ly+rad)],fill=OVERLAY['gold'])
         return im
 
 
@@ -164,6 +171,24 @@ OUTLINE = (5, 10, 16, 255)              # обводка текста без п�
 # Game overlays keep the scoreboard's dark materials, even in the daytime app theme.
 HUD = {'deep': '#10272d', 'gold': '#c9a56b', 'fg': '#ede5d2', 'mute': '#9aafa9', 'blue': '#91d8f3',
        'red': '#ed8b76', 'good': '#91d8f3', 'bad': '#ed8b76', 'warn': '#e4c68b'}
+
+
+OVERLAY = {'deep':'#211a29','gold':'#d4b8e5','fg':'#f2e6f3',
+           'mute':'#c3b6cd','blue':'#86c9ec','red':'#df91a8',
+           'good':'#8ccfcc','bad':'#df91a8','warn':'#e7b4cf','line':'#8b7199'}
+
+
+@lru_cache(maxsize=48)
+def overlay_frame(width,height,corner):
+    image=Image.new('RGBA',(width,height))
+    d=ImageDraw.Draw(image)
+    radius=min(corner,max(1,min(width,height)//3))
+    d.rounded_rectangle((0,0,width-1,height-1),radius=radius,
+                        fill=rgb(OVERLAY['deep'])+(28,),
+                        outline=rgb(OVERLAY['line'])+(65,),width=1)
+    # Tiny directional highlights leave attention on the data.
+    d.line((radius,1,min(width-radius,radius+18),1),fill=rgb(OVERLAY['gold'])+(105,))
+    return image
 
 
 @lru_cache(maxsize=1)
@@ -290,12 +315,12 @@ def _badge_frame(width, height):
 def hud_badge(text, direction, color, width, height):
     z = 4; w, h = width*z, height*z
     im = Image.new('RGBA', (w,h)); d = ImageDraw.Draw(im)
-    im.alpha_composite(_badge_frame(w,h))
+    # The native scoreboard remains visible behind the glyphs.
     if direction:
         # A solid, engraved silhouette survives the narrow real scoreboard gutter.
         pts = [(.16,.27),(.43,.16),(.43,.23),(.84,.25),(.43,.29),(.43,.36)]
         if direction > 0: pts = [(1-x,y) for x,y in pts]
-        d.polygon([(round(x*w),round(y*h)) for x,y in pts], fill=HUD['gold'])
+        d.polygon([(round(x*w),round(y*h)) for x,y in pts], fill=HUD.get(color,HUD['mute']))
     f = font('Cinzel', round(h*.40))
     box = f.getbbox(text); tw, th = box[2]-box[0], box[3]-box[1]
     glyph = Image.new('RGBA',(tw+4*z, th+4*z)); gd = ImageDraw.Draw(glyph)
@@ -386,35 +411,55 @@ def tab_plates(rect, rows, theme, k, frame=False, left_ally=True, totals=None):
     if totals is not None:
         left, right = totals
         ours = left-right if left_ally else right-left
-        width = min(round(TW*.52), round(520*k))
-        height = max(30, round(46*k))
+        # Geometry follows the game's table, independent of the helper's UI scale.
+        width = max(80,round(TW*.54))
+        height = max(30,round(TH*.22))
         bx = round(X+(TW-width)/2)
-        by = max(0, round(Y-TH*.35-height))
-        im.alpha_composite(panel_frame(width,height,max(3,round(8*k))),(bx,by))
-        title = font('Forum', max(8,round(10*k)))
-        d.text((bx+width/2,by+3*k), 'ПЕРЕВЕС ПО ПРЕДМЕТАМ',font=title,fill=HUD['gold'],anchor='mt')
-        small = font('Cinzel', max(9,round(16*k)))
-        lc, rc = (HUD['blue'],HUD['red']) if left_ally else (HUD['red'],HUD['blue'])
-        d.text((bx+10*k,by+height*.58),f'{left/1000:.1f}k'.replace('.',','),font=small,fill=lc,anchor='lm')
-        d.text((bx+width-10*k,by+height*.58),f'{right/1000:.1f}k'.replace('.',','),font=small,fill=rc,anchor='rm')
-        a, b = bx+round(width*.21), bx+round(width*.79)
-        yy = by+height-round(10*k)
-        split = a+round((b-a)*left/max(1,left+right))
-        paint_balance(im,(a,yy,b,yy+max(3,round(5*k))),left/max(1,left+right),lc,rc)
-        d.line(((a+b)/2,yy-2,(a+b)/2,yy+7*k),fill=HUD['gold'])
-        label = f'{ours:+,.0f}'.replace(',',' ') if ours else '0'
-        f = font('Cinzel',max(11,round(19*k)))
-        color = HUD['blue'] if ours>0 else HUD['red'] if ours<0 else HUD['mute']
-        mid = bx+width/2
-        badge_w = round(f.getlength(label)+50*k)
-        inset=badge_source().transpose(Image.Transpose.ROTATE_90).resize((badge_w,max(12,round(height*.48))),Image.Resampling.LANCZOS)
-        im.alpha_composite(inset,(round(mid-badge_w/2),round(by+height*.27)))
-        d.text((mid+6*k,by+height*.51),label,font=f,fill=color,anchor='mm')
+        by = max(0,round(Y-TH*.35-height))
+        cx = bx+width/2
+        notch = max(4,round(TH*.045))
+        wing_bottom = round(Y-TH*.17)
+        # The crown surrounds the native dragon strip. Its middle remains transparent.
+        points=[(bx,by+height),(bx,by+height*.38),(bx+width*.025,by+height*.30),
+                (bx+width*.05,by+height*.15),(cx-width*.19,by+height*.15),
+                (cx-width*.13,by),(cx+width*.13,by),
+                (cx+width*.19,by+height*.15),(bx+width*.95,by+height*.15),
+                (bx+width*.975,by+height*.30),(bx+width,by+height*.38),
+                (bx+width,by+height),(cx+notch,by+height),
+                (cx,by+height-notch),(cx-notch,by+height)]
+        d.polygon(points,fill=rgb(HUD['deep'])+(245,))
+        d.line(points+[points[0]],fill=HUD['gold'],width=max(1,round(TW/1000)))
+        for edge,sign in ((bx,-1),(bx+width,1)):
+            d.line((edge,by+height,edge,wing_bottom-5,
+                    edge+sign*8,wing_bottom),fill=HUD['gold'],width=1)
+        factor=height/64
+        title=font('Forum',max(8,round(11*factor)))
+        d.text((cx,by+height*.12),'Стоимость предметов',font=title,
+               fill=HUD['fg'],anchor='mt')
+        small=font('Cinzel',max(9,round(17*factor)))
+        lc,rc=(HUD['blue'],HUD['red']) if left_ally else (HUD['red'],HUD['blue'])
+        d.text((bx+width*.08,by+height*.54),f'{left/1000:.1f}k'.replace('.',','),
+               font=small,fill=lc,anchor='lm')
+        d.text((bx+width*.92,by+height*.54),f'{right/1000:.1f}k'.replace('.',','),
+               font=small,fill=rc,anchor='rm')
+        a,b=bx+round(width*.04),bx+round(width*.96)
+        yy=by+height-round(8*factor)
+        paint_balance(im,(a,yy,b,yy+max(2,round(3*factor))),
+                      left/max(1,left+right),lc,rc)
+        # Transparent central notch exposes the game's original diamond emblem.
+        d.polygon([(cx-notch,by+height),(cx,by+height-notch),
+                   (cx+notch,by+height)],fill=(0,0,0,0))
+        label=f'{ours:+,.0f}'.replace(',',' ') if ours else '0'
+        f=font('Cinzel',max(11,round(19*factor)))
+        color=HUD['blue'] if ours>0 else HUD['red'] if ours<0 else HUD['mute']
+        d.text((cx,by+height*.58),label,font=f,fill=OUTLINE,anchor='mm',stroke_width=1)
+        d.text((cx,by+height*.57),label,font=f,fill=color,anchor='mm')
         if ours:
-            arrow_x = mid-f.getlength(label)/2-7*k
-            direction = -1 if left>right else 1
-            pts = [(-5,0),(0,-3),(0,-1),(6,-1),(6,1),(0,1),(0,3)]
-            d.polygon([(arrow_x+x*k*(-direction),by+height*.51+y*k) for x,y in pts],fill=HUD['gold'])
+            direction=-1 if left>right else 1
+            arrow_y=by+height*.35
+            pts=[(-5,0),(0,-3),(0,-1),(6,-1),(6,1),(0,1),(0,3)]
+            d.polygon([(cx+x*factor*(-direction),arrow_y+y*factor) for x,y in pts],
+                      fill=color)
     if frame:   # Только контур: клики через всю рамку идут в игру, мышь принимает отдельная ручка.
         g, L = t('gold'), int(18 * k)
         x0, y0, x1, y1 = X, Y, X + TW - 1, Y + TH - 1

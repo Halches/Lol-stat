@@ -2,7 +2,7 @@ name: Проверочный EXE без релиза
 
 on:
   push:
-    branches: [design/draft-native, perf/night-2026-11-04, ui/pool-space]
+    branches: [design/draft-native, perf/night-2026-11-04, ui/pool-space, design/sakura-depth]
     paths: [app/**, .github/workflows/app-review.yml, tools/refresh_catalog_gameplay.py]
   workflow_dispatch:
 

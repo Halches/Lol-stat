@@ -8,6 +8,8 @@ from tkinter import filedialog, messagebox, ttk
 from scroll_canvas import ScrollCanvas
 
 import performance_model
+import ui_skin
+import layered_image
 import core, lcu, phone, tab_detect, player_comments, player_traits, player_evidence, champion_rank, champion_pool, profile_ranks
 
 RELEASES = 'https://github.com/Halches/Lol-stat/releases'   # список всех версий с изменениями
@@ -32,6 +34,15 @@ THEMES = {   # три палитры дизайна 26.10, у каждой но�
     'dgold': ('Тёмное золото · ночь', {'bg': '#0e0e0f', 'panel': '#171717', 'line': '#2e2b27', 'fg': '#f0e9db', 'mute': '#9d978b', 'gold': '#d6ab52', 'good': '#4cc38a', 'bad': '#e5604f', 'blue': '#5aa9e6', 'red': '#e5604f', 'deep': '#121213', 'raise': '#211f1c', 'edge': '#171717', 'glow': '#1d1b18', 'tag_g': '#1f3329', 'tag_r': '#382320', 'tag_y': '#382d1d', 'good2': '#70cfa1', 'bad2': '#ea8072', 'warn': '#e8a33d', 'red2': '#ea8072', 'blue2': '#7bbaeb', 'on_gold': '#0e0e0f', 'dark': True}),
     'dgold_day': ('Тёмное золото · день', {'bg': '#f4f2ee', 'panel': '#ffffff', 'line': '#dcd6cb', 'fg': '#1c1a17', 'mute': '#6b665c', 'gold': '#8a6420', 'good': '#1f8a5b', 'bad': '#b9442f', 'blue': '#2f7fd0', 'red': '#b9442f', 'deep': '#f9f8f6', 'raise': '#ebe7df', 'edge': '#ffffff', 'glow': '#ffffff', 'tag_g': '#dbece5', 'tag_r': '#f4e1de', 'tag_y': '#f4e8d9', 'good2': '#1f8a5b', 'bad2': '#b9442f', 'warn': '#b86e12', 'red2': '#b9442f', 'blue2': '#2f7fd0', 'on_gold': '#f4f2ee', 'dark': False}),
 }
+# The existing default theme now carries the approved blossom palette.
+THEMES['lol']=('Цветение · ночь',dict(THEMES['lol'][1],bg='#191620',panel='#302537',
+    line='#68516f',fg='#f2e6f3',mute='#b9a8c3',gold='#c8a5dc',deep='#211a29',
+    **{'raise':'#493352'},edge='#5d4569',glow='#38263f',tag_g='#243b3e',
+    tag_r='#482e3c',tag_y='#423747',on_gold='#201528',good='#8ccfcc',
+    good2='#a7ded7',bad='#df91a8',bad2='#edb2c2',blue='#86c9ec',red='#df91a8'))
+THEMES['lol_day']=('Цветение · день',dict(THEMES['lol_day'][1],bg='#f1eaf3',
+    panel='#fcf8fd',line='#c3adc9',fg='#2d2035',mute='#73617e',gold='#80519b',
+    deep='#e5d9ea',**{'raise':'#ddc7e8'},on_gold='#ffffff'))
 OLD_THEMES = {'hex2': 'lol', 'hextech': 'lol', 'night': 'dgold', 'void': 'pilt', 'light': 'lol_day'}
 ACCENTS = {'theme': 'Как в теме', '#c8aa6e': 'Золото', '#0ac8b9': 'Бирюза', '#4aa3ff': 'Синий', '#b48cff': 'Фиолетовый',
            '#ff7a59': 'Оранжевый', '#ff6b81': 'Розовый', '#5cc98a': 'Зелёный'}
@@ -432,7 +443,7 @@ class Overlay(tk.Toplevel):
     CAPS = {'hints': 'Подсказки', 'perf': 'Твои показатели', 'lane': 'Линия', 'inventory': 'Стоимость инвентаря',
             'item': 'До предмета', 'timers': 'Таймеры', 'arena': 'Арена'}
 
-    def card(self, accent=None, width=None, title=True):
+    def card(self, accent=None, width=None, title=False):
         return render.Card(C, 'Forum', self.app.s['scale'] / 100, plate=self.app.s['widget_bg'] != 'none', accent=accent, width=width,
                            title=self.CAPS.get(self.key) if title else None)
 
@@ -444,6 +455,11 @@ class Overlay(tk.Toplevel):
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
         self._card_signature = signature
+        self._rgba = im
+        if IS_WIN:
+            self.geometry(f'{im.width}x{im.height}')
+            try: layered_image.present(self,im,self.app.s['alpha'])
+            except OSError as error: log_error('прозрачность виджета',error)
         x, sw = self.winfo_x(), self.winfo_screenwidth()
         if not self._drag and x + im.width > sw: self.geometry(f'+{max(0, sw - im.width)}+{self.winfo_y()}')   # не уезжать за край экрана
 
@@ -473,7 +489,7 @@ class HintsOverlay(Overlay):
             new = i == 0
             col = (color if color != 'fg' else 'fg') if new else 'mute'
             for j, ln in enumerate(render.wrap(text, f, c.px(280))):
-                lead = ('img',render.warning_icon(c.px(24))) if new and j==0 else ('gap',24)
+                lead = ('gap',2)
                 c.row(lead,('cell', at if j == 0 else '', 'warn' if new else 'mute', 11, True, 38, 'l'), ('text', ln, col, 15 if new else 12, new), pad=2)
             c.rows[-1] = (c.rows[-1][0], 7)
         self.put(c)
@@ -551,10 +567,10 @@ class LaneOverlay(Overlay):
     def draw(self,o,me,delta):
         col = 'blue' if delta>0 else 'red' if delta<0 else 'mute'
         c = self.card()
-        icon = self.app.pimg('champ', o['c'], 1.0, gray=o['dead'], ring=C['red'])
+        icon = self.app.pimg('champ', o['c'], 1.0, gray=o['dead'])
         value=render.Card(C,'Forum',self.app.s['scale']/100,plate=False)
-        value.row(('text',f'{delta:+.0f}',render.HUD[col],24,True))
-        value.row(('text','против '+self.app.data.cn(o['c']),render.HUD['fg'],11,False))
+        value.row(('text',f'{delta:+.0f}',render.OVERLAY[col],24,True))
+        value.row(('text','против '+self.app.data.cn(o['c']),render.OVERLAY['fg'],11,False))
         segs = ([('img', icon)] if icon else []) + [('img',value.render())]
         c.row(*segs)
         c.row(('text', f"ур. {me['lvl']} / {o['lvl']} · CS {me['cs']} / {o['cs']} · {o['k']}/{o['d']}/{o['a']}", 'mute', 10, False))
@@ -575,18 +591,15 @@ class InventoryOverlay(Overlay):
 
     def draw(self, players, my_team, me):
         c = self.card()
-        c.row(('text', 'С — союзник · В — враг · ты — твой герой', 'mute', 9, False), pad=3)
         for rank, p in enumerate(players, 1):
-            team = 'С' if p['team'] == my_team else 'В'
-            color = 'gold' if p is me else 'blue' if p['team'] == my_team else 'red'
-            icon = self.app.pimg('champ', p['c'], .65, gray=p.get('dead', False), ring=C[color])
-            segs = [('cell', str(rank), 'mute', 10, False, 16, 'r'),
-                    ('cell', 'ты' if p is me else team, color, 10, True, 18, 'l')]
-            if icon: segs.append(('img', icon))
-            segs += [('cell', self.app.data.cn(p['c']), color, 11, p is me, 120, 'l'),
-                     ('bar', p['igold']/max(1,players[0]['igold']), color, 'deep', 36),
-                     ('cell', f"{p['igold']:,.0f}".replace(',', ' '), 'fg', 13, True, 62, 'r')]
-            c.row(*segs, pad=3)
+            color = 'blue' if p['team'] == my_team else 'red'
+            icon = self.app.pimg('champ', p['c'], .65, gray=p.get('dead',False))
+            segs = [('cell',str(rank),'mute',10,False,16,'r')]
+            if icon: segs.append(('img',icon))
+            segs += [('cell',self.app.data.cn(p['c']),'fg',11,p is me,120,'l'),
+                     ('bar',p['igold']/max(1,players[0]['igold']),color,'deep',36),
+                     ('cell',f"{p['igold']:,.0f}".replace(',',' '),'fg',13,True,62,'r')]
+            c.row(*segs,pad=3,tint=color)
         if not players: c.row(('text', 'Жду данные игры…', 'mute', 11, False))
         c.row(('text', 'Без зелий, вардов и тотемов', 'mute', 9, False), pad=5)
         self.put(c)
@@ -742,7 +755,7 @@ class TabPlates(Overlay):
         gx, gy, gw, gh = game_rect()
         l, t, w, h = self.rect()
         side = 0
-        top = round(h*gh*.35+max(30,46*self.k())) if self.__dict__.get('totals') is not None else 0
+        top = round(h*gh*.35+max(30,h*gh*.22)) if self.__dict__.get('totals') is not None else 0
         return gx + gw / 2 + l * gh, gy + t * gh, w * gh, h * gh, side, top
 
     def draw(self, rows):
@@ -757,6 +770,10 @@ class TabPlates(Overlay):
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
         self.geometry(f'{im.width}x{im.height}+{int(X - side)}+{int(Y - tp)}')
+        self._rgba = im
+        if IS_WIN:
+            try: layered_image.present(self,im,self.app.s['alpha'])
+            except OSError as error: log_error('прозрачность Tab',error)
         self._geometry_sig = (game_rect(), tuple(self.rect()), self.app.s['scale'])
         self._place_handle()
         self._tab_draw_signature = signature
@@ -1760,6 +1777,7 @@ class App:
         self._imgs = []
         self.root.configure(bg=C['bg'])
         self.style()
+        ui_skin.install_shell(self,C)
         self.build_panel()
         try: self.nb.select(tab)
         except Exception: pass
@@ -1840,6 +1858,8 @@ class App:
         from view_components import readable_palette
         st.configure('M.TLabel', foreground=readable_palette(C)['mute'])
         st.configure('V.TLabel', foreground=C['gold'])
+        self.skin_palette=dict(C)
+        ui_skin.install_controls(self,st)
 
     def set_who(self, who):
         if who not in self.data.d['players']: who = None
@@ -2890,8 +2910,10 @@ class App:
         self.__dict__.setdefault('_imgs', []).append(ph); return ph
 
     def nav_item(self, rail, i, name, ic):
-        icons = {0: None, 1: None}
+        icons = {0: self.keep(ImageTk.PhotoImage(render.nav_icon(ic,C['mute'],self.fs(18)))),
+                 1: self.keep(ImageTk.PhotoImage(render.nav_icon(ic,C['fg'],self.fs(18))))} if Image else {0:None,1:None}
         lb = tk.Label(rail, text=name, bg=C['deep'], fg=C['fg'], anchor='w', font=(F['font'], self.fs(11)), padx=10, pady=self.fs(6), cursor='hand2')
+        lb.configure(image=icons[0] or '',compound='left')
         lb.pack(fill='x', pady=1)
         lb.bind('<Button-1>', lambda e, i=i: self.nb.select(i))
         lb.bind('<Enter>', lambda e: lb.configure(bg=C['panel']) if lb.cget('fg') != C['gold'] else None)
@@ -2903,7 +2925,7 @@ class App:
         except Exception: return
         for i, lb, icons in self.nav_items:
             on = i == cur
-            lb.configure(bg=C['raise'] if on else C['deep'], fg=C['gold'] if on else C['fg'])
+            lb.configure(bg=C['raise'] if on else C['deep'], fg=C['gold'] if on else C['fg'],image=icons[1 if on else 0] or '')
         self.page_title.configure(text=self.NAV[cur][0].upper())
 
     def page(self, name, scroll=True):
@@ -3337,14 +3359,14 @@ class App:
 
     def build_look(self):
         f = self.tab_look
-        self.h(f, 'Тема')
+        f = ui_skin.section(self.tab_look,self,'Тема')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
         for i, (k, (name, pal)) in enumerate(THEMES.items()):   # столбец — палитра, строки — ночь и день
             b = tk.Label(row, text=name, bg=pal['panel'], fg=pal['gold'], font=(F['numb'], self.fs(11)), padx=10, pady=10, width=18,
                          highlightthickness=2, highlightbackground=C['gold'] if self.s['theme'] == k else pal['bg'], cursor='hand2')
             b.grid(row=i//2, column=i%2, padx=(0, 8), pady=(0, 8), sticky='w')
             b.bind('<Button-1>', lambda e, k=k: self.set_look('theme', k))
-        self.h(f, 'Акцентный цвет')
+        f = ui_skin.section(self.tab_look,self,'Акцентный цвет')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
         for col, name in ACCENTS.items():
             sw = THEMES[self.s['theme']][1]['gold'] if col == 'theme' else col
@@ -3357,7 +3379,7 @@ class App:
         fv = tk.StringVar(value=self.s['font'])
         cb = ttk.Combobox(row, state='readonly', width=20, values=FONTS, textvariable=fv); cb.pack(side='left')
         cb.bind('<<ComboboxSelected>>', lambda e: self.set_look('font', fv.get()))
-        self.h(f, 'Размеры')
+        f = ui_skin.section(self.tab_look,self,'Размеры')
         self.slider(f, 'Размер текста', 'scale', 70, 170, lambda x: self.set_look('scale', int(x)), live=False)
         self.slider(f, 'Размер иконок', 'icon', 20, 64, lambda x: self.set_look('icon', int(x)), fmt=lambda x: f'{x:.0f} px', live=False)
         self.slider(f, 'Непрозрачность виджетов', 'alpha', 30, 100, self.set_alpha)
@@ -3366,7 +3388,7 @@ class App:
         bgv = tk.StringVar(value=self.s['widget_bg'])
         for val, name in (('panel', 'плашка'), ('none', 'без фона, только текст')):
             ttk.Radiobutton(row, text=name, value=val, variable=bgv, command=lambda: self.set_look('widget_bg', bgv.get())).pack(side='left', padx=(0, 10))
-        self.h(f, 'Что показывать')
+        f = ui_skin.section(self.tab_look,self,'Что показывать')
         grid = tk.Frame(f, bg=C['bg']); grid.pack(anchor='w')
         for i, (k, name) in enumerate(SHOW.items()):
             v = tk.BooleanVar(value=self.s['show'].get(k, True))
@@ -3380,14 +3402,19 @@ class App:
 
     def set_alpha(self, v):
         self.s['alpha'] = int(v); self.s.save()
-        for w in list(self.ov.values()) + list(self.tab.values()): w.attributes('-alpha', int(v) / 100)
+        for w in list(self.ov.values()) + list(self.tab.values()):
+            w.attributes('-alpha',int(v)/100)
+            image=getattr(w,'_rgba',None)
+            if IS_WIN and image is not None:
+                try: layered_image.present(w,image,int(v))
+                except OSError as error: log_error('непрозрачность виджета',error)
 
     def set_show(self, k, v):
         self.s['show'][k] = v; self.s.save(); self.rebuild()
 
     def build_voice(self):
         f = self.tab_voice
-        self.h(f, 'Голос подсказок')
+        f = ui_skin.section(self.tab_voice,self,'Голос подсказок')
         r = tk.Frame(f, bg=C['bg']); r.pack(anchor='w')
         self.voice_var = tk.StringVar()
         self.voice_cb = ttk.Combobox(r, state='readonly', width=26, textvariable=self.voice_var); self.voice_cb.pack(side='left')
@@ -3396,7 +3423,7 @@ class App:
         self.voice_msg = ttk.Label(f, text='', style='M.TLabel', wraplength=self.fs(660)); self.voice_msg.pack(anchor='w', pady=4)
         self.voice.on_error = lambda m: self.root.after(0, lambda: self.voice_msg.winfo_exists() and self.voice_msg.configure(text=m, foreground=C['bad']))
         self.refresh_voices()
-        self.h(f, 'Громкость')
+        f = ui_skin.section(self.tab_voice,self,'Громкость')
         self.slider(f, 'Общая', 'master', 0, 100, lambda x: self.set_voice_param('master', x))
         self.slider(f, 'Голос', 'volume', 0, 100, lambda x: self.set_voice_param('volume', x),
                     test=lambda: self.voice.say('Дракон через минуту', force=True))
@@ -3415,7 +3442,7 @@ class App:
         ttk.Button(row, text='▶ Проверить подсказку', style='A.TButton',
                    command=lambda: self.test_hint('gank1', 'Окно ганка через двадцать секунд, поставь вард в реку')).pack(side='left')
         self.note(f,'Проверка использует режим «Ганк 1» для выбранной роли на вкладке «Подсказки».')
-        self.h(f, 'Речь')
+        f = ui_skin.section(self.tab_voice,self,'Речь')
         self.slider(f, 'Скорость речи', 'rate', .7, 1.6, lambda x: self.set_voice_param('rate', x), fmt=lambda x: f'{x:.1f}×')
         self.note(f, 'Microsoft звучат лучше всех, но нужен интернет. Silero работают без интернета, пакет ~350 МБ скачивается один раз. '
                      'Piper: Дмитрий встроен, остальные ~60 МБ. Если выбранный голос не сработал, говорит Piper. '
@@ -3452,7 +3479,7 @@ class App:
 
     def build_keys(self):
         f = self.tab_keys
-        self.h(f, 'Горячие клавиши')
+        f = ui_skin.section(self.tab_keys,self,'Горячие клавиши')
         self.key_lbls = {}
         for key, name in (('mute', 'Выключить / включить звук'), ('hide', 'Скрыть / показать виджеты'),
                           ('scoreboard', 'Таблица Tab: стоимость предметов (держать)'), ('drag', 'Двигать виджеты и рамку Tab (держать)')):
@@ -3488,7 +3515,7 @@ class App:
 
     def build_timers(self):
         f = self.tab_time
-        self.h(f, 'Время объектов')
+        f = ui_skin.section(self.tab_time,self,'Время объектов')
         self.note(f, 'Значения сезона 2026. Если Riot поменяет время в патче, поправь здесь (минуты:секунды).')
         names = {'dragon_first': 'Первый дракон', 'dragon_respawn': 'Дракон, возрождение', 'elder_respawn': 'Древний дракон, возрождение',
                  'grubs': 'Личинки Бездны', 'herald': 'Герольд', 'baron_first': 'Барон', 'baron_respawn': 'Барон, возрождение',
@@ -3497,7 +3524,7 @@ class App:
             r = tk.Frame(f, bg=C['bg']); r.pack(anchor='w', pady=2)
             ttk.Label(r, text=n, width=30).pack(side='left')
             v = tk.StringVar(value=core.mmss(self.s['obj'].get(k, core.OBJ[k])))
-            e = ttk.Entry(r, textvariable=v, width=8); e.pack(side='left')
+            e = ttk.Entry(r,textvariable=v,width=8,font=(F['head'],self.fs(20))); e.pack(side='left')
             e.bind('<FocusOut>', lambda ev, k=k, v=v: self.set_obj(k, v))
             e.bind('<Return>', lambda ev, k=k, v=v: self.set_obj(k, v))
         self.reset_btn(f, 'obj', 'Таймеры по умолчанию')
@@ -3514,7 +3541,7 @@ class App:
 
     def build_updates(self):
         f = self.tab_upd
-        self.h(f, 'Версия')
+        f = ui_skin.section(self.tab_upd,self,'Версия')
         ttk.Label(f, text=f'LoL Helper {self.version}').pack(anchor='w')
         self.note(f, RIOT_NOTE)
         self.upd_msg = ttk.Label(f, text='', style='M.TLabel'); self.upd_msg.pack(anchor='w', pady=4)
@@ -3527,10 +3554,10 @@ class App:
         link = tk.Label(f, text=RELEASES, bg=C['bg'], fg=C['blue'], font=(F['font'], self.fs(10), 'underline'), cursor='hand2')
         link.pack(anchor='w'); link.bind('<Button-1>', lambda e: webbrowser.open(RELEASES))
         self.note(f, 'Статистика обновляется сама каждые 30 минут с raw.githubusercontent.com (работает без VPN).')
-        self.h(f, 'Список изменений')
+        f = ui_skin.section(self.tab_upd,self,'Список изменений')
         self.chlog_box = tk.Frame(f, bg=C['bg']); self.chlog_box.pack(fill='x')
         self.load_changelog()
-        self.h(f, 'Если что-то сломалось')
+        f = ui_skin.section(self.tab_upd,self,'Если что-то сломалось')
         self.note(f, 'Программа записывает ошибки (окна, связь с клиентом, импорт рун, предметов и заклинаний, lolalytics) в журнал. '
                      'Кнопка копирует отчёт: вставь его в чат с Claude, и по нему можно сразу найти причину.')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
@@ -3538,13 +3565,13 @@ class App:
         ttk.Button(row, text='Открыть папку с журналами', command=lambda: os.startfile(self.home) if os.name == 'nt' else None).pack(side='left', padx=8)
         n = len([ln for ln in tail(os.path.join(self.home, 'errors.log'), 400) if ln[:2] == '20'])
         self.rep_msg = ttk.Label(f, text=f'В журнале записей: {n}' if n else 'Журнал пуст: ошибок не было.', style='M.TLabel'); self.rep_msg.pack(anchor='w')
-        self.h(f, 'Копия настроек')
+        f = ui_skin.section(self.tab_upd,self,'Копия настроек')
         self.note(f, 'Сохрани настройки в файл (раскладка окон, клавиши, подсказки и их тексты, вид, звук, таймеры), '
                      'чтобы перенести на другой компьютер или отдать другу. Загрузка из файла заменит текущие настройки.')
         row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
         ttk.Button(row, text='Сохранить в файл', command=self.backup_save).pack(side='left')
         ttk.Button(row, text='Загрузить из файла', command=self.backup_load).pack(side='left', padx=8)
-        self.h(f, 'Сброс')
+        f = ui_skin.section(self.tab_upd,self,'Сброс')
         self.note(f, 'Вернуть все настройки программы к начальным: подсказки, вид, звук, окна, клавиши, таймеры.')
         self.confirm = None
         def reset_all():

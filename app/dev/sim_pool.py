@@ -54,6 +54,8 @@ def capture(name):
 
 def go():
     try:
+        # Allow pending notebook/card geometry to map before synthesising clicks.
+        app.root.update()
         cards_before=dict(view.cards)
         initial=app.current_pool();had='Ahri' in initial['MIDDLE']
         view.cards['Ahri'].event_generate('<Button-1>');app.root.update_idletasks()

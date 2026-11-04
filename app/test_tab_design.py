@@ -62,12 +62,17 @@ class TabDesignTests(unittest.TestCase):
     def test_total_extension_stays_above_game_header_and_in_bounds(self):
         for k in (.667, 1., 1.5, 2.):
             height = 380*k
-            top = round(height*.35+max(30,46*k))
+            top = round(height*.35+max(30,height*.22))
             im = render.tab_plates((0,top,1160*k,height),[(None,None)]*5,ui.THEMES['lol'][1],k,totals=(24050,21600))
             box = im.getchannel('A').getbbox()
             self.assertIsNotNone(box)
             self.assertGreaterEqual(box[1],0)
-            self.assertLessEqual(box[3],top-height*.35+2)
+            self.assertLessEqual(box[3],top-height*.17+2)
+            # The wrapping side strokes must not paint over dragon-buff slots.
+            wing=round((1160*k-1160*k*.54)/2)
+            protected=im.getchannel('A').crop((wing+3,round(top-height*.35)+3,
+                                               round(1160*k-wing)-3,round(top-height*.17)-3))
+            self.assertIsNone(protected.getbbox())
             self.assertIsNone(im.getchannel('A').crop((0,top,im.width,im.height)).getbbox())
 
 

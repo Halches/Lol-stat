@@ -1,5 +1,6 @@
 """Shared native-screen primitives using the app's existing palette and game assets."""
 import tkinter as tk
+import ui_skin
 
 
 class Components:
@@ -9,13 +10,13 @@ class Components:
 
     def button(self,parent,text,command,on=False):
         c=self.c
-        return tk.Button(parent,text=text,command=command,bg=c['raise'] if on else c['deep'],fg=c['gold'] if on else c['mute'],
+        return ui_skin.Button(parent,c,text=text,command=command,bg=c['raise'] if on else c['deep'],fg=c['gold'] if on else c['mute'],
                          relief='flat',bd=0,highlightthickness=1,highlightbackground=c['gold'] if on else c['line'],
                          highlightcolor=c['gold'],activebackground=c['raise'],activeforeground=c['gold'],
                          font=(self.f['font'],self.app.fs(10)),padx=self.app.fs(10),pady=self.app.fs(7),cursor='hand2')
 
     def panel(self,parent,pad=12):
-        return tk.Frame(parent,bg=self.c['panel'],padx=self.app.fs(pad),pady=self.app.fs(pad),
+        return ui_skin.Surface(parent,self.c,bg=self.c['panel'],padx=self.app.fs(pad),pady=self.app.fs(pad),
                         highlightthickness=1,highlightbackground=self.c['line'])
 
     def image(self,parent,group,key,size):

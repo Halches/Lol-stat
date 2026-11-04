@@ -1,5 +1,7 @@
 """Native home screen: profile first, loaded season statistics, matches and champion pool."""
 import time
+import ui_skin
+import home_charts
 import tkinter as tk
 from tkinter import ttk
 import core
@@ -29,7 +31,7 @@ class HomeScreen(tk.Frame):
         mode=self.mode(max(self.app.fs(550),event.width))
         if mode!=self.layout or getattr(self,'layout_width',None)!=event.width:
             if self.resize_job:self.after_cancel(self.resize_job)
-            self.resize_job=self.after(100,self.reflow)
+            self.resize_job=self.after_idle(self.reflow) if mode!=self.layout else self.after(100,self.reflow)
 
     def reflow(self):
         if self.resize_job:self.after_cancel(self.resize_job)
@@ -46,13 +48,13 @@ class HomeScreen(tk.Frame):
 
     def button(self,parent,text,command,on=False):
         c=self.c
-        return tk.Button(parent,text=text,command=command,bg=c['raise'] if on else c['deep'],fg=c['gold'] if on else c['fg'],
+        return ui_skin.Button(parent,c,text=text,command=command,bg=c['raise'] if on else c['deep'],fg=c['gold'] if on else c['fg'],
                          relief='flat',bd=0,highlightthickness=1,highlightbackground=c['gold'] if on else c['line'],
                          highlightcolor=c['gold'],activebackground=c['raise'],activeforeground=c['gold'],
                          font=(self.f['font'],self.app.fs(11)),padx=self.app.fs(10),pady=self.app.fs(7),cursor='hand2')
 
     def panel(self,parent,pad=12):
-        return tk.Frame(parent,bg=self.c['panel'],padx=self.app.fs(pad),pady=self.app.fs(pad),
+        return ui_skin.Surface(parent,self.c,bg=self.c['panel'],padx=self.app.fs(pad),pady=self.app.fs(pad),
                         highlightthickness=1,highlightbackground=self.c['line'])
 
     def image(self,parent,group,key,size):
@@ -107,7 +109,7 @@ class HomeScreen(tk.Frame):
         var=tk.StringVar(value=name)
         cb=ttk.Combobox(controls,state='readonly',textvariable=var,values=[p['riot'] for p in d.d['players'].values()],width=24,font=(self.f['font'],fs(12)))
         cb.pack(side='left',padx=(10,0),ipady=4);cb.bind('<<ComboboxSelected>>',lambda e:self.choose_profile(var))
-        self.hero=self.panel(self,18);self.hero.pack(fill='x')
+        self.hero=self.panel(self,12);self.hero.pack(fill='x')
         identity=tk.Frame(self.hero,bg=c['panel']);identity.grid(row=0,column=0,sticky='nw')
         portrait=tk.Frame(identity,bg=c['panel']);portrait.pack(side='left',anchor='n')
         icon=account.get('icon')
@@ -148,14 +150,12 @@ class HomeScreen(tk.Frame):
             self.button(period_line,title,lambda key=key:self.period_pick(key),self.period==key).pack(side='right',padx=(4,0))
         n=self.data['stats']['n']
         self.label(self,('Сезон · ' if self.period=='season' else 'Последние матчи · ')+core.plural(n,'загруженная игра','загруженные игры','загруженных игр'),9,'mute').pack(anchor='w',pady=(0,8))
+        self.label(self,'Графики KDA, фарма и обзора — последние 20 игр выбранного периода',9,'mute').pack(anchor='w',pady=(0,6))
         self.metrics=tk.Frame(self,bg=c['bg']);self.metrics.pack(fill='x')
         stat=self.data['stats'];season=self.data['season'];cols=4 if metrics_wide else 2
         for i,(title,key,fmt,count) in enumerate([('Винрейт','wr','{:.1f}%','results'),('KDA','kda','{:.2f}','kda_n'),('Фарм / мин','csm','{:.1f}','csm_n'),('Обзор / мин','vsm','{:.2f}','vsm_n')]):
-            card=self.panel(self.metrics,16);card.grid(row=i//cols,column=i%cols,sticky='nsew',padx=(0,6),pady=(0,6))
-            self.label(card,title,11,'mute').pack(anchor='w')
+            card=self.panel(self.metrics,0);card.grid(row=i//cols,column=i%cols,sticky='nsew',padx=(0,6),pady=(0,6))
             v=stat[key]
-            number=self.label(card,fmt.format(v).replace('.',',') if v is not None else '—',32,'fg')
-            number.configure(font=(self.f['numb'],fs(32)));number.pack(anchor='w',pady=(3,3))
             detail_color='mute'
             detail=(f"{stat['wins']} побед · {stat['results']-stat['wins']} поражений" if key=='wr' and stat['results'] else f"По {stat[count]} матчам" if stat[count] else 'Нет данных')
             if self.period=='recent' and v is not None and season[key] is not None and stat['n']<season['n']:
@@ -163,7 +163,7 @@ class HomeScreen(tk.Frame):
                 precision=2 if key in ('kda','vsm') else 1
                 detail=(f"{change:+.{precision}f}"+(' п.п.' if key=='wr' else '')+' к сезону') if round(change,precision) else 'Как в сезоне'
                 detail_color=('good' if change>0 else 'bad') if round(change,precision) else 'mute'
-            self.label(card,detail,9,detail_color,wraplength=fs(230)).pack(anchor='w')
+            home_charts.Metric(card,self.data,key,title,detail,c,app.s['scale']/100)
         for i in range(cols):self.metrics.columnconfigure(i,weight=1,uniform='metrics')
         body=tk.Frame(self,bg=c['bg']);body.pack(fill='x',pady=(10,0))
         self.matches=tk.Frame(body,bg=c['bg']);self.matches.grid(row=0,column=0,sticky='new',padx=(0,12 if wide else 0))
@@ -218,55 +218,78 @@ class HomeScreen(tk.Frame):
             tier=next((k for k,v in TIER_RU.items() if v==tier_of(fallback)),None)
             source='Сохранённые данные'
         else:rank='Нет данных';source='Ранг недоступен'
-        emblem=tk.Frame(card,bg=c['panel'],height=fs(62));emblem.pack(fill='x',pady=(3,2));emblem.pack_propagate(False)
+        emblem=tk.Frame(card,bg=c['panel'],height=fs(44));emblem.pack(fill='x',pady=(3,2));emblem.pack_propagate(False)
         # TFT uses its own artwork; do not substitute an unverified LoL badge.
         group='tft_emb' if key=='tft' else 'emb'
         name=TIER_RU.get(tier)
-        photo=self.app.icons.get(group,name,fs(58)) if self.app.s['show']['ranks'] and name in self.app.icons.a.get(group,{}) and key!='arena' else None
+        photo=self.app.icons.get(group,name,fs(42)) if self.app.s['show']['ranks'] and name in self.app.icons.a.get(group,{}) and key!='arena' else None
         if photo:tk.Label(emblem,image=photo,bg=c['panel']).pack(expand=True)
         else:self.label(emblem,'TFT' if key=='tft' else '—',16,'gold' if key=='tft' else 'mute',anchor='center').pack(expand=True)
         rank_label=self.label(card,rank,14,'fg',anchor='center',wraplength=fs(150),justify='center');rank_label.configure(font=(self.f['font'],fs(14),'bold'));rank_label.pack(fill='x')
         self.label(card,points or '—',13,'gold' if points and key!='arena' else 'mute',anchor='center').pack(fill='x',pady=(2,0))
-        self.label(card,source,7,'mute',anchor='center',wraplength=fs(135),justify='center').pack(fill='x',pady=(3,0))
+        if source!='Из клиента':
+            self.label(card,source,7,'mute',anchor='center',wraplength=fs(135),justify='center').pack(fill='x',pady=(3,0))
 
     def match(self,parent,game,width):
         app,d,c,fs=self.app,self.app.data,self.c,self.app.fs
         win=game.get('w');tone='good' if win==1 else 'bad' if win==0 else 'mute'
-        row=self.panel(parent,14);row.pack(fill='x',pady=(0,10))
-        strip=tk.Frame(row,bg=c[tone],width=3);strip.place(x=-fs(14),y=0,relheight=1)
+        shell=tk.Frame(parent,bg=c['panel']);shell.pack(fill='x',pady=(0,3))
+        tk.Frame(shell,bg=c[tone],width=3).pack(side='left',fill='y')
+        row=tk.Frame(shell,bg=c['panel'],padx=fs(10),pady=fs(8));row.pack(side='left',fill='both',expand=True)
         left=tk.Frame(row,bg=c['panel']);left.grid(row=0,column=0,sticky='w')
-        self.image(left,'champ',game.get('c'),56)
-        middle=tk.Frame(row,bg=c['panel']);middle.grid(row=0,column=1,sticky='ew',padx=(0,8))
-        title=tk.Frame(middle,bg=c['panel']);title.pack(anchor='w')
-        self.image(title,'role',game.get('pos'),18)
-        label=self.label(title,d.cn(game.get('c')),13,'fg',wraplength=max(fs(150),width-fs(430)),justify='left');label.configure(font=(self.f['font'],fs(13),'bold'));label.pack(side='left')
+        self.image(left,'champ',game.get('c'),48)
+        middle=tk.Frame(row,bg=c['panel']);middle.grid(row=0,column=1,sticky='w',padx=(0,8))
+        label=self.label(middle,d.cn(game.get('c')),14,'fg')
+        label.configure(font=(self.f['font'],fs(14),'bold'));label.pack(anchor='w')
         queue=core.QUEUE_RU.get(game.get('q'),'Режим не указан')
-        self.label(middle,queue+(' · против '+d.cn(game['opp']) if game.get('opp') else ''),8,'mute',wraplength=max(fs(150),width-fs(430)),justify='left').pack(anchor='w',pady=(2,3))
-        items=tk.Frame(middle,bg=c['panel']);items.pack(anchor='w')
-        for item in (game.get('it') or [])[:6]:self.image(items,'item',item,24)
-        kd=tk.Frame(row,bg=c['panel']);kd.grid(row=0,column=2,sticky='e',padx=(3,10))
-        self.label(kd,' / '.join(str(game[k]) if model.number(game.get(k)) else '—' for k in ('k','d','a')),18,'fg').pack(anchor='e')
-        self.label(kd,'K / D / A',10,'mute').pack(anchor='e',pady=(2,4))
-        self.label(kd,f"{game['csm']:.1f} CS/мин" if model.number(game.get('csm')) else 'CS —',8,'mute').pack(anchor='e')
-        result=tk.Frame(row,bg=c['panel']);result.grid(row=0,column=3,sticky='ne')
-        self.label(result,'ПОБЕДА' if win==1 else 'ПОРАЖЕНИЕ' if win==0 else 'НЕТ РЕЗУЛЬТАТА',9,tone).pack(anchor='e')
+        self.label(middle,queue+(' · против '+d.cn(game['opp']) if game.get('opp') else ''),9,'mute',
+                   wraplength=fs(250),justify='left').pack(anchor='w')
+        spacious=width>=fs(780)
+        items=tk.Frame(row if spacious else middle,bg=c['panel'])
+        if spacious:items.grid(row=0,column=2,sticky='w',padx=fs(7))
+        else:items.pack(anchor='w',pady=(3,0))
+        for item in (game.get('it') or [])[:6]:
+            img=self.image(items,'item',item,25)
+            if img:img.pack_configure(padx=(0,2))
+        kd=tk.Frame(row,bg=c['panel']);kd.grid(row=0,column=3,sticky='e',padx=(fs(6),fs(18)))
+        score=' / '.join(str(game[k]) if model.number(game.get(k)) else '—' for k in ('k','d','a'))
+        self.label(kd,score,16,'fg').pack(anchor='e')
+        farm=f"   ·   {game['csm']:.1f} CS/мин" if model.number(game.get('csm')) else ''
+        self.label(kd,'KDA'+farm,9,'mute').pack(anchor='e')
+        result=tk.Frame(row,bg=c['panel']);result.grid(row=0,column=4,sticky='e')
+        verdict='Победа' if win==1 else 'Поражение' if win==0 else 'Нет результата'
+        badge=self.label(result,verdict,10,tone,bg=c['tag_g'] if win==1 else c['tag_r'] if win==0 else c['deep'],
+                         padx=fs(6),anchor='center')
+        badge.pack(anchor='e')
         duration=game.get('dur');stamp=game.get('t')
         duration=core.mmss(round(duration*60)) if model.number(duration) else '—'
         date=time.strftime('%d.%m',time.localtime(stamp)) if model.number(stamp) and stamp else ''
-        self.label(result,' · '.join(x for x in (duration,date) if x),8,'mute').pack(anchor='e',pady=(2,0))
+        self.label(result,' · '.join(x for x in (duration,date) if x),8,'mute').pack(anchor='e')
         row.columnconfigure(1,weight=1)
-        for widget in (label,left):
+        if spacious:
+            row.columnconfigure(1,weight=4,uniform='match-columns')
+            row.columnconfigure(2,weight=3,uniform='match-columns')
+            row.columnconfigure(3,minsize=fs(150))
+            row.columnconfigure(4,minsize=fs(122))
+        for widget in (label,left,*left.winfo_children()):
             widget.configure(cursor='hand2');widget.bind('<Button-1>',lambda e,g=game:self.open_champion(g['c'],g.get('pos')))
 
     def champion(self,parent,row):
         app,c=self.app,self.c
-        line=tk.Frame(parent,bg=c['panel']);line.pack(fill='x',pady=8)
+        line=tk.Frame(parent,bg=c['panel']);line.pack(fill='x',pady=4)
         self.image(line,'champ',row['champion'],42)
         main=tk.Frame(line,bg=c['panel']);main.pack(side='left',fill='x',expand=True)
         name=self.label(main,app.data.cn(row['champion']),10,'fg',cursor='hand2',wraplength=self.app.fs(130));name.pack(anchor='w')
         name.bind('<Button-1>',lambda e:self.open_champion(row['champion'],row['role']))
-        s=row['stats'];self.label(main,f"{s['n']} игр"+(' · мало данных' if s['n']<5 else ''),8,'mute').pack(anchor='w')
-        self.label(line,f"{s['wr']:.0f}%" if s['wr'] is not None else '—',13,'gold').pack(side='right')
+        s=row['stats']
+        count=core.plural(s['n'],'игра','игры','игр')
+        self.label(main,count+(' · мало данных' if s['n']<5 else ''),8,'mute').pack(anchor='w')
+        rate=tk.Frame(line,bg=c['panel']);rate.pack(side='right',padx=app.fs(5))
+        self.label(rate,f"{s['wr']:.0f}%" if s['wr'] is not None else '—',13,'fg').pack(anchor='e')
+        if s['wr'] is not None:
+            bar=tk.Canvas(rate,width=app.fs(76),height=3,bg=c['line'],bd=0,highlightthickness=0)
+            bar.pack(anchor='e',pady=(2,1))
+            bar.create_rectangle(0,0,app.fs(76)*s['wr']/100,3,fill=c['gold'],outline='')
 
     def advice(self,parent):
         recent,season=self.data['recent'],self.data['season']
