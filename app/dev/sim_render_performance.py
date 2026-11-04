@@ -26,7 +26,11 @@ def main():
         def run():
             try:
                 for key,overlay in dict(app.ov,**app.tab).items():
-                    overlay.demo();photo=overlay._ph
+                    if key=='hints':
+                        overlay.push('Дракон через 45 секунд. Подготовь обзор у реки.')
+                        overlay.show()
+                    else:overlay.demo()
+                    photo=overlay._ph
                     times=[]
                     for _ in range(20):
                         start=time.perf_counter()

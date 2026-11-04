@@ -69,6 +69,21 @@ class RenderReuse(unittest.TestCase):
         card=self.card();first=card.render().tobytes()
         self.assertEqual(first,card.render().tobytes())
 
+    def test_hint_reuses_image_and_still_expires(self):
+        overlay=self.overlay()
+        overlay.items=[(99,'Подготовь обзор у реки.','fg','12:40')]
+        overlay.app=SimpleNamespace(hidden=False,s={'widgets':{'hints':True}})
+        overlay.unlocked=False;overlay.withdraw=Mock();overlay.deiconify=Mock()
+        overlay.card=lambda **kw:render.Card(dict(ui.C),'Forum',**kw)
+        overlay.put=lambda card:ui.Overlay.put(overlay,card)
+        with patch.object(ui.ImageTk,'PhotoImage',return_value=object()) as photo,patch.object(ui.time,'time',return_value=100):
+            ui.HintsOverlay.show(overlay);ui.HintsOverlay.show(overlay)
+            photo.assert_called_once()
+            self.assertEqual(overlay.deiconify.call_count,2)
+        with patch.object(ui.time,'time',return_value=115):ui.HintsOverlay.show(overlay)
+        overlay.withdraw.assert_called_once()
+        self.assertEqual(overlay.items,[])
+
     def test_tab_reuses_pixels_but_updates_values_geometry_and_edit_frame(self):
         tab=SimpleNamespace(geom=lambda:(0,0,600,300,0,100),k=lambda:1,
                             unlocked=False,_left_ally=True,totals=(100,90),lbl=Mock(),geometry=Mock(),
