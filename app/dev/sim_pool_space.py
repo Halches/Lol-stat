@@ -25,6 +25,7 @@ def main():
             setattr(ui.App,name,lambda *a,**k:None)
         ui.Voice.warm=lambda *a:None;lcu.LCU.image=lambda *a:None
         app=ui.App(lolhelper.load_data(),'Пул · проверка пространства')
+        app.root.overrideredirect(True)
         app.root.maxsize(3840,2160);app.root.geometry('1920x1080+0+0');app.nb.select(10)
         errors=[];checks=[];cases=iter([('before','lol',100)]+[(f'{theme}-{scale}',theme,scale) for theme in ('lol','lol_day') for scale in (100,125,150)])
         app.root.report_callback_exception=lambda et,ev,tb:fail(repr(ev))
