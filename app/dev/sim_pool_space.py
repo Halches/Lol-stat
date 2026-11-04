@@ -26,6 +26,8 @@ def main():
         ui.Voice.warm=lambda *a:None;lcu.LCU.image=lambda *a:None
         app=ui.App(lolhelper.load_data(),'Пул · проверка пространства')
         app.root.overrideredirect(True)
+        app.root.attributes('-topmost',True)
+        app.root.lift()
         app.root.maxsize(3840,2160);app.root.geometry('1920x1080+0+0');app.nb.select(10)
         errors=[];checks=[];cases=iter([('before','lol',100)]+[(f'{theme}-{scale}',theme,scale) for theme in ('lol','lol_day') for scale in (100,125,150)])
         app.root.report_callback_exception=lambda et,ev,tb:fail(repr(ev))
@@ -65,6 +67,8 @@ def main():
                 assert info['columns']>0,info
                 checks.append(info)
                 print(json.dumps(info),flush=True)
+                app.root.lift()
+                app.root.update_idletasks()
                 shot=ImageGrab.grab()
                 assert shot.size==(1920,1080),('unexpected screenshot size',shot.size)
                 shot.save(OUT/(current[0]+'.png'))
