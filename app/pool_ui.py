@@ -1,4 +1,5 @@
 """Separate champion-pool screen: portraits toggle the pool for the chosen role."""
+import os
 import tkinter as tk
 from tkinter import ttk
 from scroll_canvas import ScrollCanvas
@@ -17,7 +18,7 @@ class PoolScreen(tk.Frame):
         self.rows,self.source=model.load_catalog(app.data)
         self.role='MIDDLE'
         self.mode='all';self.columns=0;self.cards={};self.job=None;self.old_columns=0
-        self.resize_job=None;self.viewport_width=None;self.card_cache={};self.card_parts={};self.card_positions={};self.card_states={};self.empty=None
+        self.paint_job=None;self.resize_job=None;self.viewport_width=None;self.card_cache={};self.card_parts={};self.card_positions={};self.card_states={};self.empty=None
         self.query=tk.StringVar();self.sort=tk.StringVar(value='По имени');self.filters={};self.option_maps={}
         self.role_buttons={};self.mode_buttons={}
         line=tk.Frame(self,bg=C['panel'],padx=6,pady=4);line.pack(fill='x')
@@ -68,7 +69,7 @@ class PoolScreen(tk.Frame):
     def cleanup(self,event):
         if event.widget is self:
             self.query.trace_remove('write',self.query_trace)
-            for name in ('job','resize_job'):
+            for name in ('job','resize_job','paint_job'):
                 job=getattr(self,name)
                 if job:self.after_cancel(job);setattr(self,name,None)
 
@@ -146,11 +147,13 @@ class PoolScreen(tk.Frame):
         self.visible=model.filtered(self.rows,pool,self.role,self.query.get(),self.mode,active,sort)
         self.result.configure(text=f'{profile} · {core.ROLE_RU[self.role]}: {len(selected)} в пуле · найдено {len(self.visible)} из {len(self.rows)}')
         desired={row['id'] for row in self.visible}
+        moved=False
         for champion in self.cards:
             if champion not in desired:
-                self.card_cache[champion].grid_remove();self.card_positions.pop(champion,None)
+                self.card_cache[champion].grid_remove();self.card_positions.pop(champion,None);moved=True
         self.cards={};cols=max(1,self.columns)
         if cols!=self.old_columns:
+            moved=True
             for i in range(max(cols,self.old_columns)):
                 self.grid_box.columnconfigure(i,weight=1 if i<cols else 0,uniform='champ' if i<cols else '',minsize=0)
             self.old_columns=cols
@@ -164,7 +167,7 @@ class PoolScreen(tk.Frame):
             card=self.card_cache[champion]
             if self.card_positions.get(champion)!=position:
                 card.grid(row=position[0],column=position[1],sticky='nsew',padx=4,pady=4)
-                self.card_positions[champion]=position
+                self.card_positions[champion]=position;moved=True
             on=champion in selected
             if self.card_states.get(champion)!=on:
                 name,state=self.card_parts[champion]
@@ -173,6 +176,17 @@ class PoolScreen(tk.Frame):
                 state.configure(text='✓' if on else '+',fg=c['gold' if on else 'mute'])
                 self.card_states[champion]=on
             self.cards[champion]=card
+        if moved and os.name=='nt' and self.paint_job is None:
+            self.paint_job=self.after_idle(self.repaint_grid)
+
+    def repaint_grid(self):
+        self.paint_job=None
+        if not self.winfo_exists():return
+        self.grid_box.update_idletasks()
+        from ui import U32,ctypes
+        # Native child windows can leave old pixels in newly exposed grid gaps.
+        # Repaint only after a layout change, never on a selection-only update.
+        U32.RedrawWindow(ctypes.c_void_p(self.grid_box.winfo_id()),None,None,0x0185)
 
     def draw_card(self,row,selected,y,x):
         champion=row['id'];on=champion in selected;c=self.c;fs=self.app.fs
