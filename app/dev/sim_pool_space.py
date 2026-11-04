@@ -25,7 +25,7 @@ def main():
             setattr(ui.App,name,lambda *a,**k:None)
         ui.Voice.warm=lambda *a:None;lcu.LCU.image=lambda *a:None
         app=ui.App(lolhelper.load_data(),'Пул · проверка пространства')
-        app.root.geometry('1920x1080+0+0');app.nb.select(10)
+        app.root.maxsize(3840,2160);app.root.geometry('1920x1080+0+0');app.nb.select(10)
         errors=[];checks=[];cases=iter([('before','lol',100)]+[(f'{theme}-{scale}',theme,scale) for theme in ('lol','lol_day') for scale in (100,125,150)])
         app.root.report_callback_exception=lambda et,ev,tb:fail(repr(ev))
         baseline=types.ModuleType('pool_before');baseline.__file__=str(Path('app/pool_ui.py').resolve())
@@ -41,13 +41,17 @@ def main():
             current=next(cases,None)
             if current is None:finish();return
             _,theme,scale=current
-            app.s['theme']=theme;app.s['scale']=scale;app.rebuild();app.root.geometry('1920x1080+0+0');app.nb.select(10)
+            app.s['theme']=theme;app.s['scale']=scale;app.rebuild();app.root.maxsize(3840,2160);app.root.geometry('1920x1080+0+0');app.nb.select(10)
             if current[0]=='before':
                 app.pool_view.destroy();app.pool_view=baseline.PoolScreen(app.tab_pool,app)
+            app.root.update_idletasks()
+            view=app.pool_view
+            view.resize(types.SimpleNamespace(width=view.cv.winfo_width()))
             app.root.after(500,capture)
         def capture():
             try:
                 view=app.pool_view
+                app.root.update_idletasks()
                 if view.resize_job:
                     app.root.after(150,capture);return
                 app.root.update_idletasks()
@@ -56,6 +60,8 @@ def main():
                 info={'case':current[0],'window':[app.root.winfo_width(),app.root.winfo_height()],
                       'viewport_height':view.cv.winfo_height(),'columns':view.columns,'full_rows':full_rows,
                       'card_height':cards[0].winfo_height()}
+                assert info['window']==[1920,1080],('window manager constrained the test window',info)
+                assert info['columns']>0,info
                 checks.append(info)
                 print(json.dumps(info),flush=True)
                 user=ctypes.windll.user32;user.GetAncestor.argtypes=[ctypes.c_void_p,ctypes.c_uint];user.GetAncestor.restype=ctypes.c_void_p
