@@ -85,7 +85,9 @@ def main():
                     assert all(view.cards[key] is card for key,card in original.items())
                 app.root.after(100,advance)
             except Exception as error:fail(repr(error))
-        app.root.after(500,advance);app.root.after(30000,lambda:fail('pool space timeout'))
+        # Seven full theme/scale rebuilds plus PNG captures need a larger budget
+        # on hosted Windows runners; this still catches a stuck event loop.
+        app.root.after(500,advance);app.root.after(60000,lambda:fail('pool space timeout'))
         app.run()
         if errors or len(checks)!=7:raise SystemExit(str(errors))
 

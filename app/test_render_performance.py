@@ -11,12 +11,19 @@ from PIL import Image
 
 
 class RenderReuse(unittest.TestCase):
+    def setUp(self):
+        # Cache tests use window doubles; the native compositor has its own test.
+        compositor=patch.object(ui.layered_image,'present')
+        self.present=compositor.start()
+        self.addCleanup(compositor.stop)
+
     def card(self):
         return render.Card(dict(ui.C), 'Forum', title='Показатели').row(
             ('text', 'Фарм', 'fg', 12, False), ('cell', '8,1', 'gold', 16, True, 60, 'r'))
 
     def overlay(self):
-        return SimpleNamespace(lbl=Mock(), _drag=False, winfo_x=lambda:0,
+        return SimpleNamespace(lbl=Mock(), geometry=Mock(),app=SimpleNamespace(s={'alpha':100}),
+                               _drag=False, winfo_x=lambda:0,
                                winfo_screenwidth=lambda:1920)
 
     def test_unchanged_card_does_not_render_or_replace_tk_image(self):
@@ -72,7 +79,7 @@ class RenderReuse(unittest.TestCase):
     def test_hint_reuses_image_and_still_expires(self):
         overlay=self.overlay()
         overlay.items=[(99,'Подготовь обзор у реки.','fg','12:40')]
-        overlay.app=SimpleNamespace(hidden=False,s={'widgets':{'hints':True}})
+        overlay.app=SimpleNamespace(hidden=False,s={'widgets':{'hints':True},'alpha':100})
         overlay.unlocked=False;overlay.withdraw=Mock();overlay.deiconify=Mock()
         overlay.card=lambda **kw:render.Card(dict(ui.C),'Forum',**kw)
         overlay.put=lambda card:ui.Overlay.put(overlay,card)
@@ -87,7 +94,7 @@ class RenderReuse(unittest.TestCase):
     def test_tab_reuses_pixels_but_updates_values_geometry_and_edit_frame(self):
         tab=SimpleNamespace(geom=lambda:(0,0,600,300,0,100),k=lambda:1,
                             unlocked=False,_left_ally=True,totals=(100,90),lbl=Mock(),geometry=Mock(),
-                            app=SimpleNamespace(s={'scale':100}),rect=lambda:[0,0,1,1],_place_handle=Mock())
+                            app=SimpleNamespace(s={'scale':100,'alpha':100}),rect=lambda:[0,0,1,1],_place_handle=Mock())
         rows=[({'v':100},{'v':90})]
         with patch.object(ui.ImageTk,'PhotoImage',return_value=object()),patch.object(ui,'game_rect',return_value=(0,0,1920,1080)),patch.object(ui.render,'tab_plates',return_value=Image.new('RGBA',(600,400))) as paint:
             ui.TabPlates.draw(tab,rows);ui.TabPlates.draw(tab,rows)
