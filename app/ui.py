@@ -2,6 +2,7 @@
 # Внешний вид (тема, акцент, шрифт, иконки) настраивается на вкладке «Вид» и применяется сразу: окна пересобираются.
 import base64, io, json, os, platform, queue, subprocess, sys, threading, time, traceback, urllib.request, webbrowser
 import tkinter as tk
+from collections import OrderedDict
 from tkinter import filedialog, messagebox, ttk
 
 from scroll_canvas import ScrollCanvas
@@ -256,6 +257,7 @@ class Icons:
 
     def __init__(self, app):
         self.app, self.cache, self.raw = app, {}, {}
+        self.rounded = OrderedDict()
         try: self.a = json.load(open(os.path.join(bundle_dir(), 'assets.json')))
         except Exception: self.a = {}
 
@@ -291,6 +293,20 @@ class Icons:
         ph = ImageTk.PhotoImage(im)
         self.cache[k] = ph
         return ph
+
+    def rounded_pil(self, grp, key, size, gray=False, ring=None):
+        im = self._pil(grp, key)
+        if im is None: return None
+        k = (grp, key, size, gray, ring)
+        cached = self.rounded.get(k)
+        if cached is not None and cached[0] is im:
+            self.rounded.move_to_end(k)
+            return cached[1]
+        result = render.rounded_icon(im, size, gray=gray, ring=ring)
+        self.rounded[k] = (im, result)
+        self.rounded.move_to_end(k)
+        if len(self.rounded) > 128: self.rounded.popitem(last=False)
+        return result
 
 
 def tier_of(text):
@@ -420,9 +436,12 @@ class Overlay(tk.Toplevel):
 
     def put(self, card):
         if Image is None: return
+        signature = card.signature()
+        if signature == getattr(self, '_card_signature', None): return
         im = card.render()
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
+        self._card_signature = signature
         x, sw = self.winfo_x(), self.winfo_screenwidth()
         if not self._drag and x + im.width > sw: self.geometry(f'+{max(0, sw - im.width)}+{self.winfo_y()}')   # не уезжать за край экрана
 
@@ -726,13 +745,19 @@ class TabPlates(Overlay):
 
     def draw(self, rows):
         X, Y, W, H, side, tp = self.geom()
-        im = render.tab_plates((side, tp, W, H), rows, C, self.k(), frame=self.unlocked,
+        scale = self.k()
+        signature = (X,Y,W,H,side,tp,scale,self.unlocked,self._left_ally,
+                     self.__dict__.get('totals'),tuple(sorted(C.items())),
+                     tuple(tuple(p['v'] if p is not None else None for p in row) for row in rows))
+        if signature == getattr(self, '_tab_draw_signature', None): return
+        im = render.tab_plates((side, tp, W, H), rows, C, scale, frame=self.unlocked,
                                left_ally=self._left_ally, totals=self.__dict__.get('totals'))
         self._ph = ImageTk.PhotoImage(im)
         self.lbl.configure(image=self._ph)
         self.geometry(f'{im.width}x{im.height}+{int(X - side)}+{int(Y - tp)}')
         self._geometry_sig = (game_rect(), tuple(self.rect()), self.app.s['scale'])
         self._place_handle()
+        self._tab_draw_signature = signature
 
     def refresh_geometry(self):
         sig = (game_rect(), tuple(self.rect()), self.app.s['scale'])
@@ -1757,8 +1782,7 @@ class App:
     def pimg(self, grp, key, k=1.0, gray=False, ring=None):
         """Иконка для карточек виджетов (PIL), скруглённая, с рамкой по желанию."""
         if Image is None or key in (None, '', 0): return None
-        im = self.icons._pil(grp, key)
-        return render.rounded_icon(im, max(12, int(self.s['icon'] * k * self.s['scale'] / 100)), gray=gray, ring=ring) if im else None
+        return self.icons.rounded_pil(grp, key, max(12, int(self.s['icon'] * k * self.s['scale'] / 100)), gray=gray, ring=ring)
 
     def layout(self):
         return self.s['layout'].setdefault(screens()[0], {})
@@ -2081,18 +2105,30 @@ class App:
 
     # --- обработка в потоке интерфейса
     def drain(self):
+        deadline = time.perf_counter() + .008
+        delay = 300
         try:
-            while True:
+            for _ in range(32):
                 kind, a, b, c = self.q.get_nowait()
-                if kind == 'game': self.on_game(a, b, c)
-                elif kind == 'end': self.on_end()
-                elif kind == 'me': self.on_me(a)
-                elif kind == 'draft': self.on_draft(a)
-                elif kind == 'load': self.on_loading(a)
-                elif kind == 'error': self.status.configure(text=f'Ошибка: {a}')
+                try:
+                    if kind == 'game': self.on_game(a, b, c)
+                    elif kind == 'end': self.on_end()
+                    elif kind == 'me': self.on_me(a)
+                    elif kind == 'draft': self.on_draft(a)
+                    elif kind == 'load': self.on_loading(a)
+                    elif kind == 'error': self.status.configure(text=f'Ошибка: {a}')
+                except Exception as error:
+                    log_error('событие интерфейса ' + str(kind), error)
+                if time.perf_counter() >= deadline:
+                    delay = 1
+                    break
+            else:
+                delay = 1
         except queue.Empty:
             pass
-        self.root.after(300, self.drain)
+        finally:
+            try: self.root.after(delay, self.drain)
+            except (tk.TclError, RuntimeError): pass
 
     def on_me(self, me):
         self.account, self.my_rank = me, (me or {}).get('rank')

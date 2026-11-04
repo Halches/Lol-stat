@@ -2,7 +2,7 @@ name: Проверочный EXE без релиза
 
 on:
   push:
-    branches: [design/draft-native]
+    branches: [design/draft-native, perf/night-2026-11-04]
     paths: [app/**, .github/workflows/app-review.yml, tools/refresh_catalog_gameplay.py]
   workflow_dispatch:
 
@@ -62,6 +62,11 @@ jobs:
         env:
           SCROLL_PERF_OUT: dist/scroll-performance.json
         run: python app/dev/sim_scroll_performance.py
+
+      - name: Повторные обновления виджетов без лишней отрисовки
+        env:
+          RENDER_PERF_OUT: dist/render-performance.json
+        run: python app/dev/sim_render_performance.py
 
       - name: Локальный голос Piper
         shell: pwsh

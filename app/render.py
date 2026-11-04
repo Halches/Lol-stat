@@ -100,6 +100,14 @@ class Card:
         if self.plate and c in HUD: return rgb(HUD[c])
         return rgb(c if c.startswith('#') else self.t.get(c, c))
 
+    def signature(self):
+        """Snapshot the actual inputs, including pixels of mutable PIL images."""
+        rows = tuple((tuple((s[0], s[1].mode, s[1].size, s[1].tobytes())
+                            if s[0] == 'img' else tuple(s) for s in segs), pad)
+                     for segs, pad in self.rows)
+        return (tuple(sorted(self.t.items())), self.fn, self.k, self.plate,
+                self.accent, self.width, self.title, rows)
+
     def render(self):
         card = copy.copy(self)
         card.k *= 2
@@ -183,6 +191,7 @@ def objective_icon(name,size):
         return im
 
 
+@lru_cache(maxsize=16)
 def warning_icon(size):
     im=Image.new('RGBA',(size,size));d=ImageDraw.Draw(im);m=size/2
     d.polygon([(m,0),(size-1,m),(m,size-1),(0,m)],fill='#0b2028',outline=HUD['gold'],width=max(1,size//16))
@@ -210,6 +219,13 @@ def panel_frame(width,height,corner):
 def sculpted_text(im,xy,text,f,color):
     """Live text mask with a bright bevel and shaded serif strokes."""
     col = rgb(color) if isinstance(color,str) else color[:3]
+    shade, box = _sculpted_glyph(text, f, tuple(col))
+    im.alpha_composite(shade,(round(xy[0]+box[0]-3),round(xy[1]+box[1]-3)))
+
+
+@lru_cache(maxsize=128)
+def _sculpted_glyph(text, f, col):
+    # Reuse static headings and repeated values; never mutate the cached tile.
     box = f.getbbox(text,stroke_width=1)
     w,h = box[2]-box[0]+6,box[3]-box[1]+6
     mask=Image.new('L',(w,h)); md=ImageDraw.Draw(mask)
@@ -220,7 +236,7 @@ def sculpted_text(im,xy,text,f,color):
         factor=1.28 if t<.24 else 1.08 if t<.48 else .78+(.15*t)
         sd.line((0,y,w,y),fill=tuple(min(255,round(v*factor)) for v in col)+(255,))
     shade.putalpha(mask)
-    im.alpha_composite(shade,(round(xy[0]+box[0]-3),round(xy[1]+box[1]-3)))
+    return shade, box
 
 
 def paint_balance(im,box,fraction,left,right):
@@ -266,10 +282,15 @@ def pin_icon(pinned, k):
     return im.resize((size,size), Image.Resampling.LANCZOS)
 
 
+@lru_cache(maxsize=16)
+def _badge_frame(width, height):
+    return badge_source().resize((width,height),Image.Resampling.LANCZOS)
+
+
 def hud_badge(text, direction, color, width, height):
     z = 4; w, h = width*z, height*z
     im = Image.new('RGBA', (w,h)); d = ImageDraw.Draw(im)
-    im.alpha_composite(badge_source().resize((w,h),Image.Resampling.LANCZOS))
+    im.alpha_composite(_badge_frame(w,h))
     if direction:
         # A solid, engraved silhouette survives the narrow real scoreboard gutter.
         pts = [(.16,.27),(.43,.16),(.43,.23),(.84,.25),(.43,.29),(.43,.36)]
