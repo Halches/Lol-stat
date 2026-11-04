@@ -48,7 +48,10 @@ jobs:
           python app/make_assets.py
 
       - name: Пространство пула в окне 1920×1080
-        run: python app/dev/sim_pool_space.py
+        run: |
+          git fetch --depth=1 origin 357680d0237ff2f016dc9a541981c88f9c1ba077
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python app/dev/sim_pool_space.py
 
       - name: Снимки и размеры пула
         if: always()
