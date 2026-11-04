@@ -65,8 +65,9 @@ def main():
                 assert info['columns']>0,info
                 checks.append(info)
                 print(json.dumps(info),flush=True)
-                user=ctypes.windll.user32;user.GetAncestor.argtypes=[ctypes.c_void_p,ctypes.c_uint];user.GetAncestor.restype=ctypes.c_void_p
-                ImageGrab.grab(window=user.GetAncestor(app.root.winfo_id(),2)).save(OUT/(current[0]+'.png'))
+                shot=ImageGrab.grab()
+                assert shot.size==(1920,1080),('unexpected screenshot size',shot.size)
+                shot.save(OUT/(current[0]+'.png'))
                 if current[0]!='before':
                     assert full_rows>=3,('fewer than three full rows',info)
                     if current[2]==100:assert full_rows>=5,info
