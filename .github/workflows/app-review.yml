@@ -2,7 +2,7 @@ name: Проверочный EXE без релиза
 
 on:
   push:
-    branches: [design/draft-native, perf/night-2026-11-04]
+    branches: [design/draft-native, perf/night-2026-11-04, ui/pool-space]
     paths: [app/**, .github/workflows/app-review.yml, tools/refresh_catalog_gameplay.py]
   workflow_dispatch:
 
@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -44,6 +46,21 @@ jobs:
           for f in champion item summoner runesReforged; do curl --fail --retry 2 -sS -o "tools/dd/$f.json" "https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/$f.json"; done
           mv tools/dd/runesReforged.json tools/dd/runes.json
           python app/make_assets.py
+
+      - name: Пространство пула в окне 1920×1080
+        run: |
+          git fetch --depth=1 origin 357680d0237ff2f016dc9a541981c88f9c1ba077
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python app/dev/set_review_display.py
+          python app/dev/sim_pool_space.py
+
+      - name: Снимки и размеры пула
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pool-space-preview
+          path: dist/pool-space/
+          if-no-files-found: warn
 
       - name: Подробности сохранённых матчей
         run: python app/history_archive.py --source tools/games.json --output app/history-details.json
