@@ -39,11 +39,14 @@ def main():
                         times.append((time.perf_counter()-start)*1000)
                         assert overlay._ph is photo,key+' recreated an unchanged Tk image'
                     report[key]={'median_ms':round(statistics.median(times),3),'max_ms':round(max(times),3),'same_tk_image':True}
+                expected_images=len(app._imgs)
                 for theme in ('lol_day','lol'):
+                    previous_images=tuple(app._imgs)
                     app.s['theme']=theme;app.rebuild();app.root.update_idletasks()
                     resources.append({'theme':theme,'canvases':len(app.canvases),'retained_images':len(app._imgs)})
                     assert len(app.canvases)==11,'destroyed canvases accumulated'
-                    assert len(app._imgs)==1,'old images accumulated'
+                    assert len(app._imgs)==expected_images,'old images accumulated'
+                    assert not any(image is old for image in app._imgs for old in previous_images),'destroyed view images retained'
                     assert all(canvas.winfo_exists() for canvas in app.canvases.values())
             except Exception as error:errors.append(repr(error))
             finally:app.root.destroy()
