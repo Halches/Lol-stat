@@ -1,5 +1,6 @@
 """Native hint settings; existing trigger catalogue, per-role modes and custom texts."""
 import tkinter as tk
+import ui_skin
 from tkinter import ttk
 import core
 import champion_pool
@@ -50,7 +51,7 @@ SHORT_TITLES = {
     'powerspike': 'Ключевые уровни и предметы',
 }
 
-class HintsScreen(tk.Frame,Components):
+class HintsScreen(ui_skin.material_ui.Frame,Components):
     def __init__(self,parent,app):
         from ui import C,F,MODES
         super().__init__(parent,bg=C['bg']);self.app,self.c,self.f=app,dict(C),F;self.pack(fill='both',expand=True)
@@ -60,23 +61,23 @@ class HintsScreen(tk.Frame,Components):
         self.c['hint_detail']='#'+''.join(f'{round(int(fg[i:i+2],16)*.8+int(bg[i:i+2],16)*.2):02x}' for i in (1,3,5))
         self.label(self,'Выбери роль и настрой напоминания',15,'fg').pack(anchor='w',pady=(2,8))
         self.label(self,'Общие настройки действуют для всех ролей.',11,'hint_detail').pack(anchor='w',pady=(0,14))
-        self.roles=tk.Frame(self,bg=C['bg']);self.roles.pack(fill='x',pady=(0,14))
-        row=tk.Frame(self,bg=C['bg']);row.pack(fill='x')
+        self.roles=ui_skin.Frame(self,bg=C['bg']);self.roles.pack(fill='x',pady=(0,14))
+        row=ui_skin.Frame(self,bg=C['bg']);row.pack(fill='x')
         self.label(row,'Поиск',11).pack(side='left',padx=(0,8));entry=ttk.Entry(row,textvariable=self.query,width=32,font=(F['font'],app.fs(12)));entry.pack(side='left',fill='x',expand=True,ipady=5)
         ttk.Style(self).configure('Hints.TCombobox',padding=(5,5))
         cb=ttk.Combobox(row,textvariable=self.mode,state='readonly',values=['Все режимы']+list(MODES.values()),width=15,font=(F['font'],app.fs(11)),style='Hints.TCombobox');cb.pack(side='left',padx=(10,0));cb.bind('<<ComboboxSelected>>',lambda e:self.refresh())
         self.query_trace=self.query.trace_add('write',lambda *_:self.search_changed())
-        self.scopes=tk.Frame(self,bg=C['bg']);self.scopes.pack(fill='x',pady=(10,14))
+        self.scopes=ui_skin.Frame(self,bg=C['bg']);self.scopes.pack(fill='x',pady=(10,14))
         self.bulk_toggle=self.button(self,'Настроить все показанные ▾',self.toggle_bulk);self.bulk_toggle.pack(anchor='w',pady=(0,10))
         self.controls=self.panel(self,14)
         self.bulk_label=self.label(self.controls,'',12,'gold');self.bulk_label.pack(anchor='w')
-        row=tk.Frame(self.controls,bg=C['panel']);row.pack(fill='x',pady=(8,0))
+        row=ui_skin.Frame(self.controls,bg=C['panel']);row.pack(fill='x',pady=(8,0))
         for mode,title in MODES.items():self.button(row,title,lambda m=mode:self.set_all(m)).pack(side='left',padx=(0,6))
         self.label(self.controls,'Изменятся только подсказки в текущем списке.',11,'hint_detail').pack(anchor='w',pady=(8,10))
         self.button(self.controls,'Сбросить режимы всех ролей',self.reset_modes).pack(anchor='w')
         self.label(self.controls,'Свои тексты сохранятся.',11,'hint_detail').pack(anchor='w',pady=(6,0))
         self.summary=self.label(self,'',11,'hint_detail');self.summary.pack(anchor='w',pady=(0,8))
-        self.body=tk.Frame(self,bg=C['bg']);self.body.pack(fill='x')
+        self.body=ui_skin.Frame(self,bg=C['bg']);self.body.pack(fill='x')
         self.bind('<Configure>',self.resized);self.bind('<Destroy>',self.cleanup,add='+');self.refresh()
     def cleanup(self,e):
         if e.widget is self:
@@ -168,22 +169,22 @@ class HintsScreen(tk.Frame,Components):
             box=self.panel(self.body,12);box.pack(fill='x',pady=(0,10))
             self.label(box,title+f' · {len(hints)}',15,'gold',head=True).pack(anchor='w',pady=(0,8))
             for hid,group,name,default,cooldown in hints:
-                row=tk.Frame(box,bg=self.c['deep'],padx=self.app.fs(16),pady=self.app.fs(15));row.pack(fill='x',pady=(0,10));self.rows[hid]=row
-                main=tk.Frame(row,bg=self.c['deep']);main.pack(fill='x')
-                actions=tk.Frame(main,bg=self.c['deep']);actions.pack(side='right' if self.wide else 'bottom',anchor='w',padx=(18,0) if self.wide else 0,pady=0 if self.wide else (12,0))
+                row=ui_skin.Frame(box,bg=self.c['deep'],padx=self.app.fs(16),pady=self.app.fs(15));row.pack(fill='x',pady=(0,10));self.rows[hid]=row
+                main=ui_skin.Frame(row,bg=self.c['deep']);main.pack(fill='x')
+                actions=ui_skin.Frame(main,bg=self.c['deep']);actions.pack(side='right' if self.wide else 'bottom',anchor='w',padx=(18,0) if self.wide else 0,pady=0 if self.wide else (12,0))
                 var=tk.StringVar(value=MODES[self.app.hint_mode(hid)]);self.app.hint_vars[hid]=var
                 cb=ttk.Combobox(actions,textvariable=var,state='readonly',values=list(MODES.values()),width=8,font=(self.f['font'],self.app.fs(11)),style='Hints.TCombobox');cb.pack(side='left',padx=(0,8));cb.bind('<<ComboboxSelected>>',lambda e,k=hid:self.change_mode(k));self.mode_boxes[hid]=cb
                 self.button(actions,'Проверить',lambda k=hid,n=name:self.test(k,n)).pack(side='left',padx=(0,6))
                 self.button(actions,'Текст…',lambda k=hid,n=name:self.app.edit_hint(k,n)).pack(side='left')
-                text=tk.Frame(main,bg=self.c['deep']);text.pack(side='left',fill='both',expand=True)
+                text=ui_skin.Frame(main,bg=self.c['deep']);text.pack(side='left',fill='both',expand=True)
                 width=max(220,self.winfo_width()-self.app.fs(440 if self.wide else 100))
                 title=self.label(text,SHORT_TITLES.get(hid,name),13,'fg',wraplength=width,justify='left');title.configure(font=(self.f['font'],self.app.fs(13),'bold'));title.pack(anchor='w')
                 self.label(text,SUMMARIES[hid],11,'hint_detail',wraplength=width,justify='left').pack(anchor='w',pady=(6,0))
-                links=tk.Frame(text,bg=self.c['deep']);links.pack(anchor='w',pady=(8,0))
+                links=ui_skin.Frame(text,bg=self.c['deep']);links.pack(anchor='w',pady=(8,0))
                 detail_button=self.button(links,'Свернуть ▴' if hid in self.expanded else 'Подробнее ▾',lambda k=hid:self.toggle_details(k))
                 detail_button.configure(highlightthickness=0,padx=0,pady=0,fg=self.c['gold']);detail_button.pack(side='left')
                 if self.app.s['hint_text'].get(hid):self.label(links,'Свой текст',11,'hint_detail').pack(side='left',padx=(16,0))
-                details=tk.Frame(row,bg=self.c['panel'],padx=self.app.fs(12),pady=self.app.fs(12));self.details[hid]=(details,detail_button)
+                details=ui_skin.Frame(row,bg=self.c['panel'],padx=self.app.fs(12),pady=self.app.fs(12));self.details[hid]=(details,detail_button)
                 self.label(details,core.HINT_DESC.get(hid,''),12,'fg',wraplength=max(220,self.winfo_width()-self.app.fs(110)),justify='left').pack(anchor='w')
                 if cooldown:self.label(details,f'Повтор — не чаще раза в {cooldown} с',11,'hint_detail').pack(anchor='w',pady=(8,0))
                 if hid in self.expanded:details.pack(fill='x',pady=(10,0))
@@ -194,6 +195,7 @@ class HintEditor(tk.Toplevel,Components):
     def __init__(self,view,hid,name):
         self.app,self.c,self.f=view.app,view.c,view.f;self.view,self.hid=view,hid
         super().__init__(self.app.root);self.title('Свой текст подсказки');self.configure(bg=self.c['bg']);self.transient(self.app.root)
+        ui_skin.install_shell(self.app,self.c,self)
         self.geometry(f'{self.app.fs(800)}x{self.app.fs(600)}');self.minsize(self.app.fs(640),self.app.fs(540))
         body=self.panel(self,16);body.pack(fill='both',expand=True,padx=12,pady=12)
         self.label(body,name,19,'gold',head=True,wraplength=self.app.fs(650),justify='left').pack(anchor='w')
@@ -203,7 +205,7 @@ class HintEditor(tk.Toplevel,Components):
         self.text=tk.Text(body,height=3,wrap='word',bg=self.c['deep'],fg=self.c['fg'],insertbackground=self.c['gold'],font=(self.f['font'],self.app.fs(13)),spacing1=3,spacing3=5,relief='flat',padx=8,pady=8);self.text.pack(fill='both',expand=True,pady=(4,10));self.text.insert('1.0',old.get('text',''))
         self.label(body,'Для голоса · пусто — как на экране',11).pack(anchor='w')
         self.say=tk.Text(body,height=3,wrap='word',bg=self.c['deep'],fg=self.c['fg'],insertbackground=self.c['gold'],font=(self.f['font'],self.app.fs(13)),spacing1=3,spacing3=5,relief='flat',padx=8,pady=8);self.say.pack(fill='both',expand=True,pady=(4,10));self.say.insert('1.0',old.get('say',''))
-        row=tk.Frame(body,bg=self.c['panel']);row.pack(fill='x')
+        row=ui_skin.Frame(body,bg=self.c['panel']);row.pack(fill='x')
         self.button(row,'Сохранить',self.save,True).pack(side='left',padx=(0,5))
         self.button(row,'Исходный текст',self.reset).pack(side='left',padx=(0,5));self.button(row,'Отмена',self.destroy).pack(side='right')
         self.bind('<Escape>',lambda e:self.destroy());self.bind('<Control-Return>',lambda e:self.save());self.text.focus_set()

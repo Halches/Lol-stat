@@ -24,11 +24,24 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Номер выпуска из исходников
+        shell: pwsh
+        run: |
+          $v = (Get-Content app/release-version.txt -Raw).Trim()
+          if ($v -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            throw 'В app/release-version.txt нужен номер вида v2.0.0'
+          }
+          Set-Content app/version.txt $v -NoNewline -Encoding ascii
+          "VERSION=$v" | Out-File $env:GITHUB_ENV -Append
+
       - name: Тесты логики
         run: |
-          pip install --quiet pillow opencv-python-headless==4.11.0.86 numpy==2.2.6
+          pip install --quiet -r app/requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python app/test_core.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s app -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Piper и голос Дмитрий
         shell: pwsh
@@ -73,20 +86,17 @@ jobs:
       - name: Собрать exe
         shell: pwsh
         run: |
-          $v = "v1.0.${{ github.run_number }}"
-          Set-Content app/version.txt $v -NoNewline
-          "VERSION=$v" | Out-File $env:GITHUB_ENV -Append
-          pip install --quiet pyinstaller==6.11.1 pillow edge-tts==7.3.1 pywebview==5.3.2 opencv-python-headless==4.11.0.86 numpy==2.2.6
-          pyinstaller --noconfirm --onefile --noconsole --name LoLHelper --paths app --hidden-import PIL._tkinter_finder `
-            --collect-all edge_tts --collect-all webview --collect-all clr_loader --collect-all pythonnet --collect-data certifi --hidden-import clr --hidden-import sitewin `
-            --add-data "app/data.json;." --add-data "app/history-details.json;." --add-data "app/champion_catalog.json;." --add-data "app/assets.json;." --add-data "app/version.txt;." --add-data "app/fonts;fonts" --add-data "app/ui_assets;ui_assets" --add-data "app/icon.png;." --icon app/icon.ico `
-            --add-data "piper;piper" --add-data "voices;voices" app/lolhelper.py
+          pip install --quiet pyinstaller==6.11.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python app/build_windows.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Item dist/LoLHelper.exe | Select-Object Name, Length
 
       - name: Самопроверка exe
         shell: pwsh
         run: |
-          $p = Start-Process dist/LoLHelper.exe -ArgumentList "--selftest" -Wait -PassThru
+          $p = Start-Process dist/LoLHelper.exe -ArgumentList "--selftest" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Самопроверка EXE не завершилась за 3 минуты" }
           Get-Content dist/selftest.txt
           if ($p.ExitCode -ne 0) { exit 1 }
 
@@ -95,6 +105,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # весь текст последнего коммита: заголовок и пункты «- …», без служебных строк
-          $log = git log -1 --format=%B -- app | Where-Object { $_ -and $_ -notmatch '^(Co-Authored-By|Claude-Session):' }
-          gh release create $env:VERSION dist/LoLHelper.exe --title "LoL Helper $env:VERSION" --notes ($log -join "`n")
+          gh release create $env:VERSION dist/LoLHelper.exe --title "LoL Helper $env:VERSION" --notes-file app/RELEASE_NOTES.md

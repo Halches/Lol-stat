@@ -129,7 +129,7 @@ def check_geometry(stage):
     for card in cards:
         rows = {}
         for widget in descendants(card):
-            if isinstance(widget, ui.tk.Label) and widget.cget('bg') in comment_backgrounds:
+            if isinstance(widget, (ui.tk.Label,ui.ui_skin.material_ui.Label)) and widget.cget('bg') in comment_backgrounds:
                 rows.setdefault(widget.winfo_rooty(), set()).add(widget.cget('bg'))
         assert all(len(colours) == 1 for colours in rows.values()), (stage, 'mixed comment colours in a row')
     view = app.dash._draft_view
@@ -145,7 +145,7 @@ def show(locked=False):
     cs['locked']=locked
     app.dash.draft_sig=None
     app.dash.show_draft(cs,r,[('Fizz',2,'Сложный матчап по истории')])
-    ui.tk.Label.configure(app.dash.head, text=app.dash.head.cget('text')+' · демонстрация')
+    app.dash.head.configure(text=app.dash.head.cget('text')+' · демонстрация')
     app.dash.deiconify(); app.dash.update_idletasks()
 
 def descendants(widget):
@@ -176,7 +176,7 @@ def exercise_folds():
     assert view.center_canvas.yview()[1] >= .999, 'centre cannot scroll to the end'
     view.center_canvas.yview_moveto(0); app.dash.update_idletasks()
     history = next(w for w in descendants(app.dash.cols[0])
-                   if isinstance(w, ui.ttk.Button) and 'Последние матчи' in w.cget('text'))
+                   if isinstance(w, (ui.ttk.Button,ui.ui_skin.Button)) and 'Последние матчи' in w.cget('text'))
     history.invoke(); app.dash.update_idletasks()
     assert ('history', 'demo0') in app.dash._draft_open, 'history did not open'
     check_geometry('history-open')
@@ -185,14 +185,14 @@ def exercise_folds():
     check_geometry('history-closed')
     for title in ('Полный разбор сборки', 'Композиции', 'Кого банить'):
         button = next(w for w in descendants(app.dash.mid)
-                      if isinstance(w, ui.ttk.Button) and title in w.cget('text'))
+                      if isinstance(w, (ui.ttk.Button,ui.ui_skin.Button)) and title in w.cget('text'))
         button.invoke(); app.dash.update_idletasks()
         button.invoke(); app.dash.update_idletasks()
     # Missing network/build data must still open a working preview drawer.
     app.lola_build = lambda champion, role: None
     show(False)
     button = next(w for w in descendants(app.dash.mid)
-                  if isinstance(w, ui.ttk.Button) and 'Предварительная сборка' in w.cget('text'))
+                  if isinstance(w, (ui.ttk.Button,ui.ui_skin.Button)) and 'Предварительная сборка' in w.cget('text'))
     button.invoke(); app.dash.update_idletasks()
 
 def finish():

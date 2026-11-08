@@ -561,6 +561,17 @@ def nav_icon(kind, color, size=20):
     ln = lambda *xy: d.line(P(*xy), fill=c, width=w, joint='curve')
     if kind == 'home': ln((3, 11), (12, 4), (21, 11)); ln((5, 10), (5, 20), (19, 20), (19, 10))
     elif kind == 'list': ln((4, 6), (20, 6)); ln((4, 12), (20, 12)); ln((4, 18), (14, 18))
+    elif kind in ('history','refresh'):
+        d.arc((4*S/24,4*S/24,21*S/24,21*S/24),205,530,fill=c,width=w)
+        ln((3,5),(3,11),(9,11))
+        if kind=='history':ln((12,8),(12,13),(16,15))
+    elif kind == 'pool':
+        circ(12,7,3);circ(5,10,2.5);circ(19,10,2.5)
+        d.arc((7*S/24,12*S/24,17*S/24,23*S/24),180,360,fill=c,width=w)
+        d.arc((1*S/24,14*S/24,9*S/24,23*S/24),160,290,fill=c,width=w)
+        d.arc((15*S/24,14*S/24,23*S/24,23*S/24),250,380,fill=c,width=w)
+    elif kind == 'stats':
+        ln((5,20),(5,13));ln((12,20),(12,8));ln((19,20),(19,3))
     elif kind == 'bulb': circ(12, 9, 6); ln((9, 15), (9, 18), (15, 18), (15, 15)); ln((10, 21), (14, 21))
     elif kind == 'window': box(3, 5, 21, 19); ln((3, 10), (21, 10))
     elif kind == 'look': circ(12, 12, 9); circ(8, 10, 1.5, True); circ(12, 7, 1.5, True); circ(16, 10, 1.5, True)

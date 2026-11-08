@@ -1,0 +1,78 @@
+name: Проверка полного приложения Qt
+
+on:
+  push:
+    branches: [feature/qt-application]
+    paths: ['app/**', '.github/workflows/app-qt-review.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Зависимости и тесты
+        shell: pwsh
+        run: |
+          python -m pip install -r app/requirements.txt pyinstaller==6.11.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python app/test_core.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s app -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Официальные игровые ресурсы и архив матчей
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/dd
+          V=$(curl --fail --retry 2 -sS https://ddragon.leagueoflegends.com/api/versions.json | python -c "import json,sys;print(json.load(sys.stdin)[0])")
+          echo "$V" > tools/dd/ver
+          for f in champion item summoner runesReforged; do curl --fail --retry 2 -sS -o tools/dd/$f.json https://ddragon.leagueoflegends.com/cdn/$V/data/ru_RU/$f.json; done
+          mv tools/dd/runesReforged.json tools/dd/runes.json
+          python app/make_assets.py
+          python app/history_archive.py --source tools/games.json --output app/history-details.json
+      - name: Все страницы, драфт и оверлеи при масштабе Qt 100, 125 и 150 процентов
+        shell: pwsh
+        run: |
+          foreach ($scale in @('1','1.25','1.5')) {
+            $env:QT_SCALE_FACTOR = $scale
+            $env:QT_REVIEW_OUT = "dist/qt-review-$scale"
+            python app/qt_review.py
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Встроенный голос Piper
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          Expand-Archive piper.zip -DestinationPath .
+          New-Item -ItemType Directory voices | Out-Null
+          $url = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx'
+          Invoke-WebRequest $url -OutFile voices/ru_RU-dmitri-medium.onnx
+          Invoke-WebRequest "$url.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
+      - name: Собрать проверочный EXE
+        run: python app/build_windows.py --name LoLHelper-QtReview
+      - name: Запустить упакованное приложение
+        shell: pwsh
+        run: |
+          $env:QT_SCALE_FACTOR = '1'
+          $p = Start-Process dist/LoLHelper-QtReview.exe -ArgumentList '--selftest' -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Самопроверка EXE не завершилась за 3 минуты' }
+          Get-Content dist/selftest.txt
+          if ($p.ExitCode -ne 0) { throw "Ошибка самопроверки: $($p.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: LoLHelper-Qt-${{ github.sha }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: warn

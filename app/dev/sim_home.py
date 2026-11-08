@@ -52,7 +52,7 @@ def go():
     try:
         capture('home-main.png')
         def card_text(widget):
-            return [str(widget.cget('text'))] if isinstance(widget,ui.tk.Label) else [text for child in widget.winfo_children() for text in card_text(child)]
+            return [str(widget.cget('text'))] if isinstance(widget,(ui.tk.Label,ui.ui_skin.material_ui.Label)) else [text for child in widget.winfo_children() for text in card_text(child)]
         assert 'Платина I' in ' '.join(card_text(app.home_view.rank_cards['flex']))
         if 'tft' in app.home_view.rank_cards:assert 'Алмаз III' in ' '.join(card_text(app.home_view.rank_cards['tft']))
         app.home_view.period_pick('recent');assert ui.Settings(settings.name)['home_period']=='recent'
@@ -60,7 +60,7 @@ def go():
         capture('home-recent.png')
         app.set_who('drv');app.panel_sync()
         def labels(widget):
-            return [str(widget.cget('text'))] if isinstance(widget,ui.tk.Label) else [text for child in widget.winfo_children() for text in labels(child)]
+            return [str(widget.cget('text'))] if isinstance(widget,(ui.tk.Label,ui.ui_skin.material_ui.Label)) else [text for child in widget.winfo_children() for text in labels(child)]
         hero_text=' '.join(labels(app.home_view.hero))
         assert 'Золото II' in hero_text and 'Изумруд IV' not in hero_text and 'Платина I' not in hero_text and 'Алмаз III' not in hero_text,hero_text
         assert app.home_view.data['stats']['n']==20

@@ -4,7 +4,7 @@ import copy
 import json
 import os
 from pathlib import Path
-import subprocess
+from PIL import Image, ImageGrab
 import sys
 import tempfile
 import threading
@@ -77,7 +77,9 @@ def capture(name,window=None):
             sizes=[(c.winfo_width(),c.winfo_height()) for c in cards]
             assert max(w for w,h in sizes)-min(w for w,h in sizes)<=1,sizes
             assert len({h for w,h in sizes})==1,sizes
-    subprocess.run(['import','-window',str(window.winfo_id()),str(OUT/name)],check=True)
+    x,y=window.winfo_rootx(),window.winfo_rooty()
+    ImageGrab.grab(bbox=(x,y,x+window.winfo_width(),y+window.winfo_height())).save(OUT/name)
+    with Image.open(OUT/name) as screenshot:screenshot.verify()
     checks.append({'stage':name,'size':[window.winfo_width(),window.winfo_height()],'matches':len(view.filtered)})
 
 def go():

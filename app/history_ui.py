@@ -2,6 +2,7 @@
 import threading
 import time
 import tkinter as tk
+import ui_skin
 from tkinter import ttk
 from scroll_canvas import ScrollCanvas
 import core
@@ -9,7 +10,7 @@ import history_model as model
 from view_components import ReadableComponents as Components, readable_palette
 
 
-class HistoryScreen(tk.Frame,Components):
+class HistoryScreen(ui_skin.material_ui.Frame,Components):
     def __init__(self,parent,app):
         from ui import C,F
         super().__init__(parent,bg=C['bg']);self.app,self.c,self.f=app,readable_palette(C),F;self.pack(fill='both',expand=True)
@@ -18,6 +19,31 @@ class HistoryScreen(tk.Frame,Components):
         self.query=tk.StringVar();self.role=tk.StringVar(value='Все роли');self.queue=tk.StringVar(value='Все режимы');self.result='all'
         self.query_trace=self.query.trace_add('write',lambda *_:self.search_changed())
         self.bind('<Configure>',self.resized);self.bind('<Destroy>',self.cleanup,add='+');self.refresh()
+
+    def space(self,value):
+        # Font sizes have a readability floor; geometric spacing must not.
+        return max(1,round(value*self.app.s['scale']/100))
+
+    def label(self,parent,text,size=10,color='fg',head=False,num=False,strong=False,**kw):
+        family=self.f.get('serif',self.f['head']) if head or num else self.f['font']
+        return ui_skin.Label(parent,text=text,bg=kw.pop('bg',parent.cget('bg')),fg=self.c[color],
+                             font=(family,self.app.fs(max(9,size)),'bold' if (num and size>=24) or strong else 'normal'),
+                             anchor=kw.pop('anchor','w'),**kw)
+
+    def image(self,parent,group,key,size):
+        label=super().image(parent,group,key,size)
+        if label:
+            label.configure(padx=0,pady=0)
+            label.pack_configure(padx=(0,self.space(3)))
+        return label
+
+    def button(self,parent,text,command,on=False,icon=None):
+        button=super().button(parent,text,command,on)
+        button.configure(padx=self.space(16),pady=self.space(7))
+        if icon:
+            button.icon=ui_skin.ImageTk.PhotoImage(ui_skin.render.nav_icon(icon,self.c['mute'],self.space(18)),master=button)
+            button.configure(image=button.icon)
+        return button
 
     def cleanup(self,event):
         if event.widget is self:
@@ -110,48 +136,84 @@ class HistoryScreen(tk.Frame,Components):
         app,d,c,fs=self.app,self.app.data,self.c,self.app.fs
         width=self.winfo_width() if self.winfo_width()>1 else max(fs(550),app.root.winfo_width()-fs(250))
         self.last_width=width;self.layout=width>=fs(1200)
-        top=tk.Frame(self,bg=c['bg']);top.pack(fill='x')
-        self.label(top,'Матчи и разбор',21,'gold',head=True).pack(side='left')
-        self.button(top,'Сайт со статистикой',app.open_site).pack(side='right')
-        sources=tk.Frame(self,bg=c['bg']);sources.pack(fill='x',pady=(8,8))
+        top=ui_skin.Frame(self,bg=c['bg']);top.pack(fill='x')
+        heading=self.label(top,'Матчи и разбор',20,'gold',head=True)
+        heading.configure(fg=ui_skin.heading_color(c));heading.pack(side='left')
+        self.button(top,'Сайт со статистикой',app.open_site,icon='stats').pack(side='right')
+        sources=ui_skin.Frame(self,bg=c['bg']);sources.pack(fill='x',pady=(self.space(4),self.space(5)))
         for title,key in [('Сохранённые матчи','saved'),('Из клиента LoL','client')]:
             self.button(sources,title,lambda key=key:self.use_source(key),self.source==key).pack(side='left',padx=(0,6))
-        update=self.button(sources,'Загрузка…' if self.busy else 'Обновить из клиента',self.load_client)
+        update=self.button(sources,'Загрузка…' if self.busy else 'Обновить из клиента',self.load_client,icon='refresh')
         update.pack(side='right');update.configure(state='disabled' if self.busy else 'normal')
         profile=(d.d['players'].get(app.who or '') or {}).get('riot','Профиль не выбран')
         source_name=profile if self.source=='saved' else self.client_name or 'Текущий аккаунт клиента'
         stamp=d.d.get('t','—') if self.source=='saved' else time.strftime('%d.%m %H:%M',time.localtime(self.updated)) if self.updated else 'ещё не загружено'
-        self.label(self,f'{source_name} · '+('выгрузка от ' if self.source=='saved' else 'получено ')+stamp,10,'mute',wraplength=max(250,width-20),justify='left').pack(anchor='w',pady=(0,8))
-        controls=self.panel(self,10);controls.pack(fill='x')
-        self.label(controls,'ПОИСК ЧЕМПИОНА ИЛИ ОППОНЕНТА',8,'mute').grid(row=0,column=0,sticky='w')
-        self.search=ttk.Entry(controls,textvariable=self.query,width=22,font=(self.f['font'],fs(12)))
-        self.search.grid(row=1,column=0,sticky='ew',padx=(0,10),ipady=4);controls.columnconfigure(0,weight=1)
+        self.label(self,f'{source_name} · '+('выгрузка от ' if self.source=='saved' else 'получено ')+stamp,10,'mute',wraplength=max(250,width-20),justify='left').pack(anchor='w',pady=(0,self.space(3)))
+        controls=self.panel(self,12);controls.configure(pady=self.space(8));controls.pack(fill='x')
+        stacked=width<fs(700)
+        self.search=ttk.Entry(controls,textvariable=self.query,width=22,font=(self.f['font'],fs(11)),style='History.TEntry')
+        self.search.grid(row=0,column=0,rowspan=1 if stacked else 2,columnspan=2 if stacked else 1,
+                         sticky='ew',padx=(self.space(3),self.space(12)),pady=(0,self.space(6)) if stacked else 0)
+        controls.columnconfigure(0,weight=1)
+        if stacked:controls.columnconfigure(1,weight=1)
+        # An empty-field hint is a display layer, never a search value. Clicking
+        # it exposes and focuses the unchanged native entry underneath.
+        placeholder=tk.Canvas(self.search,bg=c['panel'],bd=0,highlightthickness=0,cursor='xterm',takefocus=0)
+        placeholder.icon=ui_skin.ImageTk.PhotoImage(ui_skin.render.nav_icon('search',c['mute'],self.space(18)),master=placeholder)
+        hint_font=ui_skin.tkfont.Font(root=self,font=(self.f['font'],fs(11)))
+        def paint_placeholder(event=None):
+            w,h=self.search.winfo_width(),self.search.winfo_height()
+            if min(w,h)<4:return
+            backdrop=ui_skin.material_ui.sample(self.search,w,h).convert('RGBA')
+            backdrop.alpha_composite(ui_skin.field_face(w,h,c))
+            placeholder.photo=ui_skin.ImageTk.PhotoImage(backdrop,master=placeholder)
+            placeholder.delete('all');placeholder.create_image(0,0,anchor='nw',image=placeholder.photo)
+            placeholder.create_image(self.space(14),h/2,anchor='w',image=placeholder.icon)
+            hint='ПОИСК ЧЕМПИОНА ИЛИ ОППОНЕНТА';available=max(0,w-self.space(54))
+            if hint_font.measure(hint)>available:
+                while hint and hint_font.measure(hint+'…')>available:hint=hint[:-1]
+                hint=hint.rstrip()+'…' if hint else ''
+            placeholder.create_text(self.space(40),h/2,anchor='w',text=hint,font=hint_font,fill=c['mute'])
+        def show_placeholder(event=None):
+            if not self.query.get() and self.search.focus_get() is not self.search:
+                placeholder.place(x=0,y=0,relwidth=1,relheight=1);paint_placeholder()
+            else:placeholder.place_forget()
+        placeholder.bind('<Button-1>',lambda e:(placeholder.place_forget(),self.search.focus_set()))
+        placeholder.bind('<Configure>',paint_placeholder)
+        self.search.bind('<FocusIn>',show_placeholder);self.search.bind('<FocusOut>',show_placeholder)
+        show_placeholder()
         role_map={'Все роли':'' ,**{core.ROLE_RU[r].capitalize():r for r in core.ROLES}}
         rows=self.rows();queues=sorted({r['queue'] for r in rows if type(r.get('queue')) is int})
         queue_map={'Все режимы':'',**{core.QUEUE_RU.get(q,f'Очередь {q}')+(f' ({q})' if sum(core.QUEUE_RU.get(x)==core.QUEUE_RU.get(q) for x in queues)>1 else ''):q for q in queues}}
         if self.queue.get() not in queue_map:self.queue.set('Все режимы')
         for i,(title,var,values) in enumerate([('РОЛЬ',self.role,role_map),('РЕЖИМ',self.queue,queue_map)],1):
-            self.label(controls,title,8,'mute').grid(row=0,column=i,sticky='w')
-            cb=ttk.Combobox(controls,textvariable=var,values=list(values),state='readonly',width=17,font=(self.f['font'],fs(11)))
-            cb.grid(row=1,column=i,sticky='ew',padx=(0,6),ipady=4)
+            column=i-1 if stacked else i;line=1 if stacked else 0
+            self.label(controls,title,9,'mute').grid(row=line,column=column,sticky='w',padx=(self.space(6),0))
+            cb=ttk.Combobox(controls,textvariable=var,values=list(values),state='readonly',width=17,font=(self.f['font'],fs(11)),style='History.TCombobox')
+            cb.grid(row=line+1,column=column,sticky='ew',padx=(self.space(6),self.space(6)))
             cb.bind('<<ComboboxSelected>>',lambda e:(setattr(self,'limit',20),self.refresh()))
-        filters=tk.Frame(self,bg=c['bg']);filters.pack(fill='x',pady=(8,8))
+        filters=ui_skin.Frame(self,bg=c['bg']);filters.pack(fill='x',pady=(self.space(6),self.space(4)))
         for title,key in [('Все результаты','all'),('Победы','win'),('Поражения','loss')]:
             self.button(filters,title,lambda key=key:self.select_result(key),self.result==key).pack(side='left',padx=(0,5))
         self.button(filters,'Сбросить',self.reset).pack(side='right')
         selected=model.filtered(rows,d,self.query.get(),role_map.get(self.role.get(),''),queue_map[self.queue.get()],self.result)
         self.filtered=selected;s=model.stats(selected)
-        totals=self.panel(self,10);totals.pack(fill='x',pady=(0,8))
+        totals=self.panel(self,12);totals.pack(fill='x',pady=(0,7))
         texts=[('МАТЧИ',str(s['n']),''),('ПОБЕДЫ',f"{s['wr']:.1f}%" if s['wr'] is not None else '—',f"Результат известен: {s['results']}"),('KDA',f"{s['kda']:.2f}" if s['kda'] is not None else '—',f"По {s['kda_n']} матчам"),('ФАРМ / МИН',f"{s['csm']:.1f}" if s['csm'] is not None else '—',f"По {s['csm_n']} матчам")]
         for i,(label,value,note) in enumerate(texts):
-            box=tk.Frame(totals,bg=c['panel']);box.grid(row=0,column=i,sticky='w');totals.columnconfigure(i,weight=1,uniform='totals')
-            self.label(box,label,8,'mute').pack(anchor='w');self.label(box,value.replace('.',','),28,'fg',num=True).pack(anchor='w')
-            self.label(box,note or 'В текущем фильтре',8,'mute').pack(anchor='w')
+            box=ui_skin.Frame(totals,bg=c['panel']);box.grid(row=0,column=i,sticky='ew');totals.columnconfigure(i,weight=1,uniform='totals')
+            if i:
+                divider=ui_skin.Frame(box,bg=c['line'],width=1)
+                divider.place(x=0,rely=.15,relheight=.7)
+            inset=self.space(14)
+            self.label(box,label,9,'mute').pack(anchor='w',padx=(inset,0))
+            self.label(box,value.replace('.',','),28,'fg',num=True).pack(anchor='w',padx=(inset,0))
+            self.label(box,note or 'В текущем фильтре',10,'mute').pack(anchor='w',padx=(inset,0))
         note='Нажми на матч для подробностей. LP показывается только при наличии снимков ранга до и после одиночной игры.'
-        self.label(self,note,9,'mute',wraplength=max(250,width-20),justify='left').pack(anchor='w',pady=(0,8))
+        self.label(self,note,10,'mute',wraplength=max(250,width-20),justify='left').pack(anchor='w',pady=(0,0))
         if self.source=='client' and self.message:self.label(self,self.message,9,'gold' if not self.busy else 'mute',wraplength=max(250,width-20),justify='left').pack(anchor='w',pady=(0,6))
-        self.label(self,f'Найдено {len(selected)} из {len(rows)} · показано {min(self.limit,len(selected))}',9,'mute').pack(anchor='w',pady=(0,6))
-        self.list_box=tk.Frame(self,bg=c['bg']);self.list_box.pack(fill='x');self.row_widgets=[]
+        self.label(self,f'Найдено {len(selected)} из {len(rows)} · показано {min(self.limit,len(selected))}',10,'mute').pack(anchor='w',pady=(0,self.space(6)))
+        self.list_box=ui_skin.Frame(self,bg=c['bg']);self.list_box.pack(fill='x');self.row_widgets=[]
         for record in selected[:self.limit]:self.match_row(record,width)
         if not selected:
             empty=self.panel(self,24);empty.pack(fill='x')
@@ -162,40 +224,57 @@ class HistoryScreen(tk.Frame,Components):
         if editing:self.search.focus_set();self.search.icursor(min(cursor,len(self.query.get())))
 
     def match_row(self,r,width):
-        c,fs,d=self.c,self.app.fs,self.app.data
-        row=self.panel(self.list_box,14);row.pack(fill='x',pady=(0,10));self.row_widgets.append(row)
+        c,fs,d,sp=self.c,self.app.fs,self.app.data,self.space
+        row=ui_skin.Surface(self.list_box,c,padx=sp(14),pady=sp(11),material_role='row')
+        row.pack(fill='x');self.row_widgets.append(row)
         tone='good' if r['win'] is True else 'bad' if r['win'] is False else 'mute'
-        tk.Frame(row,bg=c[tone],width=3).place(x=-fs(14),y=0,relheight=1)
-        portrait=tk.Frame(row,bg=c['panel']);portrait.grid(row=0,column=0,rowspan=2,sticky='w',padx=(0,8))
-        self.image(portrait,'champ',r['champion'],54)
-        body=tk.Frame(row,bg=c['panel']);body.grid(row=0,column=1,rowspan=2,sticky='ew')
-        head=tk.Frame(body,bg=c['panel']);head.pack(anchor='w');self.image(head,'role',r['role'],18)
-        self.label(head,d.cn(r['champion']),12,'fg').pack(side='left')
+        ui_skin.Frame(row,bg=c[tone],width=sp(5)).place(x=0,y=1,relheight=1,height=-2)
+        portrait=ui_skin.Frame(row,bg=c['panel']);portrait.grid(row=0,column=0,sticky='w',padx=(sp(24),sp(25)))
+        self.image(portrait,'champ',r['champion'],48)
+        body=ui_skin.Frame(row,bg=c['panel']);body.grid(row=0,column=1,sticky='ew')
+        head=ui_skin.Frame(body,bg=c['panel']);head.pack(anchor='w');self.image(head,'role',r['role'],18)
+        self.label(head,d.cn(r['champion']),15,'fg',head=True,
+                   wraplength=max(fs(160),width-fs(1000) if self.layout else width-fs(500))).pack(side='left')
         date=time.strftime('%d.%m %H:%M',time.localtime(r['timestamp'])) if r['timestamp'] else 'Дата недоступна'
-        self.label(body,core.QUEUE_RU.get(r['queue'],f"Очередь {r['queue']}" if r['queue'] else 'Режим неизвестен')+' · '+date,8,'mute',wraplength=max(fs(170),width-fs(900) if self.layout else width-fs(360)),justify='left').pack(anchor='w',pady=(2,3))
-        equipment=tk.Frame(row if self.layout else body,bg=c['panel'])
+        self.label(body,core.QUEUE_RU.get(r['queue'],f"Очередь {r['queue']}" if r['queue'] else 'Режим неизвестен')+' · '+date,10,'mute',
+                   wraplength=max(fs(180),width-fs(980) if self.layout else width-fs(450)),justify='left').pack(anchor='w',pady=(sp(2),0))
+        equipment=ui_skin.Frame(row,bg=c['panel'])
         if self.layout:
-            equipment.grid(row=0,column=2,rowspan=2,sticky='w',padx=(12,18))
-            self.label(equipment,'ЗАКЛИНАНИЯ · РУНА · ПРЕДМЕТЫ',7,'mute').pack(anchor='w',pady=(0,3))
-        else:equipment.pack(anchor='w')
-        items=tk.Frame(equipment,bg=c['panel']);items.pack(anchor='w')
-        for spell in r['spells']:self.image(items,'spell',core.SPELL_KEY.get(spell,spell),19)
-        if r['perk']:self.image(items,'rune',r['perk'],19)
-        self.item_icons(items,r['items'],20)
+            equipment.grid(row=0,column=2,sticky='w',padx=(sp(12),sp(15)))
+            self.label(equipment,'ЗАКЛИНАНИЯ · РУНА · ПРЕДМЕТЫ',9,'mute').pack(anchor='w',pady=(0,sp(3)))
+        else:equipment.grid(row=1,column=1,columnspan=3,sticky='w',pady=(sp(4),0))
+        items=ui_skin.Frame(equipment,bg=c['panel']);items.pack(anchor='w')
+        for spell in r['spells']:self.image(items,'spell',core.SPELL_KEY.get(spell,spell),24)
+        if r['perk']:self.image(items,'rune',r['perk'],24)
+        self.item_icons(items,r['items'],24)
         if self.layout:
-            facts=tk.Frame(row,bg=c['panel']);facts.grid(row=0,column=3,rowspan=2,sticky='w',padx=(0,12))
+            facts=ui_skin.Frame(row,bg=c['panel']);facts.grid(row=0,column=3,sticky='w',padx=(0,sp(12)))
             participation=f"Участие {r['kp']:.0f}%" if r['kp'] is not None else f"Урон {r['dmg']/1000:.1f}k" if r['dmg'] is not None else 'Участие —'
-            self.label(facts,participation,9,'mute').pack(anchor='w')
-            self.label(facts,f"Обзор {r['vsm']:.2f}/мин" if r['vsm'] is not None else 'Обзор —',8,'mute').pack(anchor='w')
-        kd=tk.Frame(row,bg=c['panel']);kd.grid(row=0,column=4 if self.layout else 2,rowspan=2,sticky='e',padx=(8,12))
-        self.label(kd,' / '.join(str(r[k]) if r[k] is not None else '—' for k in ('k','d','a')),19,'fg',num=True).pack(anchor='e')
-        self.label(kd,f"{r['csm']:.1f} CS/мин" if r['csm'] is not None else 'Фарм —',8,'mute').pack(anchor='e')
-        end=tk.Frame(row,bg=c['panel']);end.grid(row=0,column=5 if self.layout else 3,rowspan=2,sticky='e')
-        self.label(end,'ПОБЕДА' if r['win'] is True else 'ПОРАЖЕНИЕ' if r['win'] is False else 'НЕТ РЕЗУЛЬТАТА',9,tone).pack(anchor='e')
-        self.label(end,core.mmss(r['duration']) if r['duration'] is not None else 'Время —',9,'mute').pack(anchor='e')
-        self.label(end,f"{r['lp']:+d} LP" if type(r['lp']) is int else 'LP —',9,'good' if (r['lp'] or 0)>0 else 'bad' if (r['lp'] or 0)<0 else 'mute').pack(anchor='e')
-        row.columnconfigure(1,weight=1)
-        if self.layout:row.columnconfigure(2,weight=2)
+            self.label(facts,participation,10,'mute').pack(anchor='w')
+            self.label(facts,f"Обзор {r['vsm']:.2f}/мин" if r['vsm'] is not None else 'Обзор —',10,'mute').pack(anchor='w')
+        kd=ui_skin.Frame(row,bg=c['panel']);kd.grid(row=0,column=4 if self.layout else 2,sticky='ew',padx=(sp(8),sp(12)))
+        self.label(kd,' / '.join(str(r[k]) if r[k] is not None else '—' for k in ('k','d','a')),17,'fg',num=True,anchor='center').pack(fill='x')
+        self.label(kd,f"{r['csm']:.1f} CS/мин" if r['csm'] is not None else 'Фарм —',10,'mute',anchor='center').pack(fill='x',pady=(sp(2),0))
+        end=ui_skin.Frame(row,bg=c['panel']);end.grid(row=0,column=5 if self.layout else 3,sticky='ew')
+        self.label(end,'ПОБЕДА' if r['win'] is True else 'ПОРАЖЕНИЕ' if r['win'] is False else 'НЕТ РЕЗУЛЬТАТА',9,tone,
+                   bg=c['tag_g'] if r['win'] is True else c['tag_r'] if r['win'] is False else c['deep'],padx=sp(7),pady=sp(2)).pack(anchor='center')
+        duration=core.mmss(r['duration']) if r['duration'] is not None else 'Время —'
+        if self.layout:self.label(end,duration,10,'mute').pack(anchor='center',pady=(sp(3),0))
+        lp=f"{r['lp']:+d} LP" if type(r['lp']) is int else 'LP —'
+        lp_color='good' if (r['lp'] or 0)>0 else 'bad' if (r['lp'] or 0)<0 else 'mute'
+        if self.layout:
+            self.label(row,lp,10,lp_color,anchor='e').grid(row=0,column=6,sticky='e',padx=(sp(16),0))
+            row.columnconfigure(1,minsize=fs(243),weight=0)
+            row.columnconfigure(2,weight=1)
+            row.columnconfigure(3,minsize=fs(130))
+            row.columnconfigure(4,minsize=fs(130))
+            row.columnconfigure(5,minsize=fs(110))
+            row.columnconfigure(6,minsize=fs(70))
+        else:
+            timing=ui_skin.Frame(end,bg=c['panel']);timing.pack(anchor='center',pady=(sp(3),0))
+            self.label(timing,duration,10,'mute').pack(side='left',padx=(0,sp(9)))
+            self.label(timing,lp,10,lp_color).pack(side='left')
+            row.columnconfigure(1,weight=1)
         def bind_all(widget):
             widget.configure(cursor='hand2');widget.bind('<Button-1>',lambda e:self.open_record(r))
             for child in widget.winfo_children():bind_all(child)
@@ -214,6 +293,7 @@ class MatchWindow(tk.Toplevel,Components):
     def __init__(self,app,record,review=None):
         from ui import C,F
         super().__init__(app.root);self.app,self.record,self.c,self.f=app,record,readable_palette(C),F
+        ui_skin.install_shell(app,C,self)
         self.review=review;self.loading=record['source']=='client' and bool(record.get('gid')) and review is None;self.error='Идентификатор матча недоступен' if record['source']=='client' and not record.get('gid') and review is None else '';self.closed=False;self.layout=None;self.job=None;self.analysis_open=False;self.last_width=None
         self.title('LoL Helper · подробности матча');self.configure(bg=C['bg'])
         sw,sh=self.winfo_screenwidth(),self.winfo_screenheight()
@@ -222,11 +302,11 @@ class MatchWindow(tk.Toplevel,Components):
         self.protocol('WM_DELETE_WINDOW',self.close)
         self.bind('<Escape>',lambda e:self.close())
         self.bind('<Destroy>',self.cleanup,add='+')
-        footer=tk.Frame(self,bg=C['bg']);footer.pack(side='bottom',fill='x',padx=14,pady=8)
+        footer=ui_skin.Frame(self,bg=C['bg']);footer.pack(side='bottom',fill='x',padx=14,pady=8)
         self.button(footer,'Закрыть',self.close).pack(side='right')
         self.cv=ScrollCanvas(self,bg=C['bg'],highlightthickness=0);sb=ttk.Scrollbar(self,orient='vertical',command=self.cv.yview)
         sb.pack(side='right',fill='y');self.cv.pack(fill='both',expand=True);self.cv.configure(yscrollcommand=sb.set)
-        self.body=tk.Frame(self.cv,bg=C['bg'],padx=app.fs(14),pady=app.fs(12));self.win=self.cv.create_window(0,0,window=self.body,anchor='nw')
+        self.body=ui_skin.Frame(self.cv,bg=C['bg'],padx=app.fs(14),pady=app.fs(12));self.win=self.cv.create_window(0,0,window=self.body,anchor='nw')
         self.body.bind('<Configure>',lambda e:self.cv.configure(scrollregion=self.cv.bbox('all')))
         self.cv.bind('<Configure>',self.resized, add='+')
         self.bind('<MouseWheel>',self.cv.wheel);self.bind('<Button-4>',self.cv.wheel);self.bind('<Button-5>',self.cv.wheel)
@@ -309,19 +389,19 @@ class MatchWindow(tk.Toplevel,Components):
         width=self.cv.winfo_width() if self.cv.winfo_width()>1 else app.fs(1200)
         self.layout=width>=fs(850);self.last_width=width;self.fluid_labels=[]
         head=self.panel(self.body,14);head.pack(fill='x')
-        left=tk.Frame(head,bg=c['panel']);left.pack(side='left');self.image(left,'champ',r['champion'],62)
-        text=tk.Frame(left,bg=c['panel']);text.pack(side='left')
+        left=ui_skin.Frame(head,bg=c['panel']);left.pack(side='left');self.image(left,'champ',r['champion'],62)
+        text=ui_skin.Frame(left,bg=c['panel']);text.pack(side='left')
         tone='good' if r['win'] is True else 'bad' if r['win'] is False else 'mute'
         self.label(text,'ПОБЕДА' if r['win'] is True else 'ПОРАЖЕНИЕ' if r['win'] is False else 'РЕЗУЛЬТАТ НЕИЗВЕСТЕН',10,tone).pack(anchor='w')
         self.label(text,app.data.cn(r['champion']),22,'gold',head=True).pack(anchor='w')
         self.label(text,core.ROLE_RU.get(r['role'],'Роль неизвестна')+' · '+core.QUEUE_RU.get(r['queue'],'Режим неизвестен'),9,'mute').pack(anchor='w')
-        right=tk.Frame(head,bg=c['panel']);right.pack(side='right')
+        right=ui_skin.Frame(head,bg=c['panel']);right.pack(side='right')
         self.label(right,' / '.join(str(r[k]) if r[k] is not None else '—' for k in ('k','d','a')),22,'fg',num=True).pack(anchor='e')
         self.label(right,core.mmss(r['duration']) if r['duration'] is not None else 'Время неизвестно',10,'mute').pack(anchor='e')
         self.label(right,f"{r['lp']:+d} LP" if type(r['lp']) is int else 'Изменение LP недоступно',9,'gold').pack(anchor='e')
         equipment=self.panel(self.body,10);equipment.pack(fill='x',pady=(8,0))
         self.label(equipment,'Заклинания · ключевая руна · предметы',11,'mute').pack(anchor='w',pady=(0,8))
-        icons=tk.Frame(equipment,bg=c['panel']);icons.pack(anchor='w')
+        icons=ui_skin.Frame(equipment,bg=c['panel']);icons.pack(anchor='w')
         for spell in r['spells']:self.image(icons,'spell',core.SPELL_KEY.get(spell,spell),24)
         if r['perk']:self.image(icons,'rune',r['perk'],24)
         self.item_icons(icons,r['items'],26)
@@ -355,7 +435,7 @@ class MatchWindow(tk.Toplevel,Components):
         columns=2 if self.layout else 1
         self.player_cards=[]
         for offset in range(0,len(teams),columns):
-            group=tk.Frame(self.body,bg=c['bg']);group.pack(fill='x',pady=(12,0))
+            group=ui_skin.Frame(self.body,bg=c['bg']);group.pack(fill='x',pady=(12,0))
             for col,team in enumerate(teams[offset:offset+columns]):
                 ours=not participants_only and bool(focus) and focus['team']==team
                 own_player=ours and bool(r.get('owner')) and r.get('owner')==(app.account or {}).get('puuid')
@@ -374,7 +454,7 @@ class MatchWindow(tk.Toplevel,Components):
         vision=model.ratio(source.get('vis'),mins*60) if focus and mins else r.get('vsm')
         values=[('ФАРМ / МИН',f'{csm:.1f}' if csm is not None else '—'),('УРОН ЧЕМПИОНАМ',f"{source['dmg']:,}".replace(',',' ') if source.get('dmg') is not None else '—'),
                 ('ОБЗОР / МИН',f'{vision:.2f}' if vision is not None else '—'),('ЗОЛОТО',f"{source['gold']:,}".replace(',',' ') if source.get('gold') is not None else '—')]
-        row=tk.Frame(parent,bg=self.c['bg']);row.pack(fill='x',pady=(8,0))
+        row=ui_skin.Frame(parent,bg=self.c['bg']);row.pack(fill='x',pady=(8,0))
         for i,(title,value) in enumerate(values):
             box=self.panel(row,9);box.grid(row=0,column=i,sticky='nsew',padx=(0,5));row.columnconfigure(i,weight=1,uniform='metrics')
             self.label(box,title,8,'mute').pack(anchor='w');self.label(box,value,24,'fg',num=True).pack(anchor='w',pady=(3,0))
@@ -384,7 +464,7 @@ class MatchWindow(tk.Toplevel,Components):
         box=self.panel(parent,8);box.grid(row=row,column=column,sticky='nsew',padx=(0,5),pady=(0,5))
         if p['me']:box.configure(highlightbackground=c['gold'])
         self.player_cards.append(box);parent.rowconfigure(row,weight=1,uniform='player')
-        stats=tk.Frame(box,bg=c['panel'])
+        stats=ui_skin.Frame(box,bg=c['panel'])
         compact=self.last_width<fs(1150) if self.layout else self.last_width<fs(580)
         if compact:stats.pack(side='bottom',anchor='e',pady=(fs(7),0))
         else:stats.pack(side='right',padx=(fs(12),0))
@@ -392,18 +472,18 @@ class MatchWindow(tk.Toplevel,Components):
                 ('Золото',f"{p['gold']:,}".replace(',',' ') if p.get('gold') is not None else '—'),
                 ('Урон чемпионам',f"{p['dmg']:,}".replace(',',' ') if p.get('dmg') is not None else '—')]
         for i,(title,value) in enumerate(values):
-            metric=tk.Frame(stats,bg=c['deep'],width=fs(108),height=fs(96),padx=fs(5),pady=fs(7),highlightthickness=1,highlightbackground=c['line'])
+            metric=ui_skin.Frame(stats,bg=c['deep'],width=fs(108),height=fs(96),padx=fs(5),pady=fs(7),highlightthickness=1,highlightbackground=c['line'])
             metric.pack_propagate(False)
             metric.grid(row=0,column=i,sticky='nsew',padx=(fs(4),0))
             self.label(metric,value,14 if len(value)>11 else 17,'gold' if i==1 else 'fg',num=True,pady=0,anchor='center').pack(fill='x')
             self.label(metric,title,9,'fg',pady=0,anchor='center',height=2,wraplength=fs(85),justify='center').pack(fill='x',pady=(fs(3),0))
-        content=tk.Frame(box,bg=c['panel']);content.pack(side='left',fill='both',expand=True)
-        line=tk.Frame(content,bg=c['panel']);line.pack(fill='x')
+        content=ui_skin.Frame(box,bg=c['panel']);content.pack(side='left',fill='both',expand=True)
+        line=ui_skin.Frame(content,bg=c['panel']);line.pack(fill='x')
         self.image(line,'champ',p['c'],42);self.image(line,'role',p['pos'],18)
-        text=tk.Frame(line,bg=c['panel']);text.pack(side='left',fill='x',expand=True)
+        text=ui_skin.Frame(line,bg=c['panel']);text.pack(side='left',fill='x',expand=True)
         self.label(text,app.data.cn(p['c'])+(' · ты' if p['me'] and self.record.get('owner') and self.record.get('owner')==(app.account or {}).get('puuid') else ' · выбранный' if p['me'] else ''),10,'gold' if p['me'] else 'fg').pack(anchor='w')
         self.label(text,p.get('name') or 'Имя недоступно',8,'mute',wraplength=fs(160),justify='left').pack(anchor='w')
-        items=tk.Frame(content,bg=c['panel']);items.pack(anchor='w',pady=(4,2));self.item_icons(items,p.get('items') or [],19)
+        items=ui_skin.Frame(content,bg=c['panel']);items.pack(anchor='w',pady=(4,2));self.item_icons(items,p.get('items') or [],19)
         cs=f"{p['cs']} CS"+(f" · {p['cs']/mins:.1f}/мин" if mins else '') if p.get('cs') is not None else 'CS —'
         vision=f"обзор {p['vis']}" if p.get('vis') is not None else 'обзор —'
         self.label(content,' · '.join((cs,vision)),8,'mute',wraplength=fs(230),justify='left').pack(anchor='w')

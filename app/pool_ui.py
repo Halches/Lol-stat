@@ -1,6 +1,7 @@
 """Separate champion-pool screen: portraits toggle the pool for the chosen role."""
 import os
 import tkinter as tk
+import ui_skin
 from tkinter import ttk
 from scroll_canvas import ScrollCanvas
 import webbrowser
@@ -9,7 +10,7 @@ from view_components import readable_palette
 import champion_pool as model
 
 
-class PoolScreen(tk.Frame):
+class PoolScreen(ui_skin.material_ui.Frame):
     def __init__(self, parent, app):
         from ui import C,F
         super().__init__(parent,bg=C['bg'])
@@ -21,14 +22,14 @@ class PoolScreen(tk.Frame):
         self.paint_job=None;self.resize_job=None;self.viewport_width=None;self.card_cache={};self.card_parts={};self.card_positions={};self.card_states={};self.empty=None
         self.query=tk.StringVar();self.sort=tk.StringVar(value='По имени');self.filters={};self.option_maps={}
         self.role_buttons={};self.mode_buttons={}
-        line=tk.Frame(self,bg=C['panel'],padx=6,pady=4);line.pack(fill='x')
-        buttons=tk.Frame(line,bg=C['panel']);buttons.pack(fill='x')
+        line=ui_skin.Frame(self,bg=C['panel'],padx=6,pady=4);line.pack(fill='x')
+        buttons=ui_skin.Frame(line,bg=C['panel']);buttons.pack(fill='x')
         for i,r in enumerate(core.ROLES):
             b=self.button(buttons,core.ROLE_RU[r].capitalize(),lambda r=r:self.choose_role(r))
             if r in app.icons.a.get('role',{}): b.configure(image=app.img('role',r,.5),compound='left')
             b.grid(row=0,column=i,sticky='ew',padx=(0,5));buttons.columnconfigure(i,weight=1)
             self.role_buttons[r]=b
-        bar=tk.Frame(self,bg=C['bg']);bar.pack(fill='x',pady=(5,4))
+        bar=ui_skin.Frame(self,bg=C['bg']);bar.pack(fill='x',pady=(5,4))
         self.label(bar,'Поиск',9,'mute').grid(row=0,column=0,sticky='w')
         entry=ttk.Entry(bar,textvariable=self.query,font=(F['font'],app.fs(11)),width=20)
         entry.grid(row=1,column=0,sticky='ew',padx=(0,8),ipady=2);bar.columnconfigure(0,weight=1)
@@ -37,25 +38,25 @@ class PoolScreen(tk.Frame):
         self.label(bar,'Порядок',9,'mute').grid(row=0,column=2,sticky='w')
         sort=ttk.Combobox(bar,textvariable=self.sort,font=(F['font'],app.fs(11)),values=['По имени','Сначала выбранные','Новые сначала'],state='readonly',width=19)
         sort.grid(row=1,column=2,sticky='ew',ipady=2);sort.bind('<<ComboboxSelected>>',lambda e:self.refresh())
-        modes=tk.Frame(self,bg=C['bg']);modes.pack(fill='x',pady=(0,4))
+        modes=ui_skin.Frame(self,bg=C['bg']);modes.pack(fill='x',pady=(0,4))
         for name,key in [('Все','all'),('Для роли','role'),('Мой пул','pool')]:
             b=self.button(modes,name,lambda key=key:self.choose_mode(key));b.pack(side='left',padx=(0,5));self.mode_buttons[key]=b
         advrow=modes
         self.advanced_btn=self.button(advrow,'▸ Дополнительные фильтры',self.toggle_advanced);self.advanced_btn.pack(side='right')
         self.button(advrow,'Сбросить',self.reset).pack(side='right',padx=(4,4))
-        self.advanced=tk.Frame(self,bg=C['panel'],padx=10,pady=8)
+        self.advanced=ui_skin.Frame(self,bg=C['panel'],padx=10,pady=8)
         for i,(key,name) in enumerate(model.FIELDS):self.combo(self.advanced,key,name,i%3,i//3*2)
         self.result=self.label(self,'',9,'mute');self.result.pack(fill='x',pady=(1,3))
-        viewport=tk.Frame(self,bg=C['bg']);viewport.pack(fill='both',expand=True)
+        viewport=ui_skin.Frame(self,bg=C['bg']);viewport.pack(fill='both',expand=True)
         self.cv=ScrollCanvas(viewport,bg=C['bg'],highlightthickness=0)
         sb=ttk.Scrollbar(viewport,orient='vertical',command=self.cv.yview);sb.pack(side='right',fill='y')
         self.cv.pack(side='left',fill='both',expand=True);self.cv.configure(yscrollcommand=sb.set)
-        self.grid_box=tk.Frame(self.cv,bg=C['bg']);self.window=self.cv.create_window(0,0,window=self.grid_box,anchor='nw')
+        self.grid_box=ui_skin.Frame(self.cv,bg=C['bg']);self.window=self.cv.create_window(0,0,window=self.grid_box,anchor='nw')
         self.grid_box.bind('<Configure>',lambda e:self.cv.configure(scrollregion=self.cv.bbox('all')))
         self.cv.bind('<Configure>',self.resize, add='+')
         # Integrate with the application's existing wheel handler without binding globally again.
         app.canvases[str(parent)]=self.cv
-        foot=tk.Frame(self,bg=C['bg']);self.footer=foot;foot.pack(fill='x',side='bottom',before=viewport,pady=(4,0))
+        foot=ui_skin.Frame(self,bg=C['bg']);self.footer=foot;foot.pack(fill='x',side='bottom',before=viewport,pady=(4,0))
         self.saved=self.label(foot,'Клик по портрету — изменить пул · сохраняется автоматически',9,'mute');self.saved.pack(side='left')
         source_date=self.source.get('snapshot_date','неизвестна')
         note=('Игровые фильтры: '+self.source['gameplay_snapshot_date']+' · лор: '+source_date if self.source.get('gameplay_snapshot_date') else 'Данные на основе вики · снимок '+source_date)+' · неизвестное не угадывается'
@@ -74,11 +75,11 @@ class PoolScreen(tk.Frame):
                 if job:self.after_cancel(job);setattr(self,name,None)
 
     def label(self,parent,text,size=10,color='fg',head=False,**kw):
-        return tk.Label(parent,text=text,bg=kw.pop('bg',self.c['bg']),fg=self.c[color],
+        return ui_skin.Label(parent,text=text,bg=kw.pop('bg',self.c['bg']),fg=self.c[color],
                         font=(self.f['head'] if head else self.f['font'],self.app.fs(max(11,size))),**kw)
 
     def button(self,parent,text,command):
-        return tk.Button(parent,text=text,command=command,bg=self.c['deep'],fg=self.c['mute'],
+        return ui_skin.NativeButton(parent,text=text,command=command,bg=self.c['deep'],fg=self.c['mute'],
                          activebackground=self.c['raise'],activeforeground=self.c['gold'],relief='flat',bd=0,
                          highlightthickness=1,highlightbackground=self.c['line'],highlightcolor=self.c['gold'],
                          font=(self.f['font'],self.app.fs(11)),padx=self.app.fs(9),pady=self.app.fs(3),cursor='hand2')
@@ -190,12 +191,12 @@ class PoolScreen(tk.Frame):
 
     def draw_card(self,row,selected,y,x):
         champion=row['id'];on=champion in selected;c=self.c;fs=self.app.fs
-        border=tk.Frame(self.grid_box,bg=c['gold'] if on else c['line'],padx=2,pady=2,takefocus=1,
+        border=ui_skin.Frame(self.grid_box,bg=c['gold'] if on else c['line'],padx=2,pady=2,takefocus=1,
                         highlightthickness=1,highlightbackground=c['bg'],highlightcolor=c['gold'],cursor='hand2')
         border.grid(row=y,column=x,sticky='nsew',padx=4,pady=4)
-        inside=tk.Frame(border,bg=c['panel']);inside.pack(fill='both',expand=True)
+        inside=ui_skin.Frame(border,bg=c['panel']);inside.pack(fill='both',expand=True)
         image=self.app.icons.get('champ',champion,fs(80)) if champion in self.app.icons.a.get('champ',{}) else None
-        portrait=tk.Label(inside,image=image or '',text='' if image else 'Нет иконки',bg=c['panel'],fg=c['mute'],width=0 if image else 10)
+        portrait=ui_skin.Label(inside,image=image or '',text='' if image else 'Нет иконки',bg=c['panel'],fg=c['mute'],width=0 if image else 10)
         portrait.pack(padx=4,pady=(4,2))
         name=self.label(inside,row['name'],10,'gold' if on else 'fg',bg=c['panel'],wraplength=fs(112),height=2,justify='center');name.pack(fill='x')
         state=self.label(inside,'✓' if on else '+',11,'gold' if on else 'mute',bg=c['panel'],padx=2);state.place(relx=1,x=-2,y=2,anchor='ne')
