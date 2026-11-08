@@ -54,8 +54,11 @@ jobs:
           }
       - name: Встроенный голос Piper
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          gh release download 2023.11.14-2 --repo rhasspy/piper --pattern piper_windows_amd64.zip --output piper.zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Expand-Archive piper.zip -DestinationPath .
           New-Item -ItemType Directory voices | Out-Null
           $url = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx'

@@ -45,8 +45,11 @@ jobs:
 
       - name: Piper и голос Дмитрий
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          gh release download 2023.11.14-2 --repo rhasspy/piper --pattern piper_windows_amd64.zip --output piper.zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Expand-Archive piper.zip -DestinationPath .
           Get-ChildItem piper | Select-Object -First 20 Name
           New-Item -ItemType Directory voices | Out-Null
