@@ -55,12 +55,12 @@ jobs:
       - name: Встроенный голос Piper
         shell: pwsh
         run: |
-          Invoke-WebRequest https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
           Expand-Archive piper.zip -DestinationPath .
           New-Item -ItemType Directory voices | Out-Null
           $url = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx'
-          Invoke-WebRequest $url -OutFile voices/ru_RU-dmitri-medium.onnx
-          Invoke-WebRequest "$url.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
+          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 $url -OutFile voices/ru_RU-dmitri-medium.onnx
+          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 "$url.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
       - name: Собрать проверочный EXE
         run: python app/build_windows.py --name LoLHelper-QtReview
       - name: Запустить упакованное приложение

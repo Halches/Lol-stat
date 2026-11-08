@@ -46,13 +46,13 @@ jobs:
       - name: Piper и голос Дмитрий
         shell: pwsh
         run: |
-          Invoke-WebRequest https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
+          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip -OutFile piper.zip
           Expand-Archive piper.zip -DestinationPath .
           Get-ChildItem piper | Select-Object -First 20 Name
           New-Item -ItemType Directory voices | Out-Null
           $hf = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx"
-          Invoke-WebRequest $hf -OutFile voices/ru_RU-dmitri-medium.onnx
-          Invoke-WebRequest "$hf.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
+          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 $hf -OutFile voices/ru_RU-dmitri-medium.onnx
+          Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 "$hf.json" -OutFile voices/ru_RU-dmitri-medium.onnx.json
 
       - name: Картинки (портреты, предметы, руны, эмблемы)
         shell: bash
@@ -75,8 +75,8 @@ jobs:
           New-Item -ItemType Directory vdl | Out-Null
           foreach ($v in "denis","dmitri","irina","ruslan") {
             $hf = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ru/ru_RU/$v/medium/ru_RU-$v-medium.onnx"
-            Invoke-WebRequest $hf -OutFile "vdl/ru_RU-$v-medium.onnx"
-            Invoke-WebRequest "$hf.json" -OutFile "vdl/ru_RU-$v-medium.onnx.json"
+            Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 $hf -OutFile "vdl/ru_RU-$v-medium.onnx"
+            Invoke-WebRequest -MaximumRetryCount 3 -RetryIntervalSec 5 "$hf.json" -OutFile "vdl/ru_RU-$v-medium.onnx.json"
           }
           gh release create voices (Get-ChildItem vdl).FullName --title "Голоса Piper для LoL Helper" --notes "Русские голоса Piper (rhasspy/piper-voices v1.0.0), скачиваются программой по выбору." --latest=false
 
