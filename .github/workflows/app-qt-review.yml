@@ -44,6 +44,8 @@ jobs:
       - name: Все страницы, драфт и оверлеи при масштабе Qt 100, 125 и 150 процентов
         shell: pwsh
         run: |
+          python app/dev/set_review_display.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($scale in @('1','1.25','1.5')) {
             $env:QT_SCALE_FACTOR = $scale
             $env:QT_REVIEW_OUT = "dist/qt-review-$scale"

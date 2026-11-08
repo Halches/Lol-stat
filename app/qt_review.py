@@ -60,7 +60,19 @@ def verify(app,directory=None):
         for key,w in app.ov.items():w.grab().save(str(directory/('overlay-'+key+'.png')))
     app.last_game=None;app.apply_visibility();check('Оверлеи исчезают после игры',all(not w.isVisible() for k,w in app.ov.items() if k!='hints'))
     app.dash.hide();app.navigate(1)
+    available=app.window.screen().availableGeometry()
+    frame=app.window.frameGeometry();client=app.window.geometry()
+    max_width=available.width()-max(0,frame.width()-client.width())
+    max_height=available.height()-max(0,frame.height()-client.height())
+    tested=set()
     for width,height in [(940,640),(1060,740),(1366,768),(1536,864),(1920,1080)]:
+        requested=(width,height)
+        if os.name=='nt':width=min(width,max_width);height=min(height,max_height)
+        if width<app.window.minimumWidth() or height<app.window.minimumHeight():
+            raise AssertionError(f'Рабочий стол слишком мал для минимального окна: {available.width()}x{available.height()}')
+        print(f'Размер Qt: запрос {requested}, доступно {available.width()}x{available.height()}, проверяется {width}x{height}',flush=True)
+        if (width,height) in tested:continue
+        tested.add((width,height))
         app.window.resize(width,height);pump(100);check(f'Размер окна {width}x{height}',app.window.width()==width and app.window.height()==height);capture(f'history-{width}x{height}')
     check('Нет ошибок обработчиков Qt',not app.errors)
     return checks
