@@ -2,6 +2,7 @@
 import time
 import webbrowser
 import tkinter as tk
+import ui_skin
 from tkinter import ttk
 from scroll_canvas import ScrollCanvas
 import core
@@ -16,7 +17,7 @@ class RoundedPanel(tk.Frame):
         super().__init__(parent, bg=parent.cget('bg'))
         self.canvas = tk.Canvas(self, bg=parent.cget('bg'), highlightthickness=0, bd=0)
         self.canvas.place(x=0, y=0, relwidth=1, relheight=1)
-        self.body = tk.Frame(self, bg=fill)
+        self.body = ui_skin.Frame(self, bg=fill)
         self.vpad = padding
         self.body.pack(fill='both', expand=True, padx=padding, pady=padding)
         self.body._panel = self
@@ -63,7 +64,7 @@ class DraftView:
         return full.get(key) or full
 
     def label(self, parent, text='', color='fg', size=10, bold=False, **kw):
-        label = tk.Label(parent, text=text, bg=parent.cget('bg'), fg=self.c[color],
+        label = ui_skin.Label(parent, text=text, bg=parent.cget('bg'), fg=self.c[color],
                          font=(self.f['font'], self.fs(max(10,size)), 'bold' if bold else 'normal'), **kw)
         if kw.get('wraplength'): self.wrapped_labels.append((label, kw['wraplength']/self.width))
         return label
@@ -146,12 +147,12 @@ class DraftView:
 
     def fold(self, parent, title, key, draw, compact=False):
         if compact:
-            wrapper = tk.Frame(parent, bg=parent.cget('bg'))
+            wrapper = ui_skin.Frame(parent, bg=parent.cget('bg'))
             wrapper.pack(fill='x', pady=(2, 0))
         else:
             wrapper = self.box(parent)
-        body = tk.Frame(wrapper, bg=self.c['panel'])
-        button = ttk.Button(wrapper, style='DraftLink.TButton' if compact else 'Draft.TButton')
+        body = ui_skin.Frame(wrapper, bg=self.c['panel'])
+        button = ui_skin.TtkButton(wrapper, style='DraftLink.TButton' if compact else 'Draft.TButton')
         button.pack(anchor='w' if compact else 'center', fill=None if compact else 'x')
         built = False
         def show():
@@ -173,19 +174,20 @@ class DraftView:
 
     def toolbar(self):
         for child in self.w.bar.winfo_children(): child.destroy()
-        frame = tk.Frame(self.w.bar, bg=self.c['bg'], padx=0, pady=3)
+        frame = ui_skin.Frame(self.w.bar, bg=self.c['bg'], padx=0, pady=3)
         frame.pack(fill='x')
-        left = tk.Frame(frame, bg=self.c['bg']); left.pack(side='left')
+        left = ui_skin.Frame(frame, bg=self.c['bg']); left.pack(side='left')
         for rr in core.ROLES:
             im = self.app.icons.get('role', rr, self.fs(17))
-            ttk.Button(left, text=' ' + core.ROLE_RU[rr].capitalize(), image=im or '', compound='left',
+            ui_skin.TtkButton(left, text=' ' + core.ROLE_RU[rr].capitalize(), image=im or '', compound='left',
                        style='DraftActive.TButton' if rr == self.r['role'] else 'Draft.TButton',
                        command=lambda rr=rr: self.app.set_draft_role(rr)).pack(side='left', padx=(0, 3))
-        right = tk.Frame(frame, bg=self.c['bg']); right.pack(side='right')
+        right = ui_skin.Frame(frame, bg=self.c['bg']); right.pack(side='right')
         for key, text in (('pool', 'Мой пул'), ('all', 'Все чемпионы')):
-            ttk.Button(right, text=text, style='DraftActive.TButton' if self.app.s['draft_scope'] == key else 'Draft.TButton',
+            ui_skin.TtkButton(right, text=text, style='DraftActive.TButton' if self.app.s['draft_scope'] == key else 'Draft.TButton',
                        command=lambda key=key: self.app.set_draft_scope(key)).pack(side='left', padx=3)
-        tk.Label.configure(self.w.head, text='Подготовка к матчу' if self.cs.get('locked') else 'Выбор чемпиона',
+        configure=ui_skin.material_ui.Label.configure if isinstance(self.w.head,ui_skin.material_ui.Label) else tk.Label.configure
+        configure(self.w.head, text='Подготовка к матчу' if self.cs.get('locked') else 'Выбор чемпиона',
                            font=(self.f['font'], self.fs(22)), fg=self.c['fg'], bg=self.c['bg'])
         self.w.configure(bg=self.c['bg'])
         self.w.timer.configure(bg=self.c['bg'], fg=self.c['gold'])
@@ -212,23 +214,23 @@ class DraftView:
         self.player_cards.append(card._panel)
         card.bind('<Configure>', self.schedule_sizes)
         if not ch:
-            row = tk.Frame(card, bg=self.c['panel']); row.pack(anchor='w')
+            row = ui_skin.Frame(card, bg=self.c['panel']); row.pack(anchor='w')
             self.image(row, 'role', lane, 22)
             self.label(row, core.ROLE_RU.get(lane, 'Роль неизвестна').capitalize(), 'mute', 10).pack(side='left')
             self.label(card, 'Ожидание выбора', 'mute', 11).pack(anchor='w', pady=6)
             return
-        head = tk.Frame(card, bg=self.c['panel']); head.pack(fill='x')
+        head = ui_skin.Frame(card, bg=self.c['panel']); head.pack(fill='x')
         self.image(head, 'champ', ch, 40)
-        name = tk.Frame(head, bg=self.c['panel']); name.pack(side='left', fill='x', expand=True)
+        name = ui_skin.Frame(head, bg=self.c['panel']); name.pack(side='left', fill='x', expand=True)
         self.label(name, self.d.cn(ch) + (' · ты' if mine else ''), 'gold' if mine else 'fg', 12).pack(anchor='w')
-        rl = tk.Frame(name, bg=self.c['panel']); rl.pack(anchor='w')
+        rl = ui_skin.Frame(name, bg=self.c['panel']); rl.pack(anchor='w')
         self.image(rl, 'role', lane, 16)
         role_label = core.ROLE_RU.get(lane, 'Роль неизвестна').capitalize()
         if not mine: role_label += ' · Контрпики' if enemy else ' · Синергия'
         self.label(rl, role_label, 'mute', 9).pack(side='left')
         rank = player.get('rank')
         if rank and self.app.s['show']['ranks']:
-            rr = tk.Frame(head, bg=self.c['panel']); rr.pack(side='right')
+            rr = ui_skin.Frame(head, bg=self.c['panel']); rr.pack(side='right')
             # Local import avoids depending on UI globals in the presentation model.
             from ui import TIER_RU
             self.image(rr, 'emb', TIER_RU.get(rank['tier']), 30)
@@ -238,12 +240,12 @@ class DraftView:
             from ui import hist_tags
             summary, _ = hist_tags(history)
             self.label(card, summary, 'mute', 8, wraplength=max(150, self.width-32), justify='left').pack(anchor='w', pady=(3, 2))
-        traits = tk.Frame(card, bg=self.c['panel']); traits.pack(fill='x', pady=(2, 0))
+        traits = ui_skin.Frame(card, bg=self.c['panel']); traits.pack(fill='x', pady=(2, 0))
         visible = player_comments.preview(history)
         for tone in ('good','neutral','bad'):
             entries = [row for row in visible if row[2] == tone]
             if not entries: continue
-            group = tk.Frame(traits, bg=self.c['panel']); group.pack(fill='x', pady=(0, 2))
+            group = ui_skin.Frame(traits, bg=self.c['panel']); group.pack(fill='x', pady=(0, 2))
             for column in range(2): group.columnconfigure(column, weight=1, uniform='trait')
             for column, (_, text, _) in enumerate(entries):
                 background, foreground = player_comments.palette(self.c['dark'])[tone]
@@ -268,7 +270,7 @@ class DraftView:
                 self.label(card, text, 'mute', 8).pack(anchor='w', pady=(4, 0))
         if mine:
             selected = self.selected_variant()
-            row = tk.Frame(card, bg=self.c['panel']); row.pack(anchor='w', pady=(4, 0))
+            row = ui_skin.Frame(card, bg=self.c['panel']); row.pack(anchor='w', pady=(4, 0))
             for spell in selected.get('spells', [])[:2]: self.image(row, 'spell', spell, 20)
             if selected.get('perks'): self.image(row, 'rune', selected['perks'][0], 20)
             self.label(row, 'Пик подтверждён' if self.cs.get('locked') else 'Предварительный выбор', 'mute', 8).pack(side='left')
@@ -284,7 +286,7 @@ class DraftView:
                     checked = time.strftime('%d.%m.%Y %H:%M', time.localtime(rating['fetched_at']))
                     self.label(box, 'Рейтинг на выбранном чемпионе · мир · проверено '+checked,
                                'mute', 8, wraplength=max(150,self.width-40), justify='left').pack(anchor='w')
-                    tk.Button(box, text='Открыть рейтинг Lolalytics', command=lambda: webbrowser.open(rating['url']),
+                    ui_skin.NativeButton(box, text='Открыть рейтинг Lolalytics', command=lambda: webbrowser.open(rating['url']),
                               bg=self.c['deep'], fg=self.c['gold'], relief='flat', font=('Segoe UI',8)).pack(anchor='w', pady=3)
                 self.w.mini_hist(box, pu, n=5)
             self.fold(card, 'Последние матчи', ('history', pu), history_details, compact=True)
@@ -293,11 +295,11 @@ class DraftView:
         row = None
         for i, recommendation in enumerate(rows):
             if i % 3 == 0:
-                row = tk.Frame(parent, bg=parent.cget('bg')); row.pack(fill='x', pady=2)
+                row = ui_skin.Frame(parent, bg=parent.cget('bg')); row.pack(fill='x', pady=2)
                 for column in range(3): row.columnconfigure(column, weight=1, uniform='recommendation')
-            tile = tk.Frame(row, bg=self.c['deep'], padx=3, pady=3)
+            tile = ui_skin.Frame(row, bg=self.c['deep'], padx=3, pady=3)
             tile.grid(row=0, column=i % 3, sticky='nsew', padx=(0, 3))
-            top = tk.Frame(tile, bg=self.c['deep']); top.pack(anchor='w')
+            top = ui_skin.Frame(tile, bg=self.c['deep']); top.pack(anchor='w')
             self.image(top, 'champ', recommendation['champion'], 20)
             narrow = self.width < self.fs(540)
             if not narrow: self.label(top, self.d.cn(recommendation['champion']), 'fg', 8).pack(side='left', padx=(0, 4))
@@ -312,16 +314,16 @@ class DraftView:
         if not self.r['picks']:
             self.label(box, 'Нет доступных рекомендаций. Проверь пул и роль.', 'mute', 10,
                        wraplength=max(120, self.width-28)).pack(anchor='w')
-        row = tk.Frame(box, bg=self.c['panel']); row.pack(fill='x')
+        row = ui_skin.Frame(box, bg=self.c['panel']); row.pack(fill='x')
         for i, pick in enumerate(self.r['picks'][:3]):
             row.columnconfigure(i, weight=1, uniform='pick')
-            tile = tk.Frame(row, bg=self.c['deep'], padx=8, pady=8,
+            tile = ui_skin.Frame(row, bg=self.c['deep'], padx=8, pady=8,
                             highlightthickness=1, highlightbackground=self.c['gold' if i == 0 else 'line'])
             tile.grid(row=0, column=i, sticky='nsew', padx=(0, 5))
-            portrait = tk.Frame(tile, bg=self.c['deep']); portrait.pack(anchor='w')
+            portrait = ui_skin.Frame(tile, bg=self.c['deep']); portrait.pack(anchor='w')
             self.image(portrait, 'champ', pick['c'], 42)
             self.label(tile, pick['name'], 'gold' if i == 0 else 'fg', 11).pack(anchor='w', pady=(4, 0))
-            role = tk.Frame(tile, bg=self.c['deep']); role.pack(anchor='w')
+            role = ui_skin.Frame(tile, bg=self.c['deep']); role.pack(anchor='w')
             self.image(role, 'role', self.r['role'], 16)
             self.label(role, core.ROLE_RU.get(self.r['role'], ''), 'mute', 8).pack(side='left')
             stat = self.d.lola.get(pick['c'] + '|' + self.r['role'])
@@ -352,10 +354,10 @@ class DraftView:
                   f"{personal['n']} личных игр", 'fg'),
                  ('Золото на 15', f'{gold:+.0f}' if gold is not None else '—',
                   'По личной истории', 'good2' if gold is not None and gold >= 0 else 'bad2')]
-        row = tk.Frame(box, bg=self.c['panel']); row.pack(fill='x')
+        row = ui_skin.Frame(box, bg=self.c['panel']); row.pack(fill='x')
         for i, (title, value, subtitle, color) in enumerate(cells):
             row.columnconfigure(i, weight=1, uniform='matchup')
-            cell = tk.Frame(row, bg=self.c['deep'], padx=8, pady=8)
+            cell = ui_skin.Frame(row, bg=self.c['deep'], padx=8, pady=8)
             cell.grid(row=0, column=i, sticky='nsew', padx=(0, 6))
             self.label(cell, title, 'mute', 8).pack(anchor='w')
             self.label(cell, value, color, 18, True).pack(anchor='w')
@@ -376,24 +378,24 @@ class DraftView:
     def build_row(self, parent, option, context):
         variant, key = option['variant'], option['key']
         active = self.app.s.get('draft_build_context', 'general') == context and self.app.s['rune_pick'] == key
-        row = tk.Frame(parent, bg=self.c['deep'], padx=7, pady=7, takefocus=1,
+        row = ui_skin.Frame(parent, bg=self.c['deep'], padx=7, pady=7, takefocus=1,
                        highlightthickness=1, highlightbackground=self.c['gold' if active else 'line'])
         row.pack(fill='x', pady=3)
         narrow = self.width < self.fs(540)
-        caption = tk.Frame(row, bg=self.c['deep']); caption.pack(side='top' if narrow else 'left', anchor='w')
+        caption = ui_skin.Frame(row, bg=self.c['deep']); caption.pack(side='top' if narrow else 'left', anchor='w')
         title = 'Макс. винрейт' if context == 'matchup' and key == 'win' else option['title']
         self.label(caption, title + (' ✓' if active else ''), 'gold' if active else 'fg', 9,
                    width=13 if not narrow else 0, anchor='w').pack(anchor='w')
         self.label(caption, 'Против оппонента' if context == 'matchup' else 'Mobalytics · все матчапы' if context=='offmeta' or context.startswith('player:') else 'Все матчапы', 'mute', 7).pack(anchor='w')
-        stats = tk.Frame(row, bg=self.c['deep']); stats.pack(side='right', anchor='e')
+        stats = ui_skin.Frame(row, bg=self.c['deep']); stats.pack(side='right', anchor='e')
         wr, n = option['rune_winrate'], option['rune_games']
         metric = 'Вариант' if context=='offmeta' or context.startswith('player:') else 'Руна' if variant.get('rune_stat_kind') == 'keystone' else 'Руны'
         self.label(stats, f'{metric} {wr:.1f}%' if wr is not None else metric+': —', 'good2', 9, True).pack(anchor='e')
         self.label(stats, f'{n:,} игр'.replace(',', ' ') if n else 'Нет выборки', 'mute', 7).pack(anchor='e')
-        icons = tk.Frame(row, bg=self.c['deep']); icons.pack(side='top' if narrow else 'left', anchor='w', pady=2)
-        runes = tk.Frame(icons, bg=self.c['deep']); runes.pack(side='top' if narrow else 'left', anchor='w')
+        icons = ui_skin.Frame(row, bg=self.c['deep']); icons.pack(side='top' if narrow else 'left', anchor='w', pady=2)
+        runes = ui_skin.Frame(icons, bg=self.c['deep']); runes.pack(side='top' if narrow else 'left', anchor='w')
         for rune in variant.get('perks', [])[:6]: self.image(runes, 'rune', rune, 18)
-        items = tk.Frame(icons, bg=self.c['deep']); items.pack(side='top' if narrow else 'left', anchor='w')
+        items = ui_skin.Frame(icons, bg=self.c['deep']); items.pack(side='top' if narrow else 'left', anchor='w')
         self.label(items, ' › ', 'mute', 9).pack(side='left')
         for item in core.lola_build_items(variant)[:6]: self.image(items, 'item', item, 20)
         def select(event=None): self.app.set_draft_build(context, key)
@@ -406,21 +408,21 @@ class DraftView:
 
     def build_table(self):
         box = self.box(self.center)
-        header = tk.Frame(box, bg=self.c['panel']); header.pack(fill='x')
+        header = ui_skin.Frame(box, bg=self.c['panel']); header.pack(fill='x')
         self.image(header, 'champ', self.me, 24)
         self.label(header, 'Связки рун и сборок', 'fg', 11, True).pack(side='left')
         narrow = self.width < self.fs(540)
-        mode = tk.Frame(box if narrow else header, bg=self.c['panel'])
+        mode = ui_skin.Frame(box if narrow else header, bg=self.c['panel'])
         mode.pack(side='top' if narrow else 'right', anchor='w' if narrow else 'e', pady=(4, 0) if narrow else 0)
         for enabled, text in ((True, 'Авто'), (False, 'Вручную')):
-            ttk.Button(mode, text=text, style='DraftActive.TButton' if self.app.s['auto_import'] == enabled else 'Draft.TButton',
+            ui_skin.TtkButton(mode, text=text, style='DraftActive.TButton' if self.app.s['auto_import'] == enabled else 'Draft.TButton',
                        command=lambda enabled=enabled: self.set_auto(enabled)).pack(side='left', padx=(0, 4))
-        ttk.Button(mode, text='Экспорт', style='DraftPrimary.TButton', command=lambda: self.app.do_import(tuple(key for key, value in self.app.s['auto_parts'].items() if value))).pack(side='left')
-        parts = tk.Frame(box, bg=self.c['panel']); parts.pack(fill='x', pady=(5, 2))
+        ui_skin.TtkButton(mode, text='Экспорт', style='DraftPrimary.TButton', command=lambda: self.app.do_import(tuple(key for key, value in self.app.s['auto_parts'].items() if value))).pack(side='left')
+        parts = ui_skin.Frame(box, bg=self.c['panel']); parts.pack(fill='x', pady=(5, 2))
         self.label(parts, 'Состав экспорта: ', 'mute', 8).pack(side='top' if narrow else 'left', anchor='w')
-        choices = tk.Frame(parts, bg=self.c['panel']); choices.pack(side='top' if narrow else 'left', anchor='w')
+        choices = ui_skin.Frame(parts, bg=self.c['panel']); choices.pack(side='top' if narrow else 'left', anchor='w')
         for key, text in (('runes', 'Руны'), ('items', 'Предметы'), ('spells', 'Заклинания')):
-            ttk.Checkbutton(choices, text=text, variable=self.app.auto_vars[key], style='Draft.TCheckbutton',
+            ui_skin.Checkbutton(choices, text=text, variable=self.app.auto_vars[key], style='Draft.TCheckbutton',
                             command=lambda key=key: self.app.set_import_part(key)).pack(side='left')
         self.label(box, 'Основные варианты · EUW · Изумруд+', 'gold', 8).pack(anchor='w', pady=(6, 0))
         for option in draft_model.build_options(self.full): self.build_row(box, option, 'general')
@@ -457,7 +459,7 @@ class DraftView:
         self.w.import_lbl = self.label(box, self.app.import_text, 'mute', 8,
                                        wraplength=max(120, self.width-32), justify='left')
         self.w.import_lbl.pack(anchor='w', pady=(3, 0))
-        self.w.import_err = ttk.Button(box, text='Скопировать отчёт об импорте', command=self.app.copy_report)
+        self.w.import_err = ui_skin.TtkButton(box, text='Скопировать отчёт об импорте', command=self.app.copy_report)
         if 'не получилось' in self.app.import_text: self.w.import_err.pack(anchor='w')
 
     def skills(self):
@@ -467,7 +469,7 @@ class DraftView:
         variant = self.selected_variant()
         if not variant:
             self.label(box, 'Ожидание выбранной сборки', 'mute', 9).pack(anchor='w'); return
-        row = tk.Frame(box, bg=self.c['panel']); row.pack(fill='x')
+        row = ui_skin.Frame(box, bg=self.c['panel']); row.pack(fill='x')
         for letter in 'QWER':
             if not self.image(row, 'skill', self.me+letter, 26):
                 self.label(row, letter, 'gold', 12, True).pack(side='left', padx=6)
@@ -475,7 +477,7 @@ class DraftView:
         sequence = variant.get('skills') or ''
         count = 18 if self.width >= self.fs(520) else 9
         for offset in range(0, 18, count):
-            strip = tk.Frame(box, bg=self.c['panel']); strip.pack(fill='x', pady=(5, 0))
+            strip = ui_skin.Frame(box, bg=self.c['panel']); strip.pack(fill='x', pady=(5, 0))
             for column, level in enumerate(range(offset, min(offset+count, 18))):
                 strip.columnconfigure(column, weight=1, uniform='level')
                 self.label(strip, str(level+1), 'mute', 7).grid(row=0, column=column)
@@ -484,11 +486,11 @@ class DraftView:
                 cell.configure(bg=self.c['raise']); cell.grid(row=1, column=column, sticky='ew', padx=1)
         if 0 < len(sequence) < 18:
             self.label(box, f'Источник подтверждает порядок до {len(sequence)}-го уровня.', 'mute', 7).pack(anchor='w', pady=(3, 0))
-        start = tk.Frame(box, bg=self.c['panel']); start.pack(fill='x', pady=(7, 0))
+        start = ui_skin.Frame(box, bg=self.c['panel']); start.pack(fill='x', pady=(7, 0))
         self.label(start, 'Старт: ', 'mute', 8).pack(side='left')
         for item in variant.get('start', []): self.image(start, 'item', item, 21)
         for item, short, when in selected.get('situ', [])[:4]:
-            row = tk.Frame(box, bg=self.c['panel']); row.pack(fill='x', pady=2)
+            row = ui_skin.Frame(box, bg=self.c['panel']); row.pack(fill='x', pady=2)
             self.image(row, 'item', item, 21)
             self.label(row, when if short.lower() in when.lower() else short + ': ' + when, 'mute', 8, wraplength=max(120, self.width-65), justify='left').pack(side='left')
         def details(parent):
@@ -496,9 +498,9 @@ class DraftView:
                                  ('Основа предметов', variant.get('wr_core'), variant.get('n_core'))):
                 if wr is not None and n:
                     self.label(parent, f'{title}: {wr:.1f}% · {n} игр · отдельная выборка', 'mute', 8).pack(anchor='w')
-            row = tk.Frame(parent, bg=self.c['panel']); row.pack(anchor='w')
+            row = ui_skin.Frame(parent, bg=self.c['panel']); row.pack(anchor='w')
             for rune in [variant.get('prim'), variant.get('sec')] + variant.get('shards', []): self.image(row, 'rune', rune, 22)
-            row = tk.Frame(parent, bg=self.c['panel']); row.pack(anchor='w', pady=3)
+            row = ui_skin.Frame(parent, bg=self.c['panel']); row.pack(anchor='w', pady=3)
             for spell in variant.get('spells', [])[:2]:
                 self.image(row, 'spell', spell, 22)
                 self.label(row, core.SPELL_RU.get(spell, spell), 'fg', 8).pack(side='left', padx=(0, 6))
@@ -506,20 +508,20 @@ class DraftView:
 
     def center_viewport(self):
         column = self.w.mid
-        heading = tk.Frame(column, bg=self.c['bg']); heading.pack(fill='x', pady=(0, 7))
+        heading = ui_skin.Frame(column, bg=self.c['bg']); heading.pack(fill='x', pady=(0, 7))
         self.label(heading, 'Подготовка к матчу' if self.cs.get('locked') else 'Рекомендации', 'fg', 13, True).pack(side='left')
         if self.width >= self.fs(540): self.label(heading, 'Руны · предметы · умения', 'mute', 8).pack(side='right')
-        self.center_clip = tk.Frame(column, bg=self.c['bg'], height=1, highlightthickness=1, highlightbackground=self.c['line'])
+        self.center_clip = ui_skin.Frame(column, bg=self.c['bg'], height=1, highlightthickness=1, highlightbackground=self.c['line'])
         self.center_clip.pack(fill='x'); self.center_clip.pack_propagate(False)
-        self.center_bottom = tk.Frame(self.center_clip, bg=self.c['bg'])
+        self.center_bottom = ui_skin.Frame(self.center_clip, bg=self.c['bg'])
         self.center_bottom.pack(side='bottom', fill='x')
-        scroll_area = tk.Frame(self.center_clip, bg=self.c['bg'])
+        scroll_area = ui_skin.Frame(self.center_clip, bg=self.c['bg'])
         scroll_area.pack(fill='both', expand=True)
         self.center_canvas = ScrollCanvas(scroll_area, bg=self.c['bg'], highlightthickness=0)
         self.center_canvas.pack(side='left', fill='both', expand=True)
         scrollbar = ttk.Scrollbar(scroll_area, orient='vertical', command=self.center_canvas.yview)
         self.center_canvas.configure(yscrollcommand=scrollbar.set)
-        self.center = tk.Frame(self.center_canvas, bg=self.c['bg'])
+        self.center = ui_skin.Frame(self.center_canvas, bg=self.c['bg'])
         window = self.center_canvas.create_window((0,0), window=self.center, anchor='nw')
         def content_changed(event=None):
             self.center_canvas.configure(scrollregion=self.center_canvas.bbox('all'))
@@ -543,7 +545,7 @@ class DraftView:
         self.w._draft_cards = self.player_cards
         for col in self.w.cols: col.bind('<Configure>', self.schedule_sizes)
         for parent, text, color in ((self.w.cols[0], 'Союзники', 'blue2'), (self.w.cols[1], 'Противники', 'red2')):
-            team = tk.Frame(parent, bg=self.c['bg']); team.pack(fill='x', pady=(0, 7))
+            team = ui_skin.Frame(parent, bg=self.c['bg']); team.pack(fill='x', pady=(0, 7))
             self.label(team, text, color, 13, True).pack(side='left')
             self.label(team, 'Синергия под игроком' if text == 'Союзники' else 'Контрпики под игроком', 'mute', 8).pack(side='right')
         order = {rr: i for i, rr in enumerate(core.ROLES)}
@@ -575,7 +577,7 @@ class DraftView:
 
     def draw_bans(self, parent):
         for ch, _, why in self.bans or []:
-            row = tk.Frame(parent, bg=self.c['panel']); row.pack(fill='x', pady=3)
+            row = ui_skin.Frame(parent, bg=self.c['panel']); row.pack(fill='x', pady=3)
             self.image(row, 'champ', ch, 28)
             self.label(row, self.d.cn(ch) + ' · ' + why, 'mute', 9,
                        wraplength=max(120, self.width-65), justify='left').pack(side='left')

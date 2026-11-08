@@ -5,8 +5,8 @@ import ui_skin
 
 class Components:
     def label(self,parent,text,size=10,color='fg',head=False,num=False,**kw):
-        return tk.Label(parent,text=text,bg=kw.pop('bg',parent.cget('bg')),fg=self.c[color],
-                        font=(self.f['head'] if head else self.f['numb'] if num else self.f['font'],self.app.fs(size)),anchor=kw.pop('anchor','w'),**kw)
+        return ui_skin.Label(parent,text=text,bg=kw.pop('bg',parent.cget('bg')),fg=self.c[color],
+                        font=(self.f['head'] if head or num else self.f['font'],self.app.fs(size),'bold' if num else 'normal'),anchor=kw.pop('anchor','w'),**kw)
 
     def button(self,parent,text,command,on=False):
         c=self.c
@@ -16,14 +16,14 @@ class Components:
                          font=(self.f['font'],self.app.fs(10)),padx=self.app.fs(10),pady=self.app.fs(7),cursor='hand2')
 
     def panel(self,parent,pad=12):
-        return ui_skin.Surface(parent,self.c,bg=self.c['panel'],padx=self.app.fs(pad),pady=self.app.fs(pad),
+        return ui_skin.Surface(parent,self.c,bg=self.c['panel'],padx=self.app.fs(pad) if pad else 0,pady=self.app.fs(pad) if pad else 0,
                         highlightthickness=1,highlightbackground=self.c['line'])
 
     def image(self,parent,group,key,size):
         if key is None or str(key) not in self.app.icons.a.get(group,{}):return None
         photo=self.app.icons.get(group,str(key),self.app.fs(size))
         if photo:
-            label=tk.Label(parent,image=photo,bg=parent.cget('bg'));label.pack(side='left',padx=(0,self.app.fs(5)))
+            label=ui_skin.Label(parent,image=photo,bg=parent.cget('bg'));label.pack(side='left',padx=(0,self.app.fs(5)))
             return label
 
     def item_icons(self,parent,items,size=22):

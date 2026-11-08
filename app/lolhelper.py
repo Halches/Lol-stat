@@ -1,6 +1,6 @@
 # LoL Helper: точка входа. Загружает статистику, проверяет обновления, запускает окна.
 # Запуск из исходников: python app/lolhelper.py ; проверка сборки: LoLHelper.exe --selftest
-import json, os, subprocess, sys, tempfile, threading, time, traceback, urllib.request
+import json, os, re, subprocess, sys, tempfile, threading, time, traceback, urllib.request
 
 HERE = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -83,6 +83,12 @@ def log(msg):
         pass
 
 
+def release_number(tag):
+    """Номер стабильного выпуска; dev и служебные теги не являются версиями."""
+    match = re.fullmatch(r'v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', str(tag))
+    return tuple(map(int, match.groups())) if match else None
+
+
 def update_app(app):
     """Проверка новой версии. Если есть — в окне программы появляется плашка с кнопкой «Обновить»."""
     try:
@@ -91,7 +97,13 @@ def update_app(app):
         log(f'check failed: {e!r}')
         return f'Не удалось проверить обновления: {e}'
     log(f'latest {tag}, mine {VERSION}')
-    if tag == VERSION or not url: return f'Последняя версия: {tag}. У тебя актуальная.'
+    latest, current = release_number(tag), release_number(VERSION)
+    if latest is None:
+        return f'Не удалось определить номер выпуска: {tag}'
+    if current is not None and latest <= current:
+        return f'Последняя опубликованная версия: {tag}. Обновление не требуется.'
+    if not url:
+        return f'Версия {tag}: файл обновления пока недоступен.'
     app.root.after(0, lambda: app.offer_update(tag, lambda: start_download(app, tag, url)))
     if not FROZEN: return f'Есть версия {tag} (запущено из исходников, обновление не ставлю)'
     return f'Есть новая версия {tag}: нажми «Обновить» вверху окна'
@@ -156,109 +168,44 @@ def updater(app):
 
 
 def background(app):
-    time.sleep(5)
+    if app.stopping.wait(5): return
     if app.s['auto_update']: update_app(app)
-    while True:
+    while not app.stopping.is_set():
         update_data(app)
-        time.sleep(1800)
+        app.stopping.wait(1800)
 
 
 def selftest():
-    """Проверка собранного exe в CI: данные, логика, окна, голос. Результат в selftest.txt рядом с exe."""
-    out = []
-    ok = True
+    """Реальные Qt-окна и ресурсы EXE; временные настройки, без доступа к игре."""
+    from pathlib import Path
+    out=[];ok=False
+    folder=Path(sys.executable).parent if FROZEN else Path(__file__).parent
     try:
-        d = load_data()
-        out.append(f"data {d.d['t']} players {len(d.d['players'])}")
-        snap = {'activePlayer': {'riotId': 'Halch#9200', 'currentGold': 500}, 'gameData': {'gameTime': 160},
-                'events': {'Events': []},
-                'allPlayers': [{'riotId': f'P{i}#1', 'rawChampionName': 'game_character_displayname_' + c, 'team': 'ORDER' if i < 5 else 'CHAOS',
-                                'position': core.ROLES[i % 5], 'level': 3, 'items': [], 'scores': {},
-                                'summonerSpells': {'summonerSpellOne': {'rawDisplayName': 'SummonerSmite' if i % 5 == 1 else 'SummonerFlash'}}}
-                               for i, c in enumerate(['Sett', 'RekSai', 'Viktor', 'Jinx', 'Rakan', 'Darius', 'LeeSin', 'Ahri', 'Caitlyn', 'Lux'])]}
-        snap['allPlayers'][0]['riotId'] = 'Halch#9200'
-        e = core.Engine(d, core.Player(d, 'halch'))
-        hs = e.tick(core.Game(snap, d))
-        out.append(f'hints {len(hs)}')
-        import ui
-        app = ui.App(d, VERSION)
-        # Exercise actual Windows extended styles in the packaged application.
-        from unittest.mock import patch
-        widget = app.ov['inventory']
-        saved_pins = dict(app.s['widget_pins'])
-        original_pin = widget.pinned
-        with patch.object(app.s, 'save'):
-            widget.pinned = False
-            widget.demo(); widget.deiconify(); app.root.update()
-            widget.unlock(True)
-            widget.pin_button.invoke()
-            assert widget.pinned
-            if ui.IS_WIN:
-                style = lambda win: ui.U32.GetWindowLongW(ui.U32.GetParent(win.winfo_id()), -20)
-                assert style(widget) & 0x20
-                assert not style(widget.pin_window) & 0x20
-                assert style(widget.pin_window) & 0x08000000
-            widget.unlock(False); widget.unlock(True)
-            if ui.IS_WIN: assert style(widget) & 0x20
-            widget.pin_button.invoke()
-            assert not widget.pinned
-            if ui.IS_WIN: assert not style(widget) & 0x20
-            widget.unlock(False)
-            if ui.IS_WIN: assert style(widget) & 0x20
-            widget.pinned = original_pin
-            app.s['widget_pins'] = saved_pins
-            widget.withdraw()
-        assert app.tab['tab'].pin_window is None
-        out.append('widget pins OK: body click-through with Alt, button interactive, no-activate, unpin restores drag')
-        for key in ('perf','lane','item','timers','arena'): app.ov[key].demo()
-        app.ov['hints'].push('Дракон через 45 секунд. Подготовь обзор у реки.')
-        app.ov['hints'].show()
-        out.append('all overlay renderers OK: stats, lane, item, timers, arena, hints, inventory')
-        app.root.after(2500, app.root.destroy)
-        app.root.mainloop()
-        n = len(app.icons.a.get('champ', {}))
-        out.append(f'ui ok, portraits {n}, pillow {ui.Image is not None}')
-        import render
-        arrow = render.advantage_arrow(24, 14, -1)
-        assert arrow.mode == 'RGBA' and arrow.getchannel('A').getbbox()
-        out.append(f'tab arrow asset OK: {arrow.size}')
-        assert render.panel_frame(240,100,8).getchannel('A').getbbox()
-        assert render.hud_badge('850',-1,'blue',24,48).getchannel('A').getbbox()
-        assert render.objective_icon('Барон',24).getchannel('A').getbbox()
-        out.append('painted overlay assets OK: panel, badge, objective portraits')
-        import cv2, numpy, tab_detect
+        import qt_review
+        code=qt_review.main(folder/'qt-selftest')
+        out.append((folder/'qt-selftest/checks.json').read_text(encoding='utf-8'))
+        ok=code==0
+        import cv2,numpy,tab_detect
         from PIL import Image
-        assert tab_detect.detect(Image.new('RGB', (640, 480)), {}, []) is None
-        out.append(f'tab detection imports OK: OpenCV {cv2.__version__}, NumPy {numpy.__version__}')
-        fdir = os.path.join(HERE, 'fonts')
-        out.append(f"fonts {sorted(os.listdir(fdir)) if os.path.isdir(fdir) else 'нет папки'}; pil {render.font('Golos Text', 14).getname()}")
-        if FROZEN and not os.path.isdir(fdir): ok = False
-        if FROZEN and (n < 150 or ui.Image is None): ok = False
-        try:
-            tag, url = latest_release()
-            with get(url, 30) as r: chunk = r.read(1 << 20)
-            out.append(f'release {tag} reachable, {len(chunk)} bytes')
-        except Exception as e:
-            out.append(f'release check failed: {e!r}')
-        from voice import Voice
-        v = Voice(home())
-        out.append(f'piper {v.piper()} model {v.model("dmitri")}')
-        wav = v.synth('Проверка голоса')
-        out.append(f'wav {wav and os.path.getsize(wav)}')
-        if FROZEN and not wav: ok = False
-        try:   # голос Microsoft: библиотека в exe и связь с сервисом (на сборочной машине)
-            mp3 = v.synth_edge('Проверка голоса', 'ru-RU-SvetlanaNeural')
-            out.append(f'edge mp3 {mp3 and os.path.getsize(mp3)}')
-        except Exception as e:
-            out.append(f'edge failed: {e!r}')
-        import edge_tts  # noqa: F401  (должен быть внутри exe)
-        import webview, sitewin  # noqa: F401  (окно сайта)
-        p = sitewin.page(home())
-        out.append(f'site page {p and os.path.getsize(p)}')
+        assert tab_detect.detect(Image.new('RGB',(640,480)),{},[]) is None
+        out.append('OpenCV и распознавание Tab: OK')
+        if FROZEN:
+            import edge_tts,webview,sitewin
+            from voice import Voice
+            with tempfile.TemporaryDirectory(prefix='lolhelper-voice-test-') as directory:
+                voice=Voice(directory);wav=voice.synth('Проверка голоса')
+                assert wav and os.path.getsize(wav)>44,'Piper не создал звук'
+                out.append('Встроенный голос Piper: OK')
+            from qt_ui.widgets import Icons
+            assert len(Icons().a.get('champ',{}))>=150,'Не упакованы портреты чемпионов'
+            assert (Path(HERE)/'qt_ui/fonts/PT_Serif-Web-Regular.ttf').is_file()
+            assert (Path(HERE)/'history-details.json').is_file()
+            out.append('Шрифты, изображения, архив, Microsoft TTS и WebView: OK')
+        assert 'tkinter' not in sys.modules,'Основная программа загрузила Tkinter'
     except Exception:
-        out.append(traceback.format_exc()); ok = False
+        out.append(traceback.format_exc());ok=False
     out.append('OK' if ok else 'FAIL')
-    open(os.path.join(os.path.dirname(sys.executable if FROZEN else __file__), 'selftest.txt'), 'w', encoding='utf-8').write('\n'.join(out))
+    (folder/'selftest.txt').write_text('\n'.join(out),encoding='utf-8')
     sys.exit(0 if ok else 1)
 
 
@@ -272,8 +219,8 @@ def main():
             import webbrowser; webbrowser.open('https://halches.github.io/Lol-stat/')
         return
     try:
-        import ui
-        app = ui.App(load_data(), VERSION, updater)
+        import qt_app
+        app = qt_app.App(load_data(), VERSION, updater)
         threading.Thread(target=background, args=(app,), daemon=True).start()
         app.run()
     except Exception:

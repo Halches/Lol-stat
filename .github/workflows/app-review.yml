@@ -2,7 +2,7 @@ name: Проверочный EXE без релиза
 
 on:
   push:
-    branches: [design/draft-native, perf/night-2026-11-04, ui/pool-space, design/sakura-depth]
+    branches: [design/draft-native, perf/night-2026-11-04, ui/pool-space, design/sakura-depth, design/blossom-material]
     paths: [app/**, .github/workflows/app-review.yml, tools/refresh_catalog_gameplay.py]
   workflow_dispatch:
 
@@ -84,6 +84,12 @@ jobs:
         env:
           RENDER_PERF_OUT: dist/render-performance.json
         run: python app/dev/sim_render_performance.py
+
+      - name: Снимки всех страниц с новым оформлением
+        env:
+          SIM_OUT: dist/material-review
+          SIM_ASSETS_JSON: app/assets.json
+        run: python app/dev/sim_material_review.py
 
       - name: Локальный голос Piper
         shell: pwsh

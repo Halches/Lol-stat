@@ -1,5 +1,6 @@
 """Native champion page; uses existing asynchronous sources without altering draft choices."""
 import tkinter as tk
+import ui_skin
 from tkinter import ttk
 from scroll_canvas import ScrollCanvas
 import core
@@ -9,7 +10,7 @@ import home_model
 from view_components import ReadableComponents as Components, readable_palette
 
 
-class ChampionScreen(tk.Frame, Components):
+class ChampionScreen(ui_skin.material_ui.Frame, Components):
     def __init__(self,parent,app):
         from ui import C,F
         super().__init__(parent,bg=C['bg']);self.app,self.c,self.f=app,readable_palette(C),F
@@ -21,13 +22,13 @@ class ChampionScreen(tk.Frame, Components):
         self.query=tk.StringVar();self.enemy_query=tk.StringVar()
         self.label(self,'Чемпион',22,'gold',head=True).pack(anchor='w')
         self.label(self,'Статистика · руны и предметы · умения · матчапы',10,'mute').pack(anchor='w',pady=(0,10))
-        search=tk.Frame(self,bg=C['bg']);search.pack(fill='x')
+        search=ui_skin.Frame(self,bg=C['bg']);search.pack(fill='x')
         self.label(search,'Найти чемпиона',10).pack(side='left',padx=(0,10))
         self.search=ttk.Combobox(search,textvariable=self.query,values=[n for n,k in self.names],width=24,font=(F['font'],app.fs(12)))
         self.search.pack(side='left');self.search.bind('<KeyRelease>',lambda e:self.suggest(self.search,self.query))
         self.search.bind('<<ComboboxSelected>>',lambda e:self.search_pick());self.search.bind('<Return>',lambda e:self.search_pick())
-        self.roles=tk.Frame(self,bg=C['bg']);self.roles.pack(fill='x',pady=(8,10))
-        self.body=tk.Frame(self,bg=C['bg']);self.body.pack(fill='both',expand=True)
+        self.roles=ui_skin.Frame(self,bg=C['bg']);self.roles.pack(fill='x',pady=(8,10))
+        self.body=ui_skin.Frame(self,bg=C['bg']);self.body.pack(fill='both',expand=True)
         self.bind('<Configure>',self.resized);self.bind('<Destroy>',self.cleanup,add='+')
         self.bind('<Map>',lambda e:self.refresh() if e.widget is self else None)
         self.refresh()
@@ -94,9 +95,9 @@ class ChampionScreen(tk.Frame, Components):
             self.label(box,'Поиск по русскому или английскому имени. Ниже — твои частые чемпионы.',10,'mute').pack(anchor='w')
             games=self.app.player.games if self.app.player else []
             frequent=home_model.snapshot(games)['frequent']
-            row=tk.Frame(box,bg=self.c['panel']);row.pack(anchor='w',pady=(10,0))
+            row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(anchor='w',pady=(10,0))
             for entry in frequent:
-                key=entry['champion'];tile=tk.Frame(row,bg=self.c['panel']);tile.pack(side='left',padx=(0,16))
+                key=entry['champion'];tile=ui_skin.Frame(row,bg=self.c['panel']);tile.pack(side='left',padx=(0,16))
                 self.image(tile,'champ',key,48)
                 self.button(tile,self.app.data.cn(key),lambda k=key:self.choose(k)).pack(side='left')
             return
@@ -125,8 +126,8 @@ class ChampionScreen(tk.Frame, Components):
             selected=self.selected_player;variant=(selected or {}).get('variant')
         self.selected_variant=variant
         self.header(full)
-        grid=tk.Frame(self.body,bg=self.c['bg']);grid.pack(fill='x')
-        left=tk.Frame(grid,bg=self.c['bg']);right=tk.Frame(grid,bg=self.c['bg'])
+        grid=ui_skin.Frame(self.body,bg=self.c['bg']);grid.pack(fill='x')
+        left=ui_skin.Frame(grid,bg=self.c['bg']);right=ui_skin.Frame(grid,bg=self.c['bg'])
         left.grid(row=0,column=0,sticky='nsew',padx=(0,8) if self.layout else 0)
         right.grid(row=0 if self.layout else 1,column=1 if self.layout else 0,sticky='nsew',pady=(0,8) if self.layout else 0)
         self.left_column,self.right_column=left,right
@@ -173,11 +174,11 @@ class ChampionScreen(tk.Frame, Components):
             if self.right_open:self.special_sources(parent)
             else:self.player_cards=[]
             self.matchups(parent,counters);return
-        viewport=tk.Frame(parent,bg=c['bg']);viewport.pack(fill='both',expand=True)
+        viewport=ui_skin.Frame(parent,bg=c['bg']);viewport.pack(fill='both',expand=True)
         cv=ScrollCanvas(viewport,bg=c['bg'],highlightthickness=0);self.right_canvas=cv
         sb=ttk.Scrollbar(viewport,orient='vertical',command=cv.yview)
         sb.pack(side='right',fill='y');cv.pack(side='left',fill='both',expand=True);cv.configure(yscrollcommand=sb.set)
-        body=tk.Frame(cv,bg=c['bg']);win=cv.create_window((0,0),window=body,anchor='nw')
+        body=ui_skin.Frame(cv,bg=c['bg']);win=cv.create_window((0,0),window=body,anchor='nw')
         cv.bind('<Configure>',lambda e:cv.itemconfigure(win,width=e.width), add='+')
         body.bind('<Configure>',lambda e:cv.configure(scrollregion=cv.bbox('all')))
         if self.right_open:self.special_sources(body)
@@ -195,7 +196,7 @@ class ChampionScreen(tk.Frame, Components):
     def header(self,full):
         box=self.panel(self.body,14);box.pack(fill='x',pady=(0,10))
         self.image(box,'champ',self.champion,64);self.image(box,'role',self.role,22)
-        text=tk.Frame(box,bg=self.c['panel']);text.pack(side='left',fill='x',expand=True)
+        text=ui_skin.Frame(box,bg=self.c['panel']);text.pack(side='left',fill='x',expand=True)
         self.label(text,self.app.data.cn(self.champion),24,'gold',head=True).pack(anchor='w')
         self.label(text,core.ROLE_RU[self.role].capitalize()+' · EUW · Изумруд+',10,'mute').pack(anchor='w')
         wr=full.get('wr') if full else None;n=full.get('games') if full else None
@@ -211,19 +212,19 @@ class ChampionScreen(tk.Frame, Components):
 
     def builds(self,parent,full,matchup):
         box=self.section(parent,'Руны и сборка')
-        row=tk.Frame(box,bg=self.c['panel']);row.pack(fill='x',pady=(0,6))
+        row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(fill='x',pady=(0,6))
         self.button(row,'Все матчапы',lambda:self.select_build('general','pick'),self.context=='general').pack(side='left',padx=(0,4))
         if self.opponent:self.button(row,'Против: '+self.app.data.cn(self.opponent),lambda:self.select_build('matchup','pick'),self.context=='matchup').pack(side='left')
         source=matchup if self.context=='matchup' else full
         self.option_buttons=[]
         for option in self.current_options:
             key=option['key'];active=key==self.variant
-            item=tk.Frame(box,bg=self.c['raise'] if active else self.c['deep'],padx=self.app.fs(8),pady=self.app.fs(8),highlightthickness=1,highlightbackground=self.c['gold' if active else 'line'],takefocus=True)
+            item=ui_skin.Frame(box,bg=self.c['raise'] if active else self.c['deep'],padx=self.app.fs(8),pady=self.app.fs(8),highlightthickness=1,highlightbackground=self.c['gold' if active else 'line'],takefocus=True)
             item.pack(fill='x',pady=(0,5));self.option_buttons.append(item)
-            heading=tk.Frame(item,bg=item.cget('bg'));heading.pack(fill='x')
+            heading=ui_skin.Frame(item,bg=item.cget('bg'));heading.pack(fill='x')
             self.label(heading,option['title']+(' ✓' if active else ''),12,'gold' if active else 'fg').pack(side='left')
             self.label(heading,'Руны + предметы',9,'mute').pack(side='right')
-            icons=tk.Frame(item,bg=item.cget('bg'));icons.pack(anchor='w',pady=(6,0))
+            icons=ui_skin.Frame(item,bg=item.cget('bg'));icons.pack(anchor='w',pady=(6,0))
             for rune in option['variant'].get('perks',[])[:6]:self.image(icons,'rune',rune,22)
             self.label(icons,'  ›  ',10,'mute').pack(side='left')
             self.item_icons(icons,core.lola_build_items(option['variant']),24)
@@ -271,13 +272,13 @@ class ChampionScreen(tk.Frame, Components):
             if row.get('stale') or (self.players or {}).get('stale'):self.label(box,'Сохранённая сборка · обновить не удалось',10,'gold').pack(anchor='w')
         if self.context=='general' and self.variant=='offmeta':
             self.label(box,'Оффметовая · Mobalytics · патч '+full['patch'],12,'gold').pack(anchor='w',pady=(0,8))
-        row=tk.Frame(box,bg=self.c['panel']);row.pack(anchor='w')
+        row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(anchor='w')
         for rune in variant.get('perks',[])[:6]:self.image(row,'rune',rune,30)
         for shard in variant.get('shards',[]):self.image(row,'rune',shard,20)
-        row=tk.Frame(box,bg=self.c['panel']);row.pack(anchor='w',pady=(8,0))
+        row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(anchor='w',pady=(8,0))
         self.label(row,'Старт',10).pack(side='left',padx=(0,10));self.item_icons(row,variant.get('start',[]),28)
         for spell in variant.get('spells',[])[:2]:self.image(row,'spell',spell,26)
-        row=tk.Frame(box,bg=self.c['panel']);row.pack(anchor='w',pady=(8,0))
+        row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(anchor='w',pady=(8,0))
         self.label(row,'Сборка',10).pack(side='left',padx=(0,8));self.item_icons(row,core.lola_build_items(variant),32)
         self.button(box,('▾' if self.expanded else '▸')+' Подробности и выборки',self.toggle_details,self.expanded).pack(anchor='w',pady=(10,0))
         if self.expanded:
@@ -290,7 +291,7 @@ class ChampionScreen(tk.Frame, Components):
                     self.label(box,title+': '+(f'{wr:.1f}%' if wr is not None else '—')+(f' · {n:,} игр'.replace(',',' ') if n is not None else ' · выборка недоступна'),10,'fg').pack(anchor='w',pady=(5,0))
                 self.label(box,'Это отдельные выборки. Общий винрейт рун вместе с предметами источник не подтверждает.',9,'mute',wraplength=self.app.fs(470),justify='left').pack(anchor='w',pady=(5,0))
         for iid,short,when in (full or {}).get('situ',[])[:6]:
-            row=tk.Frame(box,bg=self.c['panel']);row.pack(fill='x',pady=(6,0))
+            row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(fill='x',pady=(6,0))
             self.item_icons(row,[iid],23);self.label(row,when if short.casefold() in when.casefold() else short+' · '+when,9,'mute',wraplength=self.app.fs(420),justify='left').pack(side='left')
 
     def toggle_details(self):self.expanded=not self.expanded;self.refresh()
@@ -303,7 +304,7 @@ class ChampionScreen(tk.Frame, Components):
         self.label(box,' → '.join(priority) if priority else 'Приоритет не указан',15,'gold',num=True).pack(anchor='w')
         sequence=variant.get('skills') or ''
         for offset in (0,9):
-            row=tk.Frame(box,bg=self.c['panel']);row.pack(fill='x',pady=(5,0))
+            row=ui_skin.Frame(box,bg=self.c['panel']);row.pack(fill='x',pady=(5,0))
             for col,level in enumerate(range(offset,offset+9)):
                 row.columnconfigure(col,weight=1,uniform='skill')
                 self.label(row,str(level+1),8,'mute',anchor='center').grid(row=0,column=col)
@@ -320,9 +321,9 @@ class ChampionScreen(tk.Frame, Components):
         self.label(box,profile,11,'gold').pack(anchor='w')
         self.label(box,('Против: '+self.app.data.cn(self.opponent) if self.context=='matchup' else 'Все оппоненты')+' · '+core.ROLE_RU[self.role],9,'mute').pack(anchor='w',pady=(2,8))
         values=[('Матчей',str(stats['n'])),('Победы',f"{stats['wr']:.1f}%" if stats['wr'] is not None else '—'),('KDA',f"{stats['kda']:.2f}" if stats['kda'] is not None else '—'),('Фарм / мин',f"{stats['csm']:.1f}" if stats['csm'] is not None else '—')]
-        grid=tk.Frame(box,bg=self.c['panel']);grid.pack(fill='x')
+        grid=ui_skin.Frame(box,bg=self.c['panel']);grid.pack(fill='x')
         for i,(title,value) in enumerate(values):
-            cell=tk.Frame(grid,bg=self.c['deep'],padx=8,pady=6);cell.grid(row=i//2,column=i%2,sticky='nsew',padx=(0,5),pady=(0,5));grid.columnconfigure(i%2,weight=1,uniform='personal')
+            cell=ui_skin.Frame(grid,bg=self.c['deep'],padx=8,pady=6);cell.grid(row=i//2,column=i%2,sticky='nsew',padx=(0,5),pady=(0,5));grid.columnconfigure(i%2,weight=1,uniform='personal')
             self.label(cell,value,22,'fg',num=True).pack(anchor='w');self.label(cell,title,9,'mute').pack(anchor='w')
         self.label(box,f"Сохранённые матчи · KDA: {stats['kda_n']} · фарм: {stats['csm_n']} игр",8,'mute',wraplength=self.app.fs(340),justify='left').pack(anchor='w')
         if not games:self.label(box,'Нет сохранённых игр на этом чемпионе и роли.',10,'mute',wraplength=self.app.fs(340),justify='left').pack(anchor='w',pady=(5,0))
@@ -343,7 +344,7 @@ class ChampionScreen(tk.Frame, Components):
         for title,rows,color in [('Сложные',ordered[:3],'bad'),('Удобные',list(reversed(ordered))[:3],'good')]:
             self.label(box,title,11,color).pack(anchor='w',pady=(6,3))
             for enemy,(wr,delta,n) in rows:
-                row=tk.Frame(box,bg=self.c['deep'],padx=5,pady=5);row.pack(fill='x',pady=(0,3))
+                row=ui_skin.Frame(box,bg=self.c['deep'],padx=5,pady=5);row.pack(fill='x',pady=(0,3))
                 self.image(row,'champ',enemy,26)
                 self.label(row,self.app.data.cn(enemy),10).pack(side='left')
                 self.label(row,f'{wr:.1f}% · {n:,}'.replace(',',' '),10,color,num=True).pack(side='right')
@@ -362,15 +363,15 @@ class ChampionScreen(tk.Frame, Components):
                 self.label(box,'Источник не подтвердил данные для этой роли' if state=='fail' else 'Загрузка Mobalytics…',10,'mute',wraplength=self.app.fs(340),justify='left').pack(anchor='w');continue
             for row in rows:
                 active=self.variant=='player:'+row['id'] and self.context=='general'
-                tile=tk.Frame(box,bg=self.c['raise'] if active else self.c['deep'],padx=8,pady=7,highlightthickness=1,highlightbackground=self.c['gold' if active else 'line'],takefocus=True)
+                tile=ui_skin.Frame(box,bg=self.c['raise'] if active else self.c['deep'],padx=8,pady=7,highlightthickness=1,highlightbackground=self.c['gold' if active else 'line'],takefocus=True)
                 tile.pack(fill='x',pady=(0,5));self.player_cards.append(tile)
-                head=tk.Frame(tile,bg=tile.cget('bg'));head.pack(fill='x')
+                head=ui_skin.Frame(tile,bg=tile.cget('bg'));head.pack(fill='x')
                 self.label(head,row['name']+(' ✓' if active else ''),11,'gold' if active else 'fg',wraplength=self.app.fs(190),justify='left').pack(side='left')
                 self.label(head,f"{row['winrate']:.1f}% · {row['games']} игр",11,'fg',num=True).pack(side='right')
-                icons=tk.Frame(tile,bg=tile.cget('bg'));icons.pack(anchor='w',pady=(5,0))
+                icons=ui_skin.Frame(tile,bg=tile.cget('bg'));icons.pack(anchor='w',pady=(5,0))
                 for rune in row.get('perks',[])[:6]:self.image(icons,'rune',rune,18)
                 if row.get('variant'):
-                    items=tk.Frame(tile,bg=tile.cget('bg'));items.pack(anchor='w',pady=(4,0));self.item_icons(items,core.lola_build_items(row['variant']),23)
+                    items=ui_skin.Frame(tile,bg=tile.cget('bg'));items.pack(anchor='w',pady=(4,0));self.item_icons(items,core.lola_build_items(row['variant']),23)
                 else:self.label(tile,'Предметы: — · подробности недоступны' if row.get('error') or state=='ok' else 'Предметы: загрузка…',9,'mute').pack(anchor='w',pady=(3,0))
                 self.label(tile,'Патч '+row['patch']+(' · сохранённые данные' if row.get('stale') or packet.get('stale') else ''),8,'mute').pack(anchor='w',pady=(3,0))
                 if row.get('variant'):

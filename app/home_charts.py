@@ -10,9 +10,8 @@ def blend(a,b,weight):
     return tuple(round(x*(1-weight)+y*weight) for x,y in zip(render.rgb(a),render.rgb(b)))
 
 
-def metric_image(snapshot,key,title,detail,width,height,palette,scale):
-    image=ui_skin.surface_image(width,height,palette['panel'],palette['line'],
-                                palette['gold']).convert('RGBA')
+def metric_image(snapshot,key,title,detail,width,height,palette,scale,background=None):
+    image=ui_skin.material_ui.glass(background or Image.new('RGB',(width,height),palette['bg']),palette['panel'],palette['gold']).convert('RGBA')
     d=ImageDraw.Draw(image)
     px=lambda n:round(n*scale)
     label_font=render.font('Golos Text',px(13))
@@ -71,21 +70,25 @@ def metric_image(snapshot,key,title,detail,width,height,palette,scale):
 
 
 class Metric(tk.Canvas):
-    def __init__(self,parent,snapshot,key,title,detail,palette,scale):
+    # These four data-owned textures survive tab hiding; refresh/theme rebuild
+    # destroys the widgets. A parent remap need not emit a child Configure.
+    _material_keep_image=True
+    def __init__(self,parent,snapshot,key,title,detail,palette,scale,background=None):
         super().__init__(parent,bg=palette['panel'],highlightthickness=0,
                          height=round(148*scale),width=1)
         self.snapshot,self.key,self.title,self.detail=snapshot,key,title,detail
         self.palette,self.scale=palette,scale
         self.photo=None;self.signature=None
         self.bind('<Configure>',self.paint)
+        self.bind('<Map>',self.paint)
         self.pack(fill='both',expand=True)
 
     def paint(self,event):
-        signature=(event.width,event.height)
-        if event.widget is not self or min(signature)<4 or signature==self.signature:
+        signature=(self.winfo_width(),self.winfo_height())
+        if not self.winfo_ismapped() or event.widget is not self or min(signature)<4 or signature==self.signature:
             return
         image=metric_image(self.snapshot,self.key,self.title,self.detail,*signature,
-                           self.palette,self.scale)
+                           self.palette,self.scale,ui_skin.material_ui.sample(self,*signature))
         self.photo=ImageTk.PhotoImage(image,master=self)
         self.delete('all');self.create_image(0,0,anchor='nw',image=self.photo)
         self.signature=signature

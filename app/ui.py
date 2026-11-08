@@ -35,9 +35,9 @@ THEMES = {   # три палитры дизайна 26.10, у каждой но�
     'dgold_day': ('Тёмное золото · день', {'bg': '#f4f2ee', 'panel': '#ffffff', 'line': '#dcd6cb', 'fg': '#1c1a17', 'mute': '#6b665c', 'gold': '#8a6420', 'good': '#1f8a5b', 'bad': '#b9442f', 'blue': '#2f7fd0', 'red': '#b9442f', 'deep': '#f9f8f6', 'raise': '#ebe7df', 'edge': '#ffffff', 'glow': '#ffffff', 'tag_g': '#dbece5', 'tag_r': '#f4e1de', 'tag_y': '#f4e8d9', 'good2': '#1f8a5b', 'bad2': '#b9442f', 'warn': '#b86e12', 'red2': '#b9442f', 'blue2': '#2f7fd0', 'on_gold': '#f4f2ee', 'dark': False}),
 }
 # The existing default theme now carries the approved blossom palette.
-THEMES['lol']=('Цветение · ночь',dict(THEMES['lol'][1],bg='#191620',panel='#302537',
-    line='#68516f',fg='#f2e6f3',mute='#b9a8c3',gold='#c8a5dc',deep='#211a29',
-    **{'raise':'#493352'},edge='#5d4569',glow='#38263f',tag_g='#243b3e',
+THEMES['lol']=('Цветение · ночь',dict(THEMES['lol'][1],bg='#180f22',panel='#35253f',
+    line='#68516f',fg='#f2e6f3',mute='#b9a8c3',gold='#d5addb',deep='#21152d',
+    **{'raise':'#654572'},edge='#5d4569',glow='#38263f',tag_g='#243b3e',
     tag_r='#482e3c',tag_y='#423747',on_gold='#201528',good='#8ccfcc',
     good2='#a7ded7',bad='#df91a8',bad2='#edb2c2',blue='#86c9ec',red='#df91a8'))
 THEMES['lol_day']=('Цветение · день',dict(THEMES['lol_day'][1],bg='#f1eaf3',
@@ -242,6 +242,7 @@ def apply_theme(s):
     F['font'] = s['font']
     own = s['font'] == 'Golos Text'   # шрифты дизайна: цифры Fira Sans Condensed, заголовки Forum
     F['num'], F['numb'], F['head'] = ('Fira Sans Condensed Medium', 'Fira Sans Condensed SemiBold', 'Forum') if own else (s['font'],) * 3
+    F['serif']=('Georgia' if IS_WIN else 'DejaVu Serif') if own else s['font']
 
 
 def load_fonts():
@@ -355,7 +356,7 @@ class Overlay(tk.Toplevel):
         self.overrideredirect(True)
         self.attributes('-topmost', True)
         self.configure(bg=KEY, highlightthickness=0)
-        self.lbl = tk.Label(self, bg=KEY, bd=0)
+        self.lbl = ui_skin.Label(self, bg=KEY, bd=0)
         self.lbl.pack()
         x, y = app.layout().get(key, default_xy)
         self.geometry(f'+{int(x)}+{int(y)}')
@@ -373,7 +374,7 @@ class Overlay(tk.Toplevel):
             self.pin_window.overrideredirect(True)
             self.pin_window.attributes('-topmost', True)
             self.pin_window.attributes('-alpha', app.s['alpha'] / 100)
-            self.pin_button = tk.Button(self.pin_window, bd=0, highlightthickness=0,
+            self.pin_button = ui_skin.NativeButton(self.pin_window, bd=0, highlightthickness=0,
                                         takefocus=False, cursor='hand2', command=self.toggle_pin)
             self.pin_button.pack()
             self.pin_window.update_idletasks()
@@ -728,9 +729,9 @@ class TabPlates(Overlay):
         self.handle.configure(bg=C['gold'])
         if Image is not None:
             self._handle_ph = ImageTk.PhotoImage(render.tab_handle(C, F['font'], app.s['scale'] / 100))
-            label = tk.Label(self.handle, image=self._handle_ph, bg=C['gold'], bd=0, padx=0, pady=0, cursor='fleur')
+            label = ui_skin.Label(self.handle, image=self._handle_ph, bg=C['gold'], bd=0, padx=0, pady=0, cursor='fleur')
         else:
-            label = tk.Label(self.handle, text='TAB · тяни | Shift: размер', bg=C['gold'], fg=C['on_gold'], cursor='fleur')
+            label = ui_skin.Label(self.handle, text='TAB · тяни | Shift: размер', bg=C['gold'], fg=C['on_gold'], cursor='fleur')
         label.pack()
         for w in (self.handle, label):
             w.bind('<ButtonPress-1>', self._start)
@@ -973,6 +974,7 @@ def hist_tags(h):
 class Dashboard(tk.Toplevel):
     def __init__(self, app):
         super().__init__(app.root)
+        ui_skin.install_shell(app,C,self)
         self.app = app
         self.title('LoL Helper — драфт и игра')
         self.configure(bg=C['bg'])
@@ -985,37 +987,37 @@ class Dashboard(tk.Toplevel):
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.bind('<Configure>', self._moved)
         fn = F['font']
-        self.head = tk.Label(self, bg=C['bg'], fg=C['gold'], font=(F['head'], app.fs(22)), anchor='w')
+        self.head = ui_skin.Label(self, bg=C['bg'], fg=C['gold'], font=(F['head'], app.fs(22)), anchor='w')
         self.head.pack(fill='x', padx=16, pady=(12, 0))
         conf = self.head.configure
         def head(**kw):   # заголовок окна всегда капсом и золотом (Forum)
             if 'text' in kw: kw['text'] = kw['text'].upper()
             kw['fg'] = C['gold']; conf(**kw)
         self.head.configure = head
-        self.timer = tk.Label(self, bg=C['bg'], fg=C['fg'], font=(F['numb'], app.fs(22)))   # в драфте: таймер пика справа сверху
+        self.timer = ui_skin.Label(self, bg=C['bg'], fg=C['fg'], font=(F['numb'], app.fs(22)))   # в драфте: таймер пика справа сверху
         self.deadline = 0
-        self.sub = tk.Label(self, bg=C['bg'], fg=C['mute'], font=(fn, app.fs(11)), anchor='w', justify='left')
+        self.sub = ui_skin.Label(self, bg=C['bg'], fg=C['mute'], font=(fn, app.fs(11)), anchor='w', justify='left')
         self.sub.pack(fill='x', padx=16)
-        self.objs = tk.Frame(self, bg=C['bg'])   # в игре: плитки таймеров объектов справа от заголовка
-        self.bar = tk.Frame(self, bg=C['bg'])   # в драфте: смена линии и импорт рун/предметов
+        self.objs = ui_skin.Frame(self, bg=C['bg'])   # в игре: плитки таймеров объектов справа от заголовка
+        self.bar = ui_skin.Frame(self, bg=C['bg'])   # в драфте: смена линии и импорт рун/предметов
         # карточки внутри прокручиваемой области: не всё помещается на маленьком мониторе
-        self.wrap = tk.Frame(self, bg=C['bg']); self.wrap.pack(fill='both', expand=True, padx=10, pady=8)
+        self.wrap = ui_skin.Frame(self, bg=C['bg']); self.wrap.pack(fill='both', expand=True, padx=10, pady=8)
         self.cv = ScrollCanvas(self.wrap, bg=C['bg'], highlightthickness=0)
         sb = ttk.Scrollbar(self.wrap, orient='vertical', command=self.cv.yview)
-        self.body = tk.Frame(self.cv, bg=C['bg'])
+        self.body = ui_skin.Frame(self.cv, bg=C['bg'])
         self.body.bind('<Configure>', lambda e: (self.cv.configure(scrollregion=self.cv.bbox('all')),
                                                  sb.pack(side='right', fill='y') if self.body.winfo_reqheight() > self.cv.winfo_height() else sb.pack_forget()))
         win = self.cv.create_window((0, 0), window=self.body, anchor='nw'); self.cv.configure(yscrollcommand=sb.set)
         self.cv.bind('<Configure>', lambda e: self.cv.itemconfigure(win, width=e.width), add='+')
         self.cv.pack(side='left', fill='both', expand=True)
-        self.low = tk.Frame(self, bg=C['bg'])
-        lf = tk.Frame(self.low, bg=C['bg'])
+        self.low = ui_skin.Frame(self, bg=C['bg'])
+        lf = ui_skin.Frame(self.low, bg=C['bg'])
         lf.pack(side='left', fill='both', expand=True, padx=(0, 10))
-        self.logl = tk.Label(lf, text='ПОДСКАЗКИ ЗА ИГРУ', bg=C['bg'], fg=C['gold'], font=(F['head'], app.fs(12)), anchor='w'); self.logl.pack(fill='x', pady=(0, 4))
-        self.log = tk.Frame(lf, bg=C['bg']); self.log.pack(fill='both', expand=True)   # плитки последних подсказок, новые первыми
+        self.logl = ui_skin.Label(lf, text='ПОДСКАЗКИ ЗА ИГРУ', bg=C['bg'], fg=C['gold'], font=(F['head'], app.fs(12)), anchor='w'); self.logl.pack(fill='x', pady=(0, 4))
+        self.log = ui_skin.Frame(lf, bg=C['bg']); self.log.pack(fill='both', expand=True)   # плитки последних подсказок, новые первыми
         for i in range(3): self.log.columnconfigure(i, weight=1, uniform='h')
         self.log_items = []
-        self.lanes = tk.Frame(self.low, bg=C['panel'], padx=12, pady=8, highlightthickness=0, width=app.fs(380), height=app.fs(215))
+        self.lanes = ui_skin.Frame(self.low, bg=C['panel'], padx=12, pady=8, highlightthickness=0, width=app.fs(380), height=app.fs(215))
         self.lanes.pack(side='left', fill='y'); self.lanes.pack_propagate(False)
         self.mode, self.cards, self._save_job, self.draft_sig, self.load_sig = None, {}, None, None, None
         self.idle()
@@ -1047,14 +1049,14 @@ class Dashboard(tk.Toplevel):
         self.cards, self.draft_sig, self.load_sig = {}, None, None
         for i in range(3): self.body.columnconfigure(i, weight=0, uniform='')
         if mode in ('game', 'draft', 'load'):
-            self.cols = [tk.Frame(self.body, bg=C['bg']) for _ in range(2)]
-            self.mid = tk.Frame(self.body, bg=C['bg']) if mode == 'draft' else None
+            self.cols = [ui_skin.Frame(self.body, bg=C['bg']) for _ in range(2)]
+            self.mid = ui_skin.Frame(self.body, bg=C['bg']) if mode == 'draft' else None
             place = [self.cols[0], self.mid, self.cols[1]] if self.mid else self.cols
             for i, f in enumerate(place): f.grid(row=0, column=i, sticky='nsew', padx=6); self.body.columnconfigure(i, weight=1, uniform='t')
         if mode == 'draft': self.timer.place(relx=1.0, x=-20, y=10, anchor='ne'); self.tick()
         else: self.timer.place_forget()
         if mode == 'draft':
-            self.bottom = tk.Frame(self.mid, bg=C['bg'])   # в середине: кого взять и кого банить
+            self.bottom = ui_skin.Frame(self.mid, bg=C['bg'])   # в середине: кого взять и кого банить
             self.bar.pack(fill='x', padx=16, pady=(8, 0), before=self.wrap)
         else:
             self.bar.pack_forget()
@@ -1080,9 +1082,9 @@ class Dashboard(tk.Toplevel):
         for w in self.log.winfo_children(): w.destroy()
         for i, (t, text) in enumerate(self.log_items):
             bg = C['tag_y'] if i == 0 else C['panel']
-            f = tk.Frame(self.log, bg=bg, padx=fs(10), pady=fs(6)); f.grid(row=i // 3, column=i % 3, sticky='nsew', padx=(0, 6), pady=(0, 6))
-            tk.Label(f, text=core.mmss(t), bg=bg, fg=C['warn'] if i == 0 else C['mute'], font=(F['numb'], fs(10))).pack(side='left', anchor='n', padx=(0, 8))
-            tk.Label(f, text=text, bg=bg, fg=C['fg'] if i == 0 else C['mute'], font=(fn, fs(10)), wraplength=fs(250), justify='left', anchor='w').pack(side='left', fill='x')
+            f = ui_skin.Frame(self.log, bg=bg, padx=fs(10), pady=fs(6)); f.grid(row=i // 3, column=i % 3, sticky='nsew', padx=(0, 6), pady=(0, 6))
+            ui_skin.Label(f, text=core.mmss(t), bg=bg, fg=C['warn'] if i == 0 else C['mute'], font=(F['numb'], fs(10))).pack(side='left', anchor='n', padx=(0, 8))
+            ui_skin.Label(f, text=text, bg=bg, fg=C['fg'] if i == 0 else C['mute'], font=(fn, fs(10)), wraplength=fs(250), justify='left', anchor='w').pack(side='left', fill='x')
 
     def tick(self):
         """Таймер пика в драфте: отсчёт до конца текущей фазы по данным клиента."""
@@ -1110,13 +1112,13 @@ class Dashboard(tk.Toplevel):
         self.head.configure(text='ARAM' + (f' · ты: {d.cn(me)}' if me else ''), fg=C['fg'])
         self.sub.configure(text='Сборка и руны ARAM с lolalytics, импорт той же кнопкой. Скамейка — справа.')
         for col, t, c in ((self.cols[0], 'Твоя команда', 'blue'), (self.mid, 'Сборка', 'gold'), (self.cols[1], 'Скамейка', 'mute')):
-            tk.Label(col, text=t.upper(), bg=C['bg'], fg=C[c], font=(fn, fs(9), 'bold'), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
+            ui_skin.Label(col, text=t.upper(), bg=C['bg'], fg=C[c], font=(fn, fs(9), 'bold'), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
         for p in cs.get('allies') or []: self.draft_card(0, dict(p, pos=''), {'role': ''}, None)
         if me: self.build_box(self.mid, me, eu, 'ARAM')
         for c in cs.get('bench') or []:
-            tk.Label(self.cols[1], text='  ' + d.cn(c), image=app.img('champ', c, 1.0) or '', compound='left', bg=C['bg'], fg=C['fg'],
+            ui_skin.Label(self.cols[1], text='  ' + d.cn(c), image=app.img('champ', c, 1.0) or '', compound='left', bg=C['bg'], fg=C['fg'],
                      font=(fn, fs(11), 'bold'), anchor='w').pack(anchor='w', pady=2)
-        if not cs.get('bench'): tk.Label(self.cols[1], text='пусто', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
+        if not cs.get('bench'): ui_skin.Label(self.cols[1], text='пусто', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
 
     def show_arena(self, cs):
         app = self.app
@@ -1138,41 +1140,41 @@ class Dashboard(tk.Toplevel):
         self.head.configure(text='Арена' + (f' · ты: {d.cn(me)}' if me else ''))
         self.sub.configure(text='Место считается среди пар. Винрейты аугментов и предметов Арены не показываем: Riot это запрещает.')
         games = app.arena_games()
-        head = lambda col, t: tk.Label(col, text=t.upper(), bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
+        head = lambda col, t: ui_skin.Label(col, text=t.upper(), bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
         head(self.cols[0], 'Ты и напарник')
         for p in cs.get('allies') or []: self.draft_card(0, dict(p, pos=''), {'role': ''}, None)
         head(self.mid, 'Чемпион в Арене')
-        box = tk.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(12)); box.pack(fill='x', pady=3)
-        if not me: tk.Label(box, text='Выбери чемпиона: здесь будет его винрейт в Арене и твои игры на нём.', bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(360), justify='left').pack(anchor='w')
+        box = ui_skin.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(12)); box.pack(fill='x', pady=3)
+        if not me: ui_skin.Label(box, text='Выбери чемпиона: здесь будет его винрейт в Арене и твои игры на нём.', bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(360), justify='left').pack(anchor='w')
         else:
-            row = tk.Frame(box, bg=C['panel']); row.pack(fill='x')
-            tk.Label(row, image=app.img('champ', me, 1.4) or '', bg=C['panel']).pack(side='left', padx=(0, 12))
-            t = tk.Frame(row, bg=C['panel']); t.pack(side='left', fill='x')
-            tk.Label(t, text=d.cn(me), bg=C['panel'], fg=C['gold'], font=(fn, fs(13), 'bold')).pack(anchor='w')
+            row = ui_skin.Frame(box, bg=C['panel']); row.pack(fill='x')
+            ui_skin.Label(row, image=app.img('champ', me, 1.4) or '', bg=C['panel']).pack(side='left', padx=(0, 12))
+            t = ui_skin.Frame(row, bg=C['panel']); t.pack(side='left', fill='x')
+            ui_skin.Label(t, text=d.cn(me), bg=C['panel'], fg=C['gold'], font=(fn, fs(13), 'bold')).pack(anchor='w')
             st = app.lola_state.get(('arena', me, 'ARENA'))
             txt = (f"Изумруд+: {lo['wr']:.1f}% побед · {lo['n']:,} игр".replace(',', ' ').replace('.', ',') if lo else
                    'не удалось загрузить lolalytics' if st == 'fail' else 'загружаю lolalytics…')
-            tk.Label(t, text=txt, bg=C['panel'], fg=C['fg'], font=(fn, fs(10))).pack(anchor='w')
+            ui_skin.Label(t, text=txt, bg=C['panel'], fg=C['fg'], font=(fn, fs(10))).pack(anchor='w')
             my = core.arena_stats(games, me)
-            tk.Label(t, text=(f"Ты: {my['n']} игр · среднее место {my['avg']:.1f} · топ-4 {my['top4']:.0f}%".replace('.', ',') if my else 'Ты на нём в Арене ещё не играл'),
+            ui_skin.Label(t, text=(f"Ты: {my['n']} игр · среднее место {my['avg']:.1f} · топ-4 {my['top4']:.0f}%".replace('.', ',') if my else 'Ты на нём в Арене ещё не играл'),
                      bg=C['panel'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w')
         best = core.arena_best(games)
         head(self.mid, 'Твои лучшие в Арене')
-        if not best: tk.Label(self.mid, text='Нужно хотя бы 3 игры на чемпионе в Арене.', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', padx=4)
-        row = tk.Frame(self.mid, bg=C['bg']); row.pack(fill='x')
+        if not best: ui_skin.Label(self.mid, text='Нужно хотя бы 3 игры на чемпионе в Арене.', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', padx=4)
+        row = ui_skin.Frame(self.mid, bg=C['bg']); row.pack(fill='x')
         for i, (c, s) in enumerate(best):
             bg = C['raise'] if i == 0 else C['panel']
-            f = tk.Frame(row, bg=bg, padx=fs(10), pady=fs(8)); f.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0)); row.columnconfigure(i, weight=1, uniform='a')
-            tk.Label(f, image=app.img('champ', c, 1.1) or '', bg=bg).pack(anchor='w')
-            tk.Label(f, text=d.cn(c), bg=bg, fg=C['gold'] if i == 0 else C['fg'], font=(fn, fs(11), 'bold')).pack(anchor='w', pady=(4, 0))
-            tk.Label(f, text=f"место {s['avg']:.1f} · {s['n']} игр".replace('.', ','), bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w')
+            f = ui_skin.Frame(row, bg=bg, padx=fs(10), pady=fs(8)); f.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0)); row.columnconfigure(i, weight=1, uniform='a')
+            ui_skin.Label(f, image=app.img('champ', c, 1.1) or '', bg=bg).pack(anchor='w')
+            ui_skin.Label(f, text=d.cn(c), bg=bg, fg=C['gold'] if i == 0 else C['fg'], font=(fn, fs(11), 'bold')).pack(anchor='w', pady=(4, 0))
+            ui_skin.Label(f, text=f"место {s['avg']:.1f} · {s['n']} игр".replace('.', ','), bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w')
         head(self.cols[1], 'Последние игры Арены')
         for g in games[:8]:
-            r = tk.Frame(self.cols[1], bg=C['panel'], padx=fs(10), pady=fs(5)); r.pack(fill='x', pady=2)
-            tk.Label(r, text=str(g['place']), bg=C['panel'], fg=C['good'] if g['place'] <= 4 else C['bad'], font=(F['numb'], fs(14)), width=2).pack(side='left')
-            tk.Label(r, image=app.img('champ', g['c'], .8) or '', bg=C['panel']).pack(side='left', padx=6)
-            tk.Label(r, text=f"{d.cn(g['c'])} · {g['k']}/{g['d']}/{g['a']}" + (f" · с {d.cn(g['pc'])}" if g.get('pc') else ''), bg=C['panel'], fg=C['fg'], font=(fn, fs(10))).pack(side='left')
-        if not games: tk.Label(self.cols[1], text='Игр Арены в статистике пока нет', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', padx=4)
+            r = ui_skin.Frame(self.cols[1], bg=C['panel'], padx=fs(10), pady=fs(5)); r.pack(fill='x', pady=2)
+            ui_skin.Label(r, text=str(g['place']), bg=C['panel'], fg=C['good'] if g['place'] <= 4 else C['bad'], font=(F['numb'], fs(14)), width=2).pack(side='left')
+            ui_skin.Label(r, image=app.img('champ', g['c'], .8) or '', bg=C['panel']).pack(side='left', padx=6)
+            ui_skin.Label(r, text=f"{d.cn(g['c'])} · {g['k']}/{g['d']}/{g['a']}" + (f" · с {d.cn(g['pc'])}" if g.get('pc') else ''), bg=C['panel'], fg=C['fg'], font=(fn, fs(10))).pack(side='left')
+        if not games: ui_skin.Label(self.cols[1], text='Игр Арены в статистике пока нет', bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', padx=4)
 
     # --- экран загрузки: обе команды целиком (в драфте противники скрыты)
     def show_loading(self, ps):
@@ -1204,7 +1206,7 @@ class Dashboard(tk.Toplevel):
         self.sub.configure(text=' · '.join(sub) + ('\n' + '  '.join(plan) if plan else ''), fg=C['mute'])
         order = {x: i for i, x in enumerate(core.ROLES)}
         for col, t, c in ((0, 'Твоя команда', 'blue'), (1, 'Противники', 'red')):
-            tk.Label(self.cols[col], text=t.upper(), bg=C['bg'], fg=C[c], font=(fn, fs(9), 'bold'), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
+            ui_skin.Label(self.cols[col], text=t.upper(), bg=C['bg'], fg=C[c], font=(fn, fs(9), 'bold'), anchor='w').pack(fill='x', padx=4, pady=(0, 2))
             for p in sorted((p for p in ps if p['col'] == col), key=lambda p: order.get(p['pos'], 9)):
                 self.draft_card(col, p, {'role': role}, None)
 
@@ -1233,45 +1235,45 @@ class Dashboard(tk.Toplevel):
         """Над карточками: линия, вариант рун, импорт в клиент и автоимпорт."""
         app, fn, fs = self.app, F['font'], self.app.fs
         for w in self.bar.winfo_children(): w.destroy()
-        box = tk.Frame(self.bar, bg=C['deep'], padx=10, pady=8, highlightthickness=0); box.pack(fill='x')
-        row = tk.Frame(box, bg=C['deep']); row.pack(anchor='w', fill='x')
+        box = ui_skin.Frame(self.bar, bg=C['deep'], padx=10, pady=8, highlightthickness=0); box.pack(fill='x')
+        row = ui_skin.Frame(box, bg=C['deep']); row.pack(anchor='w', fill='x')
         def seg(parent, items, cur, cmd):
-            g = tk.Frame(parent, bg=C['panel'], highlightthickness=0, padx=2, pady=2); g.pack(side='left', padx=(0, 10))
+            g = ui_skin.Frame(parent, bg=C['panel'], highlightthickness=0, padx=2, pady=2); g.pack(side='left', padx=(0, 10))
             for val, t in items:
                 on = val == cur
-                b = tk.Label(g, text=t, bg=C['gold'] if on else C['panel'], fg=C['on_gold'] if on else C['mute'], font=(fn, fs(10), 'bold'),
+                b = ui_skin.Label(g, text=t, bg=C['gold'] if on else C['panel'], fg=C['on_gold'] if on else C['mute'], font=(fn, fs(10), 'bold'),
                              padx=fs(12), pady=fs(4), cursor='hand2')
                 b.pack(side='left', padx=1); b.bind('<Button-1>', lambda e, val=val: cmd(val))
         if role != 'ARAM':
             seg(row, [(rr, core.ROLE_RU[rr].capitalize()) for rr in core.ROLES], role, app.set_draft_role)
             seg(row, [('pick', 'Популярные руны'), ('win', 'Лучший винрейт')], app.s['rune_pick'], app.set_rune_pick)
-        else: tk.Label(row, text='ARAM: сборка и руны по всем рангам (lolalytics)', bg=C['deep'], fg=C['gold'], font=(fn, fs(10), 'bold')).pack(side='left', padx=(0, 10))
-        ttk.Button(row, text='Импортировать в клиент', style='A.TButton', command=app.do_import).pack(side='left')
-        row2 = tk.Frame(box, bg=C['deep']); row2.pack(anchor='w', fill='x', pady=(6, 0))
+        else: ui_skin.Label(row, text='ARAM: сборка и руны по всем рангам (lolalytics)', bg=C['deep'], fg=C['gold'], font=(fn, fs(10), 'bold')).pack(side='left', padx=(0, 10))
+        ui_skin.TtkButton(row, text='Импортировать в клиент', style='A.TButton', command=app.do_import).pack(side='left')
+        row2 = ui_skin.Frame(box, bg=C['deep']); row2.pack(anchor='w', fill='x', pady=(6, 0))
         auto_mode = tk.BooleanVar(value=app.s['auto_import'])
         def save_auto_mode():
             app.s['auto_import'] = auto_mode.get(); app.s.save()
             app.draft_sig = None
             if app.draft: app.on_draft(app.draft)
-        ttk.Checkbutton(row2, text='Автоэкспорт', variable=auto_mode, command=save_auto_mode, style='D.TCheckbutton').pack(side='left')
-        tk.Label(row2, text='Экспортировать:', bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack(side='left')
+        ui_skin.Checkbutton(row2, text='Автоэкспорт', variable=auto_mode, command=save_auto_mode, style='D.TCheckbutton').pack(side='left')
+        ui_skin.Label(row2, text='Экспортировать:', bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack(side='left')
         for key, t in (('runes', 'руны'), ('items', 'предметы'), ('spells', 'заклинания призывателя')):
-            ttk.Checkbutton(row2, text=t, variable=app.auto_vars[key], style='D.TCheckbutton',
+            ui_skin.Checkbutton(row2, text=t, variable=app.auto_vars[key], style='D.TCheckbutton',
                             command=lambda key=key: app.set_import_part(key)).pack(side='left', padx=(10, 0))
-        self.import_err = ttk.Button(row2, text='Скопировать ошибку для Claude', command=app.copy_report)
+        self.import_err = ui_skin.TtkButton(row2, text='Скопировать ошибку для Claude', command=app.copy_report)
         bad = 'не получилось' in app.import_text
         if bad: self.import_err.pack(side='right', padx=(8, 0))
-        self.import_lbl = tk.Label(row2, text=app.import_text, bg=C['deep'], fg=C['bad'] if bad else C['mute'], font=(fn, fs(10)), anchor='e')
+        self.import_lbl = ui_skin.Label(row2, text=app.import_text, bg=C['deep'], fg=C['bad'] if bad else C['mute'], font=(fn, fs(10)), anchor='e')
         self.import_lbl.pack(side='right')
 
     def matchup_card(self, me, r):
         """Середина драфта: ты против вероятного оппонента — винрейт по Европе, твой счёт и золото на 15."""
         app, d, fn, fs = self.app, self.app.data, F['font'], self.app.fs
         opp, role = r.get('opp'), r.get('role')
-        tk.Label(self.mid, text='ТВОЙ МАТЧАП', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
-        f = tk.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(12), highlightthickness=0); f.pack(fill='x', pady=3)
+        ui_skin.Label(self.mid, text='ТВОЙ МАТЧАП', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(6, 2))
+        f = ui_skin.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(12), highlightthickness=0); f.pack(fill='x', pady=3)
         if not me or not opp:
-            tk.Label(f, text=('Выбери чемпиона' if not me else 'Оппонент ещё не выбран') + ': здесь будет матчап по Европе и твой счёт.',
+            ui_skin.Label(f, text=('Выбери чемпиона' if not me else 'Оппонент ещё не выбран') + ': здесь будет матчап по Европе и твой счёт.',
                      bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(380), justify='left').pack(anchor='w')
             return
         wr = n = None
@@ -1280,29 +1282,29 @@ class Dashboard(tk.Toplevel):
         else:
             cnt = core.lola_counters(app.lola_fetch('counter', me, role), d) if role else {}
             if opp in cnt: wr, n = cnt[opp][0], cnt[opp][2]
-        top = tk.Frame(f, bg=C['panel']); top.pack(fill='x')
-        tk.Label(top, image=app.img('champ', me, 1.5) or '', bg=C['blue'], padx=2, pady=2).pack(side='left')
-        tk.Label(top, image=app.img('champ', opp, 1.5) or '', bg=C['red'], padx=2, pady=2).pack(side='right')
-        mid = tk.Frame(top, bg=C['panel']); mid.pack(side='left', fill='x', expand=True, padx=12)
-        tk.Label(mid, text=f'{wr:.1f}%' if wr is not None else '—', bg=C['panel'], fg=C['fg'], font=(F['num'], fs(24), 'bold')).pack()
-        bar = tk.Frame(mid, bg=C['red'], height=fs(8)); bar.pack(fill='x', pady=4)
-        if wr is not None: tk.Frame(bar, bg=C['blue']).place(relx=0, rely=0, relwidth=wr / 100, relheight=1)
+        top = ui_skin.Frame(f, bg=C['panel']); top.pack(fill='x')
+        ui_skin.Label(top, image=app.img('champ', me, 1.5) or '', bg=C['blue'], padx=2, pady=2).pack(side='left')
+        ui_skin.Label(top, image=app.img('champ', opp, 1.5) or '', bg=C['red'], padx=2, pady=2).pack(side='right')
+        mid = ui_skin.Frame(top, bg=C['panel']); mid.pack(side='left', fill='x', expand=True, padx=12)
+        ui_skin.Label(mid, text=f'{wr:.1f}%' if wr is not None else '—', bg=C['panel'], fg=C['fg'], font=(F['num'], fs(24), 'bold')).pack()
+        bar = ui_skin.Frame(mid, bg=C['red'], height=fs(8)); bar.pack(fill='x', pady=4)
+        if wr is not None: ui_skin.Frame(bar, bg=C['blue']).place(relx=0, rely=0, relwidth=wr / 100, relheight=1)
         verdict = '' if wr is None else 'сложный матчап' if wr < 48.5 else 'удобный матчап' if wr > 51.5 else 'ровный матчап'
-        tk.Label(mid, text=(f'{n:,} игр · {verdict}'.replace(',', ' ') if n else 'загружаю lolalytics…'), bg=C['panel'], fg=C['mute'], font=(fn, fs(9))).pack()
+        ui_skin.Label(mid, text=(f'{n:,} игр · {verdict}'.replace(',', ' ') if n else 'загружаю lolalytics…'), bg=C['panel'], fg=C['mute'], font=(fn, fs(9))).pack()
         pl = app.player
         v = pl.vs(me, opp) if pl else {'n': 0}
         if pl and not v['n']: v = pl.vs(None, opp)
-        stats = tk.Frame(f, bg=C['panel']); stats.pack(fill='x', pady=(10, 0))
+        stats = ui_skin.Frame(f, bg=C['panel']); stats.pack(fill='x', pady=(10, 0))
         for i in range(3): stats.columnconfigure(i, weight=1, uniform='s')
         cells = [('Твой счёт', f"{v['w']}–{v['n'] - v['w']}" if v['n'] else '—', 'fg'),
                  ('Золото на 15', f"{v['g15']:+.0f}" if v.get('g15') is not None else '—', 'good' if (v.get('g15') or 0) > 0 else 'bad' if (v.get('g15') or 0) < 0 else 'fg'),
                  ('Против него', 'ещё не встречались' if not v['n'] else ('ты сильнее' if v['w'] * 2 > v['n'] else 'ты слабее' if v['w'] * 2 < v['n'] else 'поровну'), 'mute')]
         for i, (t, val, c) in enumerate(cells):
-            cl = tk.Frame(stats, bg=C['deep'], padx=8, pady=6); cl.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0))
-            tk.Label(cl, text=t.upper(), bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack()
-            tk.Label(cl, text=val, bg=C['deep'], fg=C[c], font=(F['num'] if i < 2 else fn, fs(15) if i < 2 else fs(10), 'bold')).pack()
+            cl = ui_skin.Frame(stats, bg=C['deep'], padx=8, pady=6); cl.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 4, 0))
+            ui_skin.Label(cl, text=t.upper(), bg=C['deep'], fg=C['mute'], font=(fn, fs(8), 'bold')).pack()
+            ui_skin.Label(cl, text=val, bg=C['deep'], fg=C[c], font=(F['num'] if i < 2 else fn, fs(15) if i < 2 else fs(10), 'bold')).pack()
         tip = pl.matchup_tip(opp) if pl else None
-        if tip: tk.Label(f, text=tip, bg=C['panel'], fg=C['gold'], font=(fn, fs(9)), wraplength=fs(380), justify='left').pack(anchor='w', pady=(8, 0))
+        if tip: ui_skin.Label(f, text=tip, bg=C['panel'], fg=C['gold'], font=(fn, fs(9)), wraplength=fs(380), justify='left').pack(anchor='w', pady=(8, 0))
 
     def comp_card(self, cs, r, allies):
         """Состав команд: доля магического урона и фронтлайн у вас и у врагов, кого из пула взять под команду."""
@@ -1311,88 +1313,88 @@ class Dashboard(tk.Toplevel):
         theirs = [c for c in cs['enemies'] if c]
         if len(ours) + len(theirs) < 2: return
         dm = {c: (app.lola.get((c, a.get('pos'))) or {}).get('dmg') for a in allies for c in [a.get('c')] if c}
-        tk.Label(self.mid, text='СОСТАВ КОМАНД', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(12, 2))
-        f = tk.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(10), highlightthickness=0); f.pack(fill='x', pady=3)
+        ui_skin.Label(self.mid, text='СОСТАВ КОМАНД', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(12, 2))
+        f = ui_skin.Frame(self.mid, bg=C['panel'], padx=fs(14), pady=fs(10), highlightthickness=0); f.pack(fill='x', pady=3)
         for name, champs, col in (('Вы', ours, 'blue'), ('Враги', theirs, 'red')):
             tc = core.team_comp(d, champs, dm)
             if not tc['n']: continue
-            row = tk.Frame(f, bg=C['panel']); row.pack(fill='x', pady=2)
-            tk.Label(row, text=name, bg=C['panel'], fg=C[col], font=(fn, fs(10), 'bold'), width=7, anchor='w').pack(side='left')
+            row = ui_skin.Frame(f, bg=C['panel']); row.pack(fill='x', pady=2)
+            ui_skin.Label(row, text=name, bg=C['panel'], fg=C[col], font=(fn, fs(10), 'bold'), width=7, anchor='w').pack(side='left')
             ap = tc['ap'] or 0
-            bar = tk.Frame(row, bg=C['red2'], height=fs(10), width=fs(150)); bar.pack(side='left', padx=(0, 8)); bar.pack_propagate(False)
-            tk.Frame(bar, bg=C['blue2']).place(relx=0, rely=0, relwidth=ap, relheight=1)
+            bar = ui_skin.Frame(row, bg=C['red2'], height=fs(10), width=fs(150)); bar.pack(side='left', padx=(0, 8)); bar.pack_propagate(False)
+            ui_skin.Frame(bar, bg=C['blue2']).place(relx=0, rely=0, relwidth=ap, relheight=1)
             fr = tc['front']
-            tk.Label(row, text=f'AP {ap * 100:.0f}% · AD {100 - ap * 100:.0f}% · фронтлайн: {fr if fr else "нет"}', bg=C['panel'],
+            ui_skin.Label(row, text=f'AP {ap * 100:.0f}% · AD {100 - ap * 100:.0f}% · фронтлайн: {fr if fr else "нет"}', bg=C['panel'],
                      fg=C['fg'], font=(fn, fs(9))).pack(side='left')
         role = r.get('role')
         pool = (app.player.pool.get(role) if app.player else []) or []
         adv = core.comp_advice(d, [a['c'] for a in allies if a.get('c') and not a.get('me')], role, pool, dm)
         if adv:
             text, fit = adv
-            tk.Label(f, text=text + ('. Из пула подходят: ' + ', '.join(d.cn(c) for c in fit) if fit else '. В твоём пуле на эту роль подходящих нет'),
+            ui_skin.Label(f, text=text + ('. Из пула подходят: ' + ', '.join(d.cn(c) for c in fit) if fit else '. В твоём пуле на эту роль подходящих нет'),
                      bg=C['panel'], fg=C['gold'], font=(fn, fs(9)), wraplength=fs(380), justify='left').pack(anchor='w', pady=(6, 0))
-        tk.Label(f, text='Синим — магический урон. Оценка по Data Dragon, для чемпионов со сборкой — по урону на lolalytics.',
+        ui_skin.Label(f, text='Синим — магический урон. Оценка по Data Dragon, для чемпионов со сборкой — по урону на lolalytics.',
                  bg=C['panel'], fg=C['mute'], font=(fn, fs(8)), wraplength=fs(380), justify='left').pack(anchor='w', pady=(4, 0))
 
     def build_box(self, col, me, full, role):
         """Руны и сборки по Европе отдельным блоком в окне драфта (над «Кого взять»)."""
         app, d, fn, fs = self.app, self.app.data, F['font'], self.app.fs
         bg = C['panel']
-        tk.Label(col, text=f'РУНЫ И СБОРКА · {d.cn(me).upper()}', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(12, 2))
-        f = tk.Frame(col, bg=bg, padx=fs(14), pady=fs(10), highlightthickness=0); f.pack(fill='x', pady=3)
+        ui_skin.Label(col, text=f'РУНЫ И СБОРКА · {d.cn(me).upper()}', bg=C['bg'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', padx=4, pady=(12, 2))
+        f = ui_skin.Frame(col, bg=bg, padx=fs(14), pady=fs(10), highlightthickness=0); f.pack(fill='x', pady=3)
         p = {'c': me}
         r = {'role': role}
         eu = full.get(app.s['rune_pick']) or full if full else None
-        box = tk.Frame(f, bg=bg); box.pack(anchor='w', pady=(3, 0))
+        box = ui_skin.Frame(f, bg=bg); box.pack(anchor='w', pady=(3, 0))
         if eu:
-            row = tk.Frame(box, bg=bg); row.pack(anchor='w')
-            tk.Label(row, text='Руны', bg=bg, fg=C['fg'],
+            row = ui_skin.Frame(box, bg=bg); row.pack(anchor='w')
+            ui_skin.Label(row, text='Руны', bg=bg, fg=C['fg'],
                      font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
             for sp in eu.get('spells', [])[:2]:
                 i2 = app.img('spell', sp, .6)
-                if i2: tk.Label(row, image=i2, bg=bg).pack(side='left', padx=1)
-            tk.Label(row, text=' ', bg=bg).pack(side='left')
+                if i2: ui_skin.Label(row, image=i2, bg=bg).pack(side='left', padx=1)
+            ui_skin.Label(row, text=' ', bg=bg).pack(side='left')
             for i, rid in enumerate([eu['prim']] + eu['perks'][:4] + [eu['sec']] + eu['perks'][4:]):
                 i2 = app.img('rune', rid, .9 if i == 1 else .6)
-                if i2: tk.Label(row, image=i2, bg=bg).pack(side='left', padx=1)
+                if i2: ui_skin.Label(row, image=i2, bg=bg).pack(side='left', padx=1)
             for key, title in (('pick', 'Популярная'), ('win', 'Лучший винрейт')):
                 v = full.get(key)
                 if not v or (key == 'win' and v is full.get('pick')): continue
-                row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
-                tk.Label(row, text=title, bg=bg, fg=C['fg'], font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
+                row = ui_skin.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
+                ui_skin.Label(row, text=title, bg=bg, fg=C['fg'], font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
                 for it in v['start'] + [None] + core.lola_build_items(v):
-                    if it is None: tk.Label(row, text=' › ', bg=bg, fg=C['mute']).pack(side='left'); continue
+                    if it is None: ui_skin.Label(row, text=' › ', bg=bg, fg=C['mute']).pack(side='left'); continue
                     i2 = app.img('item', it, .6)
-                    tk.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
+                    ui_skin.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
                 if v.get('n_core') and v.get('wr_core'):
-                    tk.Label(row, text=f"  {v['wr_core']:.0f}% · {v['n_core']} игр", bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(side='left')
+                    ui_skin.Label(row, text=f"  {v['wr_core']:.0f}% · {v['n_core']} игр", bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(side='left')
             if not full.get('pick'):   # старый формат со страницы сборки
-                row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
+                row = ui_skin.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
                 for it in eu['start'] + [None] + core.lola_build_items(eu):
-                    if it is None: tk.Label(row, text=' › ', bg=bg, fg=C['mute']).pack(side='left'); continue
+                    if it is None: ui_skin.Label(row, text=' › ', bg=bg, fg=C['mute']).pack(side='left'); continue
                     i2 = app.img('item', it, .6)
-                    tk.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
+                    ui_skin.Label(row, image=i2 or '', text='' if i2 else d.iname(it), bg=bg, fg=C['fg']).pack(side='left', padx=1)
             if eu.get('skills'):   # порядок прокачки умений
-                row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(4, 0))
-                tk.Label(row, text='Умения', bg=bg, fg=C['fg'], font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
+                row = ui_skin.Frame(box, bg=bg); row.pack(anchor='w', pady=(4, 0))
+                ui_skin.Label(row, text='Умения', bg=bg, fg=C['fg'], font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
                 if eu.get('skill_prio'):
-                    tk.Label(row, text=' › '.join(eu['skill_prio']), bg=bg, fg=C['gold'], font=(F['num'], fs(12), 'bold')).pack(side='left', padx=(0, 10))
+                    ui_skin.Label(row, text=' › '.join(eu['skill_prio']), bg=bg, fg=C['gold'], font=(F['num'], fs(12), 'bold')).pack(side='left', padx=(0, 10))
                 for i, k in enumerate(eu['skills'][:15]):
-                    tk.Label(row, text=k, bg=C['gold'] if k == 'R' else C['deep'], fg=C['on_gold'] if k == 'R' else C['fg'] if i < 3 else C['mute'],
+                    ui_skin.Label(row, text=k, bg=C['gold'] if k == 'R' else C['deep'], fg=C['on_gold'] if k == 'R' else C['fg'] if i < 3 else C['mute'],
                              font=(F['num'], fs(9), 'bold'), width=2).pack(side='left', padx=1)
             situ = full.get('situ') or []
             for k0 in range(0, min(6, len(situ)), 2):   # по два в строку, чтобы не вылезать за карточку
-                row = tk.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
-                tk.Label(row, text='Ситуативно' if not k0 else '', bg=bg, fg=C['fg'], font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
+                row = ui_skin.Frame(box, bg=bg); row.pack(anchor='w', pady=(3, 0))
+                ui_skin.Label(row, text='Ситуативно' if not k0 else '', bg=bg, fg=C['fg'], font=(fn, fs(9), 'bold'), width=13, anchor='w').pack(side='left')
                 for it, short, _ in situ[k0:k0 + 2]:
-                    tk.Label(row, image=app.img('item', it, .6) or '', text=' ' + short, compound='left', bg=bg, fg=C['fg'],
+                    ui_skin.Label(row, image=app.img('item', it, .6) or '', text=' ' + short, compound='left', bg=bg, fg=C['fg'],
                              font=(fn, fs(9))).pack(side='left', padx=(0, 6))
             where = 'ARAM, все ранги' if role == 'ARAM' else 'Европа, Изумруд+'
-            tk.Label(box, text=f"{where}: {full['games']} игр на чемпионе" if full.get('games') else where,
+            ui_skin.Label(box, text=f"{where}: {full['games']} игр на чемпионе" if full.get('games') else where,
                      bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w')
         else:
             st = app.lola_state.get((p['c'], r.get('role')))
-            tk.Label(box, text=('Сборка ARAM: ' if role == 'ARAM' else 'Сборка по Европе: ') + ('не удалось загрузить lolalytics' if st == 'fail' else 'загружаю…'),
+            ui_skin.Label(box, text=('Сборка ARAM: ' if role == 'ARAM' else 'Сборка по Европе: ') + ('не удалось загрузить lolalytics' if st == 'fail' else 'загружаю…'),
                      bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w')
 
     def chips(self, parent, items, bg, maxw=44):
@@ -1400,10 +1402,10 @@ class Dashboard(tk.Toplevel):
         fn, fs = F['font'], self.app.fs
         row, used, previous_kind = None, maxw, None
         for text, kind in sorted(items, key=lambda item: {'g':0,'y':1,'r':2}.get(item[1],3)):
-            if kind != previous_kind or used + len(text) > maxw: row = tk.Frame(parent, bg=bg); row.pack(anchor='w', pady=(4, 0)); used = 0
+            if kind != previous_kind or used + len(text) > maxw: row = ui_skin.Frame(parent, bg=bg); row.pack(anchor='w', pady=(4, 0)); used = 0
             colours = player_comments.palette(C['dark'])
             cbg, cfg = {key:colours[tone] for key,tone in (('g','good'),('r','bad'),('y','neutral'))}.get(kind, (C['raise'], C['fg']))
-            tk.Label(row, text=text, bg=cbg, fg=cfg, font=(fn, fs(9), 'bold'), padx=8, pady=2, wraplength=fs(330), justify='left').pack(side='left', padx=(0, 6))
+            ui_skin.Label(row, text=text, bg=cbg, fg=cfg, font=(fn, fs(9), 'bold'), padx=8, pady=2, wraplength=fs(330), justify='left').pack(side='left', padx=(0, 6))
             used += len(text) + 3
             previous_kind = kind
 
@@ -1413,22 +1415,22 @@ class Dashboard(tk.Toplevel):
         empty = not p.get('c')
         bg = C['deep'] if empty else C['raise'] if p.get('me') else C['panel']
         opp = col == 1 and p.get('c') and app.player and p.get('pos') == r.get('role')
-        f = tk.Frame(self.cols[col], bg=bg, padx=fs(12), pady=fs(10), highlightthickness=0)
+        f = ui_skin.Frame(self.cols[col], bg=bg, padx=fs(12), pady=fs(10), highlightthickness=0)
         f.pack(fill='x', pady=4)
-        if p.get('me') or opp: tk.Frame(f, bg=C['gold'] if p.get('me') else C['red']).place(x=-fs(12), rely=.08, relheight=.84, width=3)
-        left = tk.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=3, padx=(0, 10), sticky='n')
+        if p.get('me') or opp: ui_skin.Frame(f, bg=C['gold'] if p.get('me') else C['red']).place(x=-fs(12), rely=.08, relheight=.84, width=3)
+        left = ui_skin.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=3, padx=(0, 10), sticky='n')
         im = app.img('champ', p['c'], 1.5) if p.get('c') else None
-        tk.Label(left, image=im or '', text='' if im else '?', bg=bg if im else C['raise'], fg=C['mute'], font=(fn, fs(20)), width=0 if im else 3).pack()
-        sp = tk.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
+        ui_skin.Label(left, image=im or '', text='' if im else '?', bg=bg if im else C['raise'], fg=C['mute'], font=(fn, fs(20)), width=0 if im else 3).pack()
+        sp = ui_skin.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
         if eu: eu = eu.get(app.s['rune_pick']) or eu   # руны и заклинания выбранного варианта
         if eu:
             for s in eu['spells'][:2]:
                 i2 = app.img('spell', s, .55)
-                if i2: tk.Label(sp, image=i2, bg=bg).pack(pady=1)
+                if i2: ui_skin.Label(sp, image=i2, bg=bg).pack(pady=1)
             i2 = app.img('rune', eu['perks'][0], .55)
-            if i2: tk.Label(sp, image=i2, bg=bg).pack(pady=1)
+            if i2: ui_skin.Label(sp, image=i2, bg=bg).pack(pady=1)
         name = d.cn(p['c']) if p.get('c') else ('выбирает…' if p else 'ещё не выбран')
-        tk.Label(f, text=name + ('  · ты' if p.get('me') else ''), bg=bg, anchor='w',
+        ui_skin.Label(f, text=name + ('  · ты' if p.get('me') else ''), bg=bg, anchor='w',
                  fg=C['mute'] if empty else C['blue2'] if col == 0 else C['red2'], font=(fn, fs(13), 'bold')).grid(row=0, column=2, sticky='w')
         summary, tags = hist_tags(p.get('hist'))
         line = core.ROLE_RU[p['pos']] if p.get('pos') else 'роль неизвестна'
@@ -1437,21 +1439,21 @@ class Dashboard(tk.Toplevel):
             tags.insert(0, ('Твой оппонент', 'y'))
             line += f" · ты {v['w']}–{v['n'] - v['w']} против него" if v['n'] else ' · ещё не встречались'
         elif summary: line += ' · ' + summary
-        tk.Label(f, text=line, bg=bg, anchor='w', fg=C['mute'], font=(fn, fs(10))).grid(row=1, column=2, sticky='w')
+        ui_skin.Label(f, text=line, bg=bg, anchor='w', fg=C['mute'], font=(fn, fs(10))).grid(row=1, column=2, sticky='w')
         if p.get('rank') and app.s['show']['ranks']:
-            tk.Label(f, image=app.img('emb', TIER_RU.get(p['rank']['tier']), 1.1) or '', text=rank_short(p['rank']), bg=bg, fg=C['mute'],
+            ui_skin.Label(f, image=app.img('emb', TIER_RU.get(p['rank']['tier']), 1.1) or '', text=rank_short(p['rank']), bg=bg, fg=C['mute'],
                      font=(fn, fs(9)), compound='top', justify='center').grid(row=0, column=3, rowspan=3, sticky='ne', padx=(8, 0))
-        chars = tk.Frame(f, bg=bg); chars.grid(row=3, column=0, columnspan=4, sticky='we', pady=(2, 0))
+        chars = ui_skin.Frame(f, bg=bg); chars.grid(row=3, column=0, columnspan=4, sticky='we', pady=(2, 0))
         if tags: self.chips(chars, tags, bg)
         for text, c in extra or []:
             if isinstance(c, str):
-                tk.Label(chars, text=text, bg=bg, fg=C[c], font=(fn, fs(10)), anchor='w', justify='left', wraplength=fs(520)).pack(anchor='w', pady=(4, 0)); continue
-            tk.Label(chars, text=text.upper(), bg=bg, fg=C['mute'], font=(fn, fs(8), 'bold')).pack(anchor='w', pady=(6, 0))
+                ui_skin.Label(chars, text=text, bg=bg, fg=C[c], font=(fn, fs(10)), anchor='w', justify='left', wraplength=fs(520)).pack(anchor='w', pady=(4, 0)); continue
+            ui_skin.Label(chars, text=text.upper(), bg=bg, fg=C['mute'], font=(fn, fs(8), 'bold')).pack(anchor='w', pady=(6, 0))
             for k in range(0, len(c), 2):   # чемпионы с иконками по два в строку: контрпики, синергия
-                row = tk.Frame(chars, bg=bg); row.pack(anchor='w', pady=(2, 0))
+                row = ui_skin.Frame(chars, bg=bg); row.pack(anchor='w', pady=(2, 0))
                 for ch, val, col_ in c[k:k + 2]:
                     col_ = {'blue': 'good2', 'good': 'good2', 'bad': 'bad2'}.get(col_, col_)
-                    tk.Label(row, text=f' {d.cn(ch)} {val}', image=app.img('champ', ch, .6) or '', compound='left', bg=bg, fg=C[col_],
+                    ui_skin.Label(row, text=f' {d.cn(ch)} {val}', image=app.img('champ', ch, .6) or '', compound='left', bg=bg, fg=C[col_],
                              font=(fn, fs(9), 'bold')).pack(side='left', padx=(0, 10))
         f.columnconfigure(2, weight=1)
         if p.get('pu'): self.hist_toggle(f, p['pu'], 5, [left])
@@ -1459,9 +1461,9 @@ class Dashboard(tk.Toplevel):
     def hist_toggle(self, f, pu, row, click):
         """Строка «▸ История игр»: клик по ней или по портрету раскрывает последние игры игрока."""
         app, fn, fs, bg = self.app, F['font'], self.app.fs, C['panel']
-        lbl = tk.Label(f, bg=bg, fg=C['gold'], font=(fn, fs(9)), cursor='hand2', anchor='w')
+        lbl = ui_skin.Label(f, bg=bg, fg=C['gold'], font=(fn, fs(9)), cursor='hand2', anchor='w')
         lbl.grid(row=row, column=0, columnspan=4, sticky='w', pady=(3, 0))
-        box = tk.Frame(f, bg=bg)
+        box = ui_skin.Frame(f, bg=bg)
         def draw():
             for c in box.winfo_children(): c.destroy()
             on = pu in app.hist_exp
@@ -1479,20 +1481,20 @@ class Dashboard(tk.Toplevel):
         app, d, fn, fs, bg = self.app, self.app.data, F['font'], self.app.fs, C['panel']
         hist = (getattr(app, 'hraw', {}) or {}).get(pu)
         if not hist:
-            tk.Label(box, text='клиент не отдал историю игр', bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w'); return
+            ui_skin.Label(box, text='клиент не отдал историю игр', bg=bg, fg=C['mute'], font=(fn, fs(9))).pack(anchor='w'); return
         for h in hist[:n]:
             c = d.ids.get(str(h['champ']))
-            r = tk.Frame(box, bg=C['deep'], padx=6, pady=1, cursor='hand2')
+            r = ui_skin.Frame(box, bg=C['deep'], padx=6, pady=1, cursor='hand2')
             r.pack(fill='x', pady=1)
-            tk.Frame(r, bg=C['good'] if h['win'] else C['bad']).place(x=0, rely=.2, relheight=.6, width=3)   # полоска победы/поражения
+            ui_skin.Frame(r, bg=C['good'] if h['win'] else C['bad']).place(x=0, rely=.2, relheight=.6, width=3)   # полоска победы/поражения
             mins = max(1, h.get('dur', 0) / 60)
             pos = core.lcu_pos({'timeline': {'lane': h.get('lane'), 'role': h.get('role')}})
-            ws = [tk.Label(r, image=app.img('champ', c, .55) or '', text='' if c else '?', bg=C['deep']),
-                  tk.Label(r, text='П' if h['win'] else 'Пр', width=3, bg=C['deep'], fg=C['good' if h['win'] else 'bad'], font=(fn, fs(9), 'bold')),
-                  tk.Label(r, text=(d.cn(c) if c else '?') + (f" · {core.ROLE_RU[pos]}" if pos else ''), width=15, anchor='w', bg=C['deep'], fg=C['fg'], font=(fn, fs(9))),
-                  tk.Label(r, text=f"{h['k']}/{h['d']}/{h['a']}", width=8, anchor='w', bg=C['deep'], fg=C['fg'], font=(fn, fs(9), 'bold')),
-                  tk.Label(r, text=f"{h.get('cs', 0)} CS ({h.get('cs', 0) / mins:.1f}) · {core.mmss(h.get('dur', 0))}", width=17, anchor='w', bg=C['deep'], fg=C['mute'], font=(fn, fs(9))),
-                  tk.Label(r, text=time.strftime('%d.%m', time.localtime(h['t'] / 1000)) if h.get('t') else '',
+            ws = [ui_skin.Label(r, image=app.img('champ', c, .55) or '', text='' if c else '?', bg=C['deep']),
+                  ui_skin.Label(r, text='П' if h['win'] else 'Пр', width=3, bg=C['deep'], fg=C['good' if h['win'] else 'bad'], font=(fn, fs(9), 'bold')),
+                  ui_skin.Label(r, text=(d.cn(c) if c else '?') + (f" · {core.ROLE_RU[pos]}" if pos else ''), width=15, anchor='w', bg=C['deep'], fg=C['fg'], font=(fn, fs(9))),
+                  ui_skin.Label(r, text=f"{h['k']}/{h['d']}/{h['a']}", width=8, anchor='w', bg=C['deep'], fg=C['fg'], font=(fn, fs(9), 'bold')),
+                  ui_skin.Label(r, text=f"{h.get('cs', 0)} CS ({h.get('cs', 0) / mins:.1f}) · {core.mmss(h.get('dur', 0))}", width=17, anchor='w', bg=C['deep'], fg=C['mute'], font=(fn, fs(9))),
+                  ui_skin.Label(r, text=time.strftime('%d.%m', time.localtime(h['t'] / 1000)) if h.get('t') else '',
                            anchor='w', bg=C['deep'], fg=C['mute'], font=(fn, fs(9)))]
             for w in ws: w.pack(side='left', padx=2)
             for w in [r] + ws: w.bind('<Button-1>', lambda e, h=h: app.hist_open(h, None, pu))
@@ -1509,9 +1511,9 @@ class Dashboard(tk.Toplevel):
         for n, t in items:
             soon = t <= 60
             bg = C['raise'] if soon else C['panel']
-            f = tk.Frame(self.objs, bg=bg, padx=12, pady=4); f.pack(side='left', padx=(8, 0))
-            tk.Label(f, text=n.upper(), bg=bg, fg=C['mute'], font=(F['num'], fs(9))).pack()
-            tk.Label(f, text=core.mmss(t), bg=bg, fg=C['gold'] if soon else C['fg'], font=(F['numb'], fs(15))).pack()
+            f = ui_skin.Frame(self.objs, bg=bg, padx=12, pady=4); f.pack(side='left', padx=(8, 0))
+            ui_skin.Label(f, text=n.upper(), bg=bg, fg=C['mute'], font=(F['num'], fs(9))).pack()
+            ui_skin.Label(f, text=core.mmss(t), bg=bg, fg=C['gold'] if soon else C['fg'], font=(F['numb'], fs(15))).pack()
 
     def show_lanes(self, g):
         rows = []
@@ -1524,17 +1526,17 @@ class Dashboard(tk.Toplevel):
         self._lanes_sig = sig
         fn, fs, box = F['font'], self.app.fs, self.lanes
         for w in box.winfo_children(): w.destroy()
-        tk.Label(box, text='ЗОЛОТО ПО ЛИНИЯМ', bg=C['panel'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', pady=(0, 4))
+        ui_skin.Label(box, text='ЗОЛОТО ПО ЛИНИЯМ', bg=C['panel'], fg=C['gold'], font=(F['head'], fs(12)), anchor='w').pack(fill='x', pady=(0, 4))
         for r, v in rows:
-            row = tk.Frame(box, bg=C['panel']); row.pack(fill='x', pady=3)
+            row = ui_skin.Frame(box, bg=C['panel']); row.pack(fill='x', pady=3)
             ri = self.app.role_img(r, .45)
-            if ri: tk.Label(row, image=ri, bg=C['panel']).pack(side='left', padx=(0, 6))
-            tk.Label(row, text=core.ROLE_RU[r].capitalize(), bg=C['panel'], fg=C['fg'], font=(fn, fs(10)), width=7, anchor='w').pack(side='left')
-            tk.Label(row, text=f'{v:+,.0f}'.replace(',', ' '), bg=C['panel'], fg=C['blue2'] if v > 0 else C['red2'] if v < 0 else C['mute'],
+            if ri: ui_skin.Label(row, image=ri, bg=C['panel']).pack(side='left', padx=(0, 6))
+            ui_skin.Label(row, text=core.ROLE_RU[r].capitalize(), bg=C['panel'], fg=C['fg'], font=(fn, fs(10)), width=7, anchor='w').pack(side='left')
+            ui_skin.Label(row, text=f'{v:+,.0f}'.replace(',', ' '), bg=C['panel'], fg=C['blue2'] if v > 0 else C['red2'] if v < 0 else C['mute'],
                      font=(F['num'], fs(11)), width=7, anchor='e').pack(side='right')
-            tr = tk.Frame(row, bg=C['line'], height=fs(7)); tr.pack(side='left', fill='x', expand=True, padx=6)
+            tr = ui_skin.Frame(row, bg=C['line'], height=fs(7)); tr.pack(side='left', fill='x', expand=True, padx=6)
             k = min(.5, abs(v) / 4000 * .5)
-            if k > .005: tk.Frame(tr, bg=C['blue'] if v > 0 else C['red']).place(relx=.5 if v > 0 else .5 - k, rely=0, relwidth=k, relheight=1)
+            if k > .005: ui_skin.Frame(tr, bg=C['blue'] if v > 0 else C['red']).place(relx=.5 if v > 0 else .5 - k, rely=0, relwidth=k, relheight=1)
 
     # --- игра
     def card(self, col, p):
@@ -1542,21 +1544,21 @@ class Dashboard(tk.Toplevel):
         if key in self.cards: return self.cards[key]
         app, fn, fs = self.app, F['font'], self.app.fs
         bg = C['panel']
-        f = tk.Frame(self.cols[col], bg=bg, padx=self.app.fs(12), pady=self.app.fs(8), highlightthickness=0)
+        f = ui_skin.Frame(self.cols[col], bg=bg, padx=self.app.fs(12), pady=self.app.fs(8), highlightthickness=0)
         f.pack(fill='x', pady=3)
         w = {'f': f}
-        left = tk.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=4, padx=(0, 8), sticky='n')
-        w['por'] = tk.Label(left, bg=bg, fg=C['fg'], font=(fn, fs(10), 'bold'), compound='top'); w['por'].pack()
-        w['chars'] = tk.Frame(f, bg=bg); w['chars'].grid(row=4, column=0, columnspan=4, sticky='we', pady=(4, 0))
-        sp = tk.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
-        w['sp'] = [tk.Label(sp, bg=bg) for _ in range(3)]
+        left = ui_skin.Frame(f, bg=bg); left.grid(row=0, column=0, rowspan=4, padx=(0, 8), sticky='n')
+        w['por'] = ui_skin.Label(left, bg=bg, fg=C['fg'], font=(fn, fs(10), 'bold'), compound='top'); w['por'].pack()
+        w['chars'] = ui_skin.Frame(f, bg=bg); w['chars'].grid(row=4, column=0, columnspan=4, sticky='we', pady=(4, 0))
+        sp = ui_skin.Frame(f, bg=bg); sp.grid(row=0, column=1, rowspan=3, sticky='n', padx=(0, 8))
+        w['sp'] = [ui_skin.Label(sp, bg=bg) for _ in range(3)]
         for l in w['sp']: l.pack(pady=1)
-        w['name'] = tk.Label(f, bg=bg, anchor='w', font=(fn, fs(13), 'bold')); w['name'].grid(row=0, column=2, sticky='w')
-        w['line'] = tk.Label(f, bg=bg, anchor='w', fg=C['fg'], font=(fn, fs(10))); w['line'].grid(row=1, column=2, sticky='w')
-        w['items'] = tk.Frame(f, bg=bg); w['items'].grid(row=2, column=2, sticky='w', pady=(3, 0))
-        w['rank'] = tk.Label(f, bg=bg, fg=C['mute'], font=(fn, fs(9)), compound='top', justify='center')
+        w['name'] = ui_skin.Label(f, bg=bg, anchor='w', font=(fn, fs(13), 'bold')); w['name'].grid(row=0, column=2, sticky='w')
+        w['line'] = ui_skin.Label(f, bg=bg, anchor='w', fg=C['fg'], font=(fn, fs(10))); w['line'].grid(row=1, column=2, sticky='w')
+        w['items'] = ui_skin.Frame(f, bg=bg); w['items'].grid(row=2, column=2, sticky='w', pady=(3, 0))
+        w['rank'] = ui_skin.Label(f, bg=bg, fg=C['mute'], font=(fn, fs(9)), compound='top', justify='center')
         w['rank'].grid(row=0, column=3, rowspan=3, sticky='ne', padx=(8, 0))
-        w['scout'] = tk.Label(f, bg=bg, fg=C['mute'], font=(fn, fs(9)), anchor='w', justify='left'); w['scout'].grid(row=3, column=1, columnspan=3, sticky='w')
+        w['scout'] = ui_skin.Label(f, bg=bg, fg=C['mute'], font=(fn, fs(9)), anchor='w', justify='left'); w['scout'].grid(row=3, column=1, columnspan=3, sticky='w')
         f.columnconfigure(2, weight=1)
         w['sig'] = w['csig'] = None
         w['hist'] = None
@@ -1576,7 +1578,7 @@ class Dashboard(tk.Toplevel):
         for col, team in enumerate((g.allies, g.enemies)):
             for p in sorted(team, key=lambda p: order.get(p['pos'], 9)):
                 w = self.card(col, p)
-                if p is g.me and not w.get('strip'): w['strip'] = tk.Frame(w['f'], bg=C['gold']); w['strip'].place(x=-app.fs(12), rely=.08, relheight=.84, width=3)
+                if p is g.me and not w.get('strip'): w['strip'] = ui_skin.Frame(w['f'], bg=C['gold']); w['strip'].place(x=-app.fs(12), rely=.08, relheight=.84, width=3)
                 big = app.img('champ', p['c'], 1.6, gray=p['dead']) if sh['portraits'] else None
                 w['por'].configure(image=big or '', text=f"{p['lvl']} ур.")
                 rk, h = ranks.get(p['riot']), hists.get(p['riot'])
@@ -1585,7 +1587,7 @@ class Dashboard(tk.Toplevel):
                     w['csig'] = csig
                     for c in w['chars'].winfo_children(): c.destroy()
                     summary, tags = hist_tags(h)
-                    if summary: tk.Label(w['chars'], text=summary, bg=C['panel'], fg=C['mute'], font=(F['font'], app.fs(9)), anchor='w').pack(anchor='w')
+                    if summary: ui_skin.Label(w['chars'], text=summary, bg=C['panel'], fg=C['mute'], font=(F['font'], app.fs(9)), anchor='w').pack(anchor='w')
                     if tags: self.chips(w['chars'], [(text, {'good':'g','neutral':'y','bad':'r'}[tone]) for _,text,tone in player_comments.preview(h)], C['panel'], 70)
                 sps = (p['spells'] if sh['spells'] else [])[:2]
                 imgs = [app.img('spell', s, .6) for s in sps] + ([app.img('rune', p['keystone'], .6)] if sh['runes'] else [])
@@ -1600,10 +1602,10 @@ class Dashboard(tk.Toplevel):
                     if sh['items']:
                         for i in p['items']:
                             im = app.img('item', i, .75)
-                            if im: tk.Label(w['items'], image=im, bg=C['panel']).pack(side='left', padx=1)
+                            if im: ui_skin.Label(w['items'], image=im, bg=C['panel']).pack(side='left', padx=1)
                     else:
                         its = [d.iname(i) for i in p['items'] if d.items.get(str(i), {}).get('g', 0) >= 900]
-                        tk.Label(w['items'], text=', '.join(its) or 'без крупных предметов', bg=C['panel'], fg=C['mute'],
+                        ui_skin.Label(w['items'], text=', '.join(its) or 'без крупных предметов', bg=C['panel'], fg=C['mute'],
                                  font=(F['font'], app.fs(9))).pack(side='left')
                 if sh['ranks'] and rk:
                     w['rank'].configure(image=app.img('emb', TIER_RU.get(rk['tier']), 1.3) or '', text=rank_short(rk))
@@ -1654,17 +1656,17 @@ def show_arena_post(app, res):
     st = core.arena_stats(app.arena_games()) or {}
     w = tk.Toplevel(app.root); w.title('LoL Helper — итог Арены'); w.configure(bg=C['bg'], padx=18, pady=14); w.attributes('-topmost', True)
     pl = res.get('place') or 0
-    tk.Label(w, text=f"  {pl}-е место · {d.cn(c)}" + (f" с {d.cn(d.ids.get(str(res['mate'])))}" if res.get('mate') else ''), image=app.img('champ', c, 1.4) or '',
+    ui_skin.Label(w, text=f"  {pl}-е место · {d.cn(c)}" + (f" с {d.cn(d.ids.get(str(res['mate'])))}" if res.get('mate') else ''), image=app.img('champ', c, 1.4) or '',
              compound='left', bg=C['bg'], fg=C['good'] if pl and pl <= 4 else C['bad'], font=(F['head'], fs(18))).pack(anchor='w', pady=(0, 10))
     rows = [('Место', f'{pl}', f"обычно {st['avg']:.1f}".replace('.', ',') if st else '', bool(st) and pl <= st['avg']),
             ('Урон по чемпионам', f"{res['dmg']:,}".replace(',', ' '), f"обычно {st['dmg']:,.0f}".replace(',', ' ') if st else '', bool(st) and res['dmg'] >= st['dmg']),
             ('Счёт', f"{res['k']}/{res['d']}/{res['a']}", '', None)]
     for name, v, norm, good in rows:
-        r = tk.Frame(w, bg=C['panel'], padx=12, pady=6); r.pack(fill='x', pady=2)
-        tk.Label(r, text=name, bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), width=18, anchor='w').pack(side='left')
-        tk.Label(r, text=v, bg=C['panel'], fg=C['fg'] if good is None else C['good'] if good else C['warn'], font=(F['numb'], fs(15))).pack(side='left')
-        if norm: tk.Label(r, text=norm, bg=C['panel'], fg=C['mute'], font=(fn, fs(10))).pack(side='right')
-    ttk.Button(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(10, 0))
+        r = ui_skin.Frame(w, bg=C['panel'], padx=12, pady=6); r.pack(fill='x', pady=2)
+        ui_skin.Label(r, text=name, bg=C['panel'], fg=C['mute'], font=(fn, fs(10)), width=18, anchor='w').pack(side='left')
+        ui_skin.Label(r, text=v, bg=C['panel'], fg=C['fg'] if good is None else C['good'] if good else C['warn'], font=(F['numb'], fs(15))).pack(side='left')
+        if norm: ui_skin.Label(r, text=norm, bg=C['panel'], fg=C['mute'], font=(fn, fs(10))).pack(side='right')
+    ui_skin.TtkButton(w, text='Закрыть', command=w.destroy).pack(anchor='e', pady=(10, 0))
 
 
 def show_postgame(app, res, result):
@@ -1672,12 +1674,12 @@ def show_postgame(app, res, result):
     w.attributes('-topmost', True)
     fs, fn = app.fs, F['font']
     head = {'Win': 'Победа', 'Lose': 'Поражение'}.get(result, 'Игра окончена')
-    tk.Label(w, text=f"  {head} · {app.data.cn(res['me']['c'])} · {res['min']:.0f} мин", bg=C['bg'],
+    ui_skin.Label(w, text=f"  {head} · {app.data.cn(res['me']['c'])} · {res['min']:.0f} мин", bg=C['bg'],
              fg=C['good'] if result == 'Win' else C['bad'] if result == 'Lose' else C['gold'], font=(fn, fs(16), 'bold'),
              image=app.img('champ', res['me']['c'], 1.4) or '', compound='left').pack(anchor='w', pady=(0, 8))
-    body = tk.Frame(w, bg=C['bg']); body.pack(fill='x')
-    left = tk.Frame(body, bg=C['bg']); left.pack(side='left', anchor='n')
-    right = tk.Frame(body, bg=C['bg']); right.pack(side='left', anchor='n', padx=(18, 0))
+    body = ui_skin.Frame(w, bg=C['bg']); body.pack(fill='x')
+    left = ui_skin.Frame(body, bg=C['bg']); left.pack(side='left', anchor='n')
+    right = ui_skin.Frame(body, bg=C['bg']); right.pack(side='left', anchor='n', padx=(18, 0))
     rows = []   # строки появляются по очереди
     norm = res.get('norm') or {}
     for name, v, th, ok, dec in res['goals']:
@@ -1686,25 +1688,25 @@ def show_postgame(app, res, result):
         if nv is not None:   # стрелка: лучше или хуже, чем обычно у тебя на этом чемпионе
             better = v > nv if name in core.MORE else v < nv
             cmp = f"   {'▲' if better else '▼' if abs(v - nv) > 1e-9 else '='} обычно {nv:.{max(dec, 1) if dec else 1}f}"
-        r = tk.Frame(left, bg=C['bg'])
-        tk.Label(r, text=f"{'✓' if ok else '✗'}  {name}: {v:.{dec}f} (цель {th})", bg=C['bg'], fg=C['good' if ok else 'bad'],
+        r = ui_skin.Frame(left, bg=C['bg'])
+        ui_skin.Label(r, text=f"{'✓' if ok else '✗'}  {name}: {v:.{dec}f} (цель {th})", bg=C['bg'], fg=C['good' if ok else 'bad'],
                  font=(fn, fs(12))).pack(side='left')
-        if cmp: tk.Label(r, text=cmp, bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(side='left')
+        if cmp: ui_skin.Label(r, text=cmp, bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(side='left')
         rows.append(r)
     for i, r in enumerate(rows): w.after(140 * (i + 1), lambda r=r: r.winfo_exists() and r.pack(anchor='w'))
     app.death_map(right, res)
     mis = res.get('mistakes') or []
-    tk.Label(w, text='ЧТО ИСПРАВИТЬ В СЛЕДУЮЩЕЙ ИГРЕ' if mis else 'Все цели выполнены, так держать', bg=C['bg'], fg=C['gold'] if mis else C['good'],
+    ui_skin.Label(w, text='ЧТО ИСПРАВИТЬ В СЛЕДУЮЩЕЙ ИГРЕ' if mis else 'Все цели выполнены, так держать', bg=C['bg'], fg=C['gold'] if mis else C['good'],
              font=(fn, fs(10 if mis else 12), 'bold')).pack(anchor='w', pady=(12, 2))
     for i, (name, v, th, tip) in enumerate(mis, 1):
-        tk.Label(w, text=f'{i}. {name}', bg=C['bg'], fg=C['fg'], font=(fn, fs(12), 'bold'), anchor='w').pack(anchor='w', pady=(6, 0))
-        tk.Label(w, text=tip[:1].upper() + tip[1:], bg=C['bg'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(480), justify='left').pack(anchor='w', padx=(18, 0))
-    tk.Label(w, text=f"Подсказок за игру: {len(res['hints'])}", bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', pady=(10, 0))
-    row = tk.Frame(w, bg=C['bg']); row.pack(fill='x', pady=(12, 0))
-    ttk.Button(row, text='Закрыть', command=w.destroy).pack(side='right')
+        ui_skin.Label(w, text=f'{i}. {name}', bg=C['bg'], fg=C['fg'], font=(fn, fs(12), 'bold'), anchor='w').pack(anchor='w', pady=(6, 0))
+        ui_skin.Label(w, text=tip[:1].upper() + tip[1:], bg=C['bg'], fg=C['mute'], font=(fn, fs(10)), wraplength=fs(480), justify='left').pack(anchor='w', padx=(18, 0))
+    ui_skin.Label(w, text=f"Подсказок за игру: {len(res['hints'])}", bg=C['bg'], fg=C['mute'], font=(fn, fs(10))).pack(anchor='w', pady=(10, 0))
+    row = ui_skin.Frame(w, bg=C['bg']); row.pack(fill='x', pady=(12, 0))
+    ui_skin.TtkButton(row, text='Закрыть', command=w.destroy).pack(side='right')
     if app.player:   # игры Halch и DrVoldemar есть на сайте
-        ttk.Button(row, text='Разбор на сайте', style='A.TButton', command=app.open_last_game).pack(side='right', padx=8)
-        tk.Label(w, text='Игра появляется на сайте через 10–15 минут после конца.', bg=C['bg'], fg=C['mute'], font=(fn, fs(9))).pack(anchor='e', pady=(4, 0))
+        ui_skin.TtkButton(row, text='Разбор на сайте', style='A.TButton', command=app.open_last_game).pack(side='right', padx=8)
+        ui_skin.Label(w, text='Игра появляется на сайте через 10–15 минут после конца.', bg=C['bg'], fg=C['mute'], font=(fn, fs(9))).pack(anchor='e', pady=(4, 0))
 
 
 # ---------------- Приложение ----------------
@@ -1828,7 +1830,7 @@ class App:
         st.configure('TNotebook.Tab', background=C['panel'], foreground=C['mute'], padding=(12, 5), bordercolor=C['line'])
         st.map('TNotebook.Tab', background=[('selected', C['line'])], foreground=[('selected', C['gold'])])
         st.configure('Rail.TNotebook', background=C['bg'], borderwidth=0, tabmargins=0, padding=0, bordercolor=C['bg'], lightcolor=C['bg'], darkcolor=C['bg'])
-        st.layout('Rail.TNotebook', [('Notebook.client', {'sticky': 'nswe'})])   # без рамки вокруг страницы
+        st.layout('Rail.TNotebook', [])   # без рамки вокруг страницы
         st.layout('Rail.TNotebook.Tab', [])   # вкладки переключает боковое меню
         st.configure('TButton', background=C['raise'], foreground=C['fg'], padding=(14, 7), bordercolor=C['raise'],
                      lightcolor=C['raise'], darkcolor=C['raise'], font=(F['font'], self.fs(11)))
@@ -2553,7 +2555,7 @@ class App:
         if self.draft: self.on_draft(self.draft)
 
     def dl(self, parent, text, color='fg', size=11, bold=False, img=None, compound='left'):
-        return tk.Label(parent, text=text, bg=C['bg'], fg=C[color], font=(F['font'], self.fs(size), 'bold' if bold else 'normal'),
+        return ui_skin.Label(parent, text=text, bg=C['bg'], fg=C[color], font=(F['font'], self.fs(size), 'bold' if bold else 'normal'),
                         image=img or '', compound=compound, justify='left', anchor='w')
 
     def section(self, parent, text):
@@ -2854,32 +2856,33 @@ class App:
         self.root.after(1000, self.tick_ui)
 
     # ---------------- Панель управления ----------------
-    NAV = [('Главная', 'home'), ('История матчей', 'list'), ('Чемпион', 'search'), ('Подсказки', 'bulb'), ('Виджеты и окна', 'window'), ('Вид', 'look'),
+    NAV = [('Главная', 'home'), ('История матчей', 'history'), ('Чемпион', 'search'), ('Подсказки', 'bulb'), ('Виджеты и окна', 'window'), ('Вид', 'look'),
            ('Звук', 'sound'), ('Клавиши', 'keys'), ('Таймеры', 'clock'), ('Обновления', 'update'), ('Мой пул', 'pool')]
     NAV_GROUPS = {0: 'Игра', 3: 'Настройки'}   # подписи групп перед пунктами меню
 
     def build_panel(self):
         r = self.root
         self.pages, self.nav_items = [], []
-        rail = tk.Frame(r, bg=C['deep'], width=self.fs(210), padx=10, pady=14)
+        rail = ui_skin.Frame(r, bg=C['deep'], width=self.fs(190), padx=10, pady=8, material_role='sidebar')
         rail.pack(side='left', fill='y'); rail.pack_propagate(False)
         logo = self.logo_img()
-        tk.Label(rail, text='  LOL HELPER', image=logo or '', compound='left', bg=C['deep'], fg=C['gold'],
-                 font=(F['head'], self.fs(15)), anchor='w').pack(fill='x', padx=6, pady=(0, 14))
-        main = tk.Frame(r, bg=C['bg']); main.pack(side='left', fill='both', expand=True)
-        top = tk.Frame(main, bg=C['bg']); top.pack(fill='x', padx=22, pady=(16, 4))
-        self.page_title = tk.Label(top, text='', bg=C['bg'], fg=C['gold'], font=(F['head'], self.fs(19)))
+        ui_skin.Label(rail, text='  LOL HELPER', image=logo or '', compound='left', bg=C['deep'], fg=ui_skin.heading_color(C),
+                 font=(F.get('serif',F['head']), self.fs(11), 'bold'), anchor='w').pack(fill='x', padx=6, pady=(0, 18))
+        main = ui_skin.Frame(r, bg=C['bg']); main.pack(side='left', fill='both', expand=True)
+        top = ui_skin.Frame(main, bg=C['bg']); top.pack(fill='x', padx=31, pady=(2, 4))
+        self.page_title = ui_skin.Label(top, text='', bg=C['bg'], fg=C['gold'], font=(F.get('serif',F['head']), self.fs(18), 'normal'))
         self.page_title.pack(side='left')
-        pill = tk.Frame(top, bg=C['panel'], highlightthickness=0, padx=12, pady=4); pill.pack(side='right')
-        self.status_dot = tk.Label(pill, text='●', bg=C['panel'], fg=C['mute'], font=(F['font'], self.fs(9))); self.status_dot.pack(side='left')
-        self.status = tk.Label(pill, text='Ищу клиент League of Legends…', bg=C['panel'], fg=C['mute'], font=(F['font'], self.fs(10)))
+        pill = ui_skin.Frame(top, bg=C['bg'], highlightthickness=0, padx=12, pady=4); pill.pack(side='right')
+        self.status_dot = ui_skin.Label(pill, text='●', bg=C['bg'], fg=C['mute'], font=(F['font'], self.fs(9))); self.status_dot.pack(side='left')
+        self.status = ui_skin.Label(pill, text='Ищу клиент League of Legends…', bg=C['bg'], fg=C['mute'], font=(F['font'], self.fs(10)))
         self.status.pack(side='left', padx=(4, 0))
-        self.banner = tk.Frame(main, bg=C['gold'], padx=12, pady=6)
-        self.banner_lbl = tk.Label(self.banner, bg=C['gold'], fg=C['on_gold'], font=(F['font'], self.fs(11), 'bold'), anchor='w')
+        ui_skin.Frame(main,bg=C['line'],height=1).pack(fill='x',pady=(0,2))
+        self.banner = ui_skin.Frame(main, bg=C['gold'], padx=12, pady=6)
+        self.banner_lbl = ui_skin.Label(self.banner, bg=C['gold'], fg=C['on_gold'], font=(F['font'], self.fs(11), 'bold'), anchor='w')
         self.banner_lbl.pack(side='left', fill='x', expand=True)
-        self.banner_btn = tk.Button(self.banner, bg=C['bg'], fg=C['gold'], activebackground=C['panel'], activeforeground=C['gold'],
+        self.banner_btn = ui_skin.NativeButton(self.banner, bg=C['bg'], fg=C['gold'], activebackground=C['panel'], activeforeground=C['gold'],
                                     relief='flat', font=(F['font'], self.fs(10), 'bold'), padx=12, cursor='hand2')
-        self.nb = ttk.Notebook(main, style='Rail.TNotebook'); self.nb.pack(fill='both', expand=True, padx=8, pady=(4, 8))
+        self.nb = ttk.Notebook(main, style='Rail.TNotebook'); self.nb.pack(fill='both', expand=True, padx=(15,1), pady=(4, 8))
         self.tab_status = self.page('Главная'); self.tab_hist = self.page('История матчей'); self.tab_champ = self.page('Чемпион')
         self.tab_hints = self.page('Подсказки'); self.tab_win = self.page('Окна'); self.tab_look = self.page('Вид')
         self.tab_voice = self.page('Звук'); self.tab_keys = self.page('Клавиши')
@@ -2888,11 +2891,11 @@ class App:
         for i in (0, 1, 10, 2, 3, 4, 5, 6, 7, 8):
             name, ic = self.NAV[i]
             if i in self.NAV_GROUPS:
-                tk.Label(rail, text=self.NAV_GROUPS[i].upper(), bg=C['deep'], fg=C['mute'], font=(F['num'], self.fs(9)), anchor='w').pack(fill='x', padx=8, pady=(10 if i else 0, 2))
+                ui_skin.Label(rail, text=self.NAV_GROUPS[i].upper(), bg=C['deep'], fg=C['mute'], font=(F['num'], self.fs(9)), anchor='w').pack(fill='x', padx=8, pady=(10 if i else 0, 4))
             self.nav_item(rail, i, name, ic)
-        tk.Frame(rail, bg=C['deep']).pack(fill='both', expand=True)
-        low = tk.Frame(rail, bg=C['deep']); low.pack(fill='x', side='bottom')
-        tk.Label(low, text=self.version, bg=C['deep'], fg=C['mute'], font=(F['num'], self.fs(9))).pack(side='right', padx=(0, 6))
+        ui_skin.Frame(rail, bg=C['deep']).pack(fill='both', expand=True)
+        low = ui_skin.Frame(rail, bg=C['deep']); low.pack(fill='x', side='bottom')
+        ui_skin.Label(low, text=self.version, bg=C['deep'], fg=C['mute'], font=(F['num'], self.fs(9))).pack(side='right', padx=(0, 6))
         self.nav_item(low, 9, self.NAV[9][0], self.NAV[9][1])
         self.nb.bind('<<NotebookTabChanged>>', lambda e: self.nav_sync())
         self.build_status(); self.build_history(); self.build_champ(); self.build_hints(); self.build_windows(); self.build_look()
@@ -2912,7 +2915,7 @@ class App:
     def nav_item(self, rail, i, name, ic):
         icons = {0: self.keep(ImageTk.PhotoImage(render.nav_icon(ic,C['mute'],self.fs(18)))),
                  1: self.keep(ImageTk.PhotoImage(render.nav_icon(ic,C['fg'],self.fs(18))))} if Image else {0:None,1:None}
-        lb = tk.Label(rail, text=name, bg=C['deep'], fg=C['fg'], anchor='w', font=(F['font'], self.fs(11)), padx=10, pady=self.fs(6), cursor='hand2')
+        lb = ui_skin.Label(rail, text=name, bg=C['deep'], fg=C['fg'], anchor='w', font=(F['font'], self.fs(11)), padx=10, pady=self.fs(7), cursor='hand2')
         lb.configure(image=icons[0] or '',compound='left')
         lb.pack(fill='x', pady=1)
         lb.bind('<Button-1>', lambda e, i=i: self.nb.select(i))
@@ -2927,13 +2930,15 @@ class App:
             on = i == cur
             lb.configure(bg=C['raise'] if on else C['deep'], fg=C['gold'] if on else C['fg'],image=icons[1 if on else 0] or '')
         self.page_title.configure(text=self.NAV[cur][0].upper())
+        if getattr(self.root,'_material',None):
+            self.root._material.activate(self.root.nametowidget(self.nb.select()))
 
     def page(self, name, scroll=True):
         """Вкладка панели; с прокруткой колесом мыши, если содержимое не помещается."""
-        outer = tk.Frame(self.nb, bg=C['bg'], padx=14, pady=6); self.nb.add(outer, text=name)
+        outer = ui_skin.Frame(self.nb, bg=C['bg'], padx=14, pady=0); self.nb.add(outer, text=name)
         if not scroll: outer.outer = outer; return outer
-        cv = ScrollCanvas(outer, bg=C['bg'], highlightthickness=0); sb = ttk.Scrollbar(outer, orient='vertical', command=cv.yview)
-        inner = tk.Frame(cv, bg=C['bg'])
+        cv = ui_skin.material_ui.Viewport(outer, bg=C['bg'], highlightthickness=0); sb = ttk.Scrollbar(outer, orient='vertical', command=cv.yview)
+        inner = ui_skin.Frame(cv, bg=C['bg'])
         sb.pack(side='right', fill='y')
         inner.bind('<Configure>', lambda e: cv.configure(scrollregion=cv.bbox('all')))
         win = cv.create_window((0, 0), window=inner, anchor='nw'); cv.configure(yscrollcommand=sb.set)
@@ -2954,10 +2959,10 @@ class App:
         inner.outer = outer
         return inner
 
-    def h(self, parent, text): ttk.Label(parent, text=text, style='H.TLabel').pack(anchor='w', pady=(20, 9))
+    def h(self, parent, text): ui_skin.TtkLabel(parent, text=text, style='H.TLabel').pack(anchor='w', pady=(20, 9))
 
     def note(self, parent, text):
-        label=ttk.Label(parent,text=text,style='M.TLabel',wraplength=self.fs(660),justify='left')
+        label=ui_skin.TtkLabel(parent,text=text,style='M.TLabel',wraplength=self.fs(660),justify='left')
         label.pack(anchor='w',pady=(0,6))
         parent.bind('<Configure>',lambda e:label.configure(wraplength=max(self.fs(220),e.width-self.fs(24))) if label.winfo_exists() else None,add='+')
 
@@ -2969,7 +2974,7 @@ class App:
             if section == 'obj': core.OBJ.update(self.s['obj'])
             self.rebuild()
             self.status.configure(text='Настройки раздела сброшены')
-        ttk.Button(parent, text=label, command=go).pack(anchor='w', pady=(12, 0))
+        ui_skin.TtkButton(parent, text=label, command=go).pack(anchor='w', pady=(12, 0))
 
     # ---------------- История матчей ----------------
     def build_history(self):
@@ -3059,11 +3064,11 @@ class App:
     def death_map(self, box, res):
         """Карта смертей в окне итога: таймлайн появляется в клиенте не сразу, поэтому пробуем несколько раз."""
         fn, fs = F['font'], self.fs
-        tk.Label(box, text='КАРТА СМЕРТЕЙ', bg=C['bg'], fg=C['gold'], font=(fn, fs(9), 'bold')).pack(anchor='w')
-        pic = tk.Label(box, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), text='жду таймлайн игры из клиента…', width=26, height=10)
+        ui_skin.Label(box, text='КАРТА СМЕРТЕЙ', bg=C['bg'], fg=C['gold'], font=(fn, fs(9), 'bold')).pack(anchor='w')
+        pic = ui_skin.Label(box, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), text='жду таймлайн игры из клиента…', width=26, height=10)
         pic.pack(anchor='w')
-        note = tk.Label(box, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), justify='left'); note.pack(anchor='w')
-        gbox = tk.Frame(box, bg=C['bg']); gbox.pack(anchor='w', pady=(8, 0))
+        note = ui_skin.Label(box, bg=C['bg'], fg=C['mute'], font=(fn, fs(9)), justify='left'); note.pack(anchor='w')
+        gbox = ui_skin.Frame(box, bg=C['bg']); gbox.pack(anchor='w', pady=(8, 0))
         pu, started = (self.account or {}).get('puuid'), time.time()
         def job(tries):
             marks, gid, gs = None, None, None
@@ -3090,12 +3095,12 @@ class App:
     def gold_box(self, box, gs):
         """График «золото против оппонента по линии» под картой смертей."""
         fn, fs = F['font'], self.fs
-        tk.Label(box, text=f"ЗОЛОТО: ТЫ И {self.data.cn(self.data.ids.get(str(gs['oc']))).upper()}", bg=C['bg'], fg=C['gold'],
+        ui_skin.Label(box, text=f"ЗОЛОТО: ТЫ И {self.data.cn(self.data.ids.get(str(gs['oc']))).upper()}", bg=C['bg'], fg=C['gold'],
                  font=(fn, fs(9), 'bold')).pack(anchor='w')
         ph = ImageTk.PhotoImage(render.gold_chart(gs, self.fs(220), self.fs(90), C))
-        picture = tk.Label(box, image=ph, bg=C['bg']); picture.image = ph
+        picture = ui_skin.Label(box, image=ph, bg=C['bg']); picture.image = ph
         picture.pack(anchor='w')
-        tk.Label(box, text=core.gold_note(gs) + '\nвертикальные линии: каждые 5 минут', bg=C['bg'], fg=C['mute'], font=(fn, fs(9)),
+        ui_skin.Label(box, text=core.gold_note(gs) + '\nвертикальные линии: каждые 5 минут', bg=C['bg'], fg=C['mute'], font=(fn, fs(9)),
                  justify='left', wraplength=self.fs(230)).pack(anchor='w')
 
     def open_last_game(self):
@@ -3119,11 +3124,11 @@ class App:
 
     # --- карточки нового дизайна
     def card(self, parent, bg=None, pad=(16, 12), edge=None):
-        return tk.Frame(parent, bg=bg or C['panel'], padx=self.fs(pad[0]), pady=self.fs(pad[1]), highlightthickness=1 if edge else 0,
+        return ui_skin.Frame(parent, bg=bg or C['panel'], padx=self.fs(pad[0]), pady=self.fs(pad[1]), highlightthickness=1 if edge else 0,
                         highlightbackground=edge or bg or C['panel'])
 
     def cap(self, parent, text, bg=None, color='mute'):
-        return tk.Label(parent, text=text.upper(), bg=bg or C['panel'], fg=C[color], font=(F['num'], self.fs(9)), anchor='w')
+        return ui_skin.Label(parent, text=text.upper(), bg=bg or C['panel'], fg=C[color], font=(F['num'], self.fs(9)), anchor='w')
 
     def build_status(self):
         from home_ui import HomeScreen
@@ -3254,38 +3259,38 @@ class App:
     def build_windows_options(self,parent):
         f = parent
         pg = tk.BooleanVar(value=self.s['postgame'])
-        ttk.Checkbutton(f,text='Окно итога после игры',variable=pg,command=lambda:(self.s.__setitem__('postgame',pg.get()),self.s.save())).pack(anchor='w')
+        ui_skin.Checkbutton(f,text='Окно итога после игры',variable=pg,command=lambda:(self.s.__setitem__('postgame',pg.get()),self.s.save())).pack(anchor='w')
         self.h(f, 'Драфт на телефоне')
         self.note(f, 'Телефон в той же Wi-Fi сети, что и компьютер, открывает адрес ниже и видит драфт: кого брать и банить, руны, сборку, умения. '
                      'Кнопка на телефоне импортирует руны и предметы в клиент. При первом включении Windows спросит разрешение для сети: разреши для частных сетей.')
         pv = tk.BooleanVar(value=self.s['phone'])
-        ttk.Checkbutton(f, text='Включить драфт на телефоне', variable=pv,
+        ui_skin.Checkbutton(f, text='Включить драфт на телефоне', variable=pv,
                         command=lambda: (self.s.__setitem__('phone', pv.get()), self.s.save(), self.sync_phone())).pack(anchor='w')
-        self.phone_lbl = ttk.Label(f, text='', style='V.TLabel'); self.phone_lbl.pack(anchor='w', pady=(2, 0))
+        self.phone_lbl = ui_skin.TtkLabel(f, text='', style='V.TLabel'); self.phone_lbl.pack(anchor='w', pady=(2, 0))
         self.sync_phone()
         self.h(f, 'Раскладка виджетов')
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(8, 0))
-        ttk.Label(row, text='Готовая раскладка:').pack(side='left')
-        ttk.Button(row, text='По краям окна игры', command=lambda: self.preset_layout('edges')).pack(side='left', padx=6)
-        ttk.Button(row, text='Ближе к центру (ультраширокий)', command=lambda: self.preset_layout('center')).pack(side='left')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(8, 0))
+        ui_skin.TtkLabel(row, text='Готовая раскладка:').pack(side='left')
+        ui_skin.TtkButton(row, text='По краям окна игры', command=lambda: self.preset_layout('edges')).pack(side='left', padx=6)
+        ui_skin.TtkButton(row, text='Ближе к центру (ультраширокий)', command=lambda: self.preset_layout('center')).pack(side='left')
         self.h(f, 'Показатели в игре')
         pf = self.s['perf']
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w')
         for k, (name, _) in PerfOverlay.METRICS.items():
             v = tk.BooleanVar(value=pf['metrics'].get(k, True))
-            ttk.Checkbutton(row, text=name, variable=v, command=lambda k=k, v=v: self.set_perf('metrics', k, v.get())).pack(side='left', padx=(0, 10))
+            ui_skin.Checkbutton(row, text=name, variable=v, command=lambda k=k, v=v: self.set_perf('metrics', k, v.get())).pack(side='left', padx=(0, 10))
         for key, name, opts in (('layout', 'Расположение', (('vertical', 'столбиком'), ('horizontal', 'в строку'))),
                                 ('compare', 'Сравнивать с', (('norm', 'твоей нормой на чемпионе'), ('emerald', 'Изумруд+ (lolalytics)')))):
-            row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=2)
-            ttk.Label(row, text=name, width=16).pack(side='left')
+            row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=2)
+            ui_skin.TtkLabel(row, text=name, width=16).pack(side='left')
             v = tk.StringVar(value=pf[key])
             for val, t in opts:
-                ttk.Radiobutton(row, text=t, value=val, variable=v, command=lambda key=key, v=v: self.set_perf(key, None, v.get())).pack(side='left', padx=(0, 10))
+                ui_skin.Radiobutton(row, text=t, value=val, variable=v, command=lambda key=key, v=v: self.set_perf(key, None, v.get())).pack(side='left', padx=(0, 10))
         self.h(f, 'Стоимость предметов по Tab')
         av = tk.BooleanVar(value=self.s['tab_auto'])
-        ttk.Checkbutton(f, text='Автоматически находить таблицу Tab по портретам (экспериментально)', variable=av,
+        ui_skin.Checkbutton(f, text='Автоматически находить таблицу Tab по портретам (экспериментально)', variable=av,
                         command=lambda: self.set_tab('tab_auto', av.get())).pack(anchor='w')
-        self.tab_auto_label = ttk.Label(f, text='Автоподгонка: ожидаю Tab в игре' if self.s['tab_auto'] else 'Автоподгонка выключена', style='V.TLabel')
+        self.tab_auto_label = ui_skin.TtkLabel(f, text='Автоподгонка: ожидаю Tab в игре' if self.s['tab_auto'] else 'Автоподгонка выключена', style='V.TLabel')
         self.tab_auto_label.pack(anchor='w', pady=(2, 4))
         self.note(f, 'Между игроками в каждой строке Tab — одно число разницы стоимости предметов. Стрелка указывает на игрока с перевесом. '
                      'Синие цифры — преимущество нашей команды в этой паре, красные — отставание. Серый 0 означает равенство, прочерк — нет данных для сравнения. '
@@ -3295,10 +3300,10 @@ class App:
                      'Работает и в тренировке: ищет рамку таблицы и проверяет её по видимым портретам. Неуверенно распознанные строки не подписываются. '
                      'Если не совпало: выключи автоподгонку и зажми Tab и Alt. Тяни небольшую золотую ручку TAB для переноса; Shift + перетаскивание ручки меняет ширину и высоту. '
                      'Остальная область пропускает клики в игру даже при Alt. Ручка скрывается при отпускании Alt. ')
-        ttk.Button(f, text='Вернуть рамку по умолчанию', command=lambda: self.set_tab('tab_rect', None)).pack(anchor='w', pady=(4, 0))
+        ui_skin.TtkButton(f, text='Вернуть рамку по умолчанию', command=lambda: self.set_tab('tab_rect', None)).pack(anchor='w', pady=(4, 0))
         self.h(f, 'Второй монитор')
-        ttk.Button(f, text='Открыть дашборд со всеми чемпионами', command=self.open_dash).pack(anchor='w')
-        ttk.Button(f, text='Сбросить позиции окон', command=self.reset_layout).pack(anchor='w', pady=6)
+        ui_skin.TtkButton(f, text='Открыть дашборд со всеми чемпионами', command=self.open_dash).pack(anchor='w')
+        ui_skin.TtkButton(f, text='Сбросить позиции окон', command=self.reset_layout).pack(anchor='w', pady=6)
         self.reset_btn(f, 'windows', 'Все настройки окон по умолчанию')
 
     def set_perf(self, key, sub, v):
@@ -3342,13 +3347,13 @@ class App:
 
     def slider(self, parent, name, key, lo, hi, on_change, fmt=lambda x: f'{x:.0f}%', live=True, test=None):
         """Ползунок с подписью значения. live=False — применяется, когда отпустишь мышь."""
-        row = tk.Frame(parent, bg=C['bg']); row.pack(fill='x', pady=6)
-        ttk.Label(row, text=name, width=22,wraplength=self.fs(185)).pack(side='left')
+        row = ui_skin.Frame(parent, bg=C['bg']); row.pack(fill='x', pady=6)
+        ui_skin.TtkLabel(row, text=name, width=22,wraplength=self.fs(185)).pack(side='left')
         v = tk.DoubleVar(value=self.s[key])
-        val = ttk.Label(row, width=7, style='V.TLabel', text=fmt(self.s[key]))
+        val = ui_skin.TtkLabel(row, width=7, style='V.TLabel', text=fmt(self.s[key]))
         sc = ttk.Scale(row, from_=lo, to=hi, variable=v, length=self.fs(300))
         val.pack(side='right', padx=8)
-        if test: ttk.Button(row, text='Проверить', command=test).pack(side='right',padx=6)
+        if test: ui_skin.TtkButton(row, text='Проверить', command=test).pack(side='right',padx=6)
         sc.pack(side='left',fill='x',expand=True)
         if live: sc.configure(command=lambda _: (val.configure(text=fmt(v.get())), on_change(v.get())))
         else:
@@ -3360,22 +3365,22 @@ class App:
     def build_look(self):
         f = self.tab_look
         f = ui_skin.section(self.tab_look,self,'Тема')
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w')
         for i, (k, (name, pal)) in enumerate(THEMES.items()):   # столбец — палитра, строки — ночь и день
-            b = tk.Label(row, text=name, bg=pal['panel'], fg=pal['gold'], font=(F['numb'], self.fs(11)), padx=10, pady=10, width=18,
+            b = ui_skin.Label(row, text=name, bg=pal['panel'], fg=pal['gold'], font=(F['numb'], self.fs(11)), padx=10, pady=10, width=18,
                          highlightthickness=2, highlightbackground=C['gold'] if self.s['theme'] == k else pal['bg'], cursor='hand2')
             b.grid(row=i//2, column=i%2, padx=(0, 8), pady=(0, 8), sticky='w')
             b.bind('<Button-1>', lambda e, k=k: self.set_look('theme', k))
         f = ui_skin.section(self.tab_look,self,'Акцентный цвет')
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w')
         for col, name in ACCENTS.items():
             sw = THEMES[self.s['theme']][1]['gold'] if col == 'theme' else col
-            b = tk.Label(row, text='Тема' if col == 'theme' else '  ', bg=sw, fg=C['bg'], width=4, cursor='hand2',
+            b = ui_skin.Label(row, text='Тема' if col == 'theme' else '  ', bg=sw, fg=C['bg'], width=4, cursor='hand2',
                          highlightthickness=2, highlightbackground=C['fg'] if self.s['accent'] == col else C['bg'])
             b.pack(side='left', padx=2)
             b.bind('<Button-1>', lambda e, col=col: self.set_look('accent', col))
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(10, 0))
-        ttk.Label(row, text='Шрифт', width=22).pack(side='left')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(10, 0))
+        ui_skin.TtkLabel(row, text='Шрифт', width=22).pack(side='left')
         fv = tk.StringVar(value=self.s['font'])
         cb = ttk.Combobox(row, state='readonly', width=20, values=FONTS, textvariable=fv); cb.pack(side='left')
         cb.bind('<<ComboboxSelected>>', lambda e: self.set_look('font', fv.get()))
@@ -3383,16 +3388,16 @@ class App:
         self.slider(f, 'Размер текста', 'scale', 70, 170, lambda x: self.set_look('scale', int(x)), live=False)
         self.slider(f, 'Размер иконок', 'icon', 20, 64, lambda x: self.set_look('icon', int(x)), fmt=lambda x: f'{x:.0f} px', live=False)
         self.slider(f, 'Непрозрачность виджетов', 'alpha', 30, 100, self.set_alpha)
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=3)
-        ttk.Label(row, text='Фон виджетов', width=22).pack(side='left')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=3)
+        ui_skin.TtkLabel(row, text='Фон виджетов', width=22).pack(side='left')
         bgv = tk.StringVar(value=self.s['widget_bg'])
         for val, name in (('panel', 'плашка'), ('none', 'без фона, только текст')):
-            ttk.Radiobutton(row, text=name, value=val, variable=bgv, command=lambda: self.set_look('widget_bg', bgv.get())).pack(side='left', padx=(0, 10))
+            ui_skin.Radiobutton(row, text=name, value=val, variable=bgv, command=lambda: self.set_look('widget_bg', bgv.get())).pack(side='left', padx=(0, 10))
         f = ui_skin.section(self.tab_look,self,'Что показывать')
-        grid = tk.Frame(f, bg=C['bg']); grid.pack(anchor='w')
+        grid = ui_skin.Frame(f, bg=C['bg']); grid.pack(anchor='w')
         for i, (k, name) in enumerate(SHOW.items()):
             v = tk.BooleanVar(value=self.s['show'].get(k, True))
-            ttk.Checkbutton(grid, text=name, variable=v, command=lambda k=k, v=v: self.set_show(k, v.get())).grid(row=i // 2, column=i % 2, sticky='w', padx=(0, 18))
+            ui_skin.Checkbutton(grid, text=name, variable=v, command=lambda k=k, v=v: self.set_show(k, v.get())).grid(row=i // 2, column=i % 2, sticky='w', padx=(0, 18))
         if Image is None: self.note(f, 'Картинки недоступны: не найдена библиотека Pillow.')
         self.reset_btn(f, 'look', 'Вид по умолчанию')
 
@@ -3415,12 +3420,12 @@ class App:
     def build_voice(self):
         f = self.tab_voice
         f = ui_skin.section(self.tab_voice,self,'Голос подсказок')
-        r = tk.Frame(f, bg=C['bg']); r.pack(anchor='w')
+        r = ui_skin.Frame(f, bg=C['bg']); r.pack(anchor='w')
         self.voice_var = tk.StringVar()
         self.voice_cb = ttk.Combobox(r, state='readonly', width=26, textvariable=self.voice_var); self.voice_cb.pack(side='left')
         self.voice_cb.bind('<<ComboboxSelected>>', lambda e: self.pick_voice())
-        ttk.Button(r, text='Прослушать', command=lambda: self.voice.say('Окно ганка через двадцать секунд, поставь вард в реку', force=True)).pack(side='left', padx=8)
-        self.voice_msg = ttk.Label(f, text='', style='M.TLabel', wraplength=self.fs(660)); self.voice_msg.pack(anchor='w', pady=4)
+        ui_skin.TtkButton(r, text='Прослушать', command=lambda: self.voice.say('Окно ганка через двадцать секунд, поставь вард в реку', force=True)).pack(side='left', padx=8)
+        self.voice_msg = ui_skin.TtkLabel(f, text='', style='M.TLabel', wraplength=self.fs(660)); self.voice_msg.pack(anchor='w', pady=4)
         self.voice.on_error = lambda m: self.root.after(0, lambda: self.voice_msg.winfo_exists() and self.voice_msg.configure(text=m, foreground=C['bad']))
         self.refresh_voices()
         f = ui_skin.section(self.tab_voice,self,'Громкость')
@@ -3429,17 +3434,17 @@ class App:
                     test=lambda: self.voice.say('Дракон через минуту', force=True))
         self.slider(f, 'Сигнал', 'beep_volume', 0, 100, lambda x: self.set_voice_param('beep_volume', x),
                     test=lambda: self.voice.beep(force=True))
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=3)
-        ttk.Label(row, text='Звук сигнала', width=22).pack(side='left')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=3)
+        ui_skin.TtkLabel(row, text='Звук сигнала', width=22).pack(side='left')
         names = [v[0] for v in SOUNDS.values()]
         sv = self.sound_var = tk.StringVar(value=SOUNDS.get(self.s['sound'], SOUNDS['bell'])[0])
         cb = ttk.Combobox(row, state='readonly', width=24, values=names, textvariable=sv); cb.pack(side='left')
         def pick_sound(_=None):
             self.s['sound'] = self.voice.sound = list(SOUNDS)[cb.current()]; self.s.save(); self.voice.beep(force=True)
         cb.bind('<<ComboboxSelected>>', pick_sound)
-        ttk.Button(row, text='Прослушать', command=lambda: self.voice.beep(force=True)).pack(side='left', padx=8)
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(6, 0))
-        ttk.Button(row, text='▶ Проверить подсказку', style='A.TButton',
+        ui_skin.TtkButton(row, text='Прослушать', command=lambda: self.voice.beep(force=True)).pack(side='left', padx=8)
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(6, 0))
+        ui_skin.TtkButton(row, text='▶ Проверить подсказку', style='A.TButton',
                    command=lambda: self.test_hint('gank1', 'Окно ганка через двадцать секунд, поставь вард в реку')).pack(side='left')
         self.note(f,'Проверка использует режим «Ганк 1» для выбранной роли на вкладке «Подсказки».')
         f = ui_skin.section(self.tab_voice,self,'Речь')
@@ -3483,11 +3488,11 @@ class App:
         self.key_lbls = {}
         for key, name in (('mute', 'Выключить / включить звук'), ('hide', 'Скрыть / показать виджеты'),
                           ('scoreboard', 'Таблица Tab: стоимость предметов (держать)'), ('drag', 'Двигать виджеты и рамку Tab (держать)')):
-            r = tk.Frame(f, bg=C['bg']); r.pack(anchor='w', pady=3, fill='x')
-            ttk.Label(r, text=name, width=34,wraplength=self.fs(310)).pack(side='left')
-            l = ttk.Label(r, text=self.s['keys'][key].upper(), width=18, style='V.TLabel'); l.pack(side='left')
+            r = ui_skin.Frame(f, bg=C['bg']); r.pack(anchor='w', pady=3, fill='x')
+            ui_skin.TtkLabel(r, text=name, width=34,wraplength=self.fs(310)).pack(side='left')
+            l = ui_skin.TtkLabel(r, text=self.s['keys'][key].upper(), width=18, style='V.TLabel'); l.pack(side='left')
             self.key_lbls[key] = l
-            ttk.Button(r, text='Изменить', command=lambda key=key: self.capture(key)).pack(side='left')
+            ui_skin.TtkButton(r, text='Изменить', command=lambda key=key: self.capture(key)).pack(side='left')
         self.note(f, 'Нажми «Изменить», затем нужное сочетание. Работает, пока окно программы активно. Esc — отмена.')
         self.reset_btn(f, 'keys', 'Клавиши по умолчанию')
 
@@ -3521,8 +3526,8 @@ class App:
                  'grubs': 'Личинки Бездны', 'herald': 'Герольд', 'baron_first': 'Барон', 'baron_respawn': 'Барон, возрождение',
                  'inhib_respawn': 'Ингибитор, восстановление'}
         for k, n in names.items():
-            r = tk.Frame(f, bg=C['bg']); r.pack(anchor='w', pady=2)
-            ttk.Label(r, text=n, width=30).pack(side='left')
+            r = ui_skin.Frame(f, bg=C['bg']); r.pack(anchor='w', pady=2)
+            ui_skin.TtkLabel(r, text=n, width=30).pack(side='left')
             v = tk.StringVar(value=core.mmss(self.s['obj'].get(k, core.OBJ[k])))
             e = ttk.Entry(r,textvariable=v,width=8,font=(F['head'],self.fs(20))); e.pack(side='left')
             e.bind('<FocusOut>', lambda ev, k=k, v=v: self.set_obj(k, v))
@@ -3542,46 +3547,46 @@ class App:
     def build_updates(self):
         f = self.tab_upd
         f = ui_skin.section(self.tab_upd,self,'Версия')
-        ttk.Label(f, text=f'LoL Helper {self.version}').pack(anchor='w')
+        ui_skin.TtkLabel(f, text=f'LoL Helper {self.version}').pack(anchor='w')
         self.note(f, RIOT_NOTE)
-        self.upd_msg = ttk.Label(f, text='', style='M.TLabel'); self.upd_msg.pack(anchor='w', pady=4)
+        self.upd_msg = ui_skin.TtkLabel(f, text='', style='M.TLabel'); self.upd_msg.pack(anchor='w', pady=4)
         v = tk.BooleanVar(value=self.s['auto_update'])
-        ttk.Checkbutton(f, text='Проверять обновления при запуске', variable=v,
+        ui_skin.Checkbutton(f, text='Проверять обновления при запуске', variable=v,
                         command=lambda: (self.s.__setitem__('auto_update', v.get()), self.s.save())).pack(anchor='w')
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
-        ttk.Button(row, text='Проверить сейчас', command=lambda: self.check_updates(True)).pack(side='left')
-        ttk.Button(row, text='Что нового: все релизы на GitHub', command=lambda: webbrowser.open(RELEASES)).pack(side='left', padx=8)
-        link = tk.Label(f, text=RELEASES, bg=C['bg'], fg=C['blue'], font=(F['font'], self.fs(10), 'underline'), cursor='hand2')
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
+        ui_skin.TtkButton(row, text='Проверить сейчас', command=lambda: self.check_updates(True)).pack(side='left')
+        ui_skin.TtkButton(row, text='Что нового: все релизы на GitHub', command=lambda: webbrowser.open(RELEASES)).pack(side='left', padx=8)
+        link = ui_skin.Label(f, text=RELEASES, bg=C['bg'], fg=C['blue'], font=(F['font'], self.fs(10), 'underline'), cursor='hand2')
         link.pack(anchor='w'); link.bind('<Button-1>', lambda e: webbrowser.open(RELEASES))
         self.note(f, 'Статистика обновляется сама каждые 30 минут с raw.githubusercontent.com (работает без VPN).')
         f = ui_skin.section(self.tab_upd,self,'Список изменений')
-        self.chlog_box = tk.Frame(f, bg=C['bg']); self.chlog_box.pack(fill='x')
+        self.chlog_box = ui_skin.Frame(f, bg=C['bg']); self.chlog_box.pack(fill='x')
         self.load_changelog()
         f = ui_skin.section(self.tab_upd,self,'Если что-то сломалось')
         self.note(f, 'Программа записывает ошибки (окна, связь с клиентом, импорт рун, предметов и заклинаний, lolalytics) в журнал. '
                      'Кнопка копирует отчёт: вставь его в чат с Claude, и по нему можно сразу найти причину.')
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
-        ttk.Button(row, text='Скопировать отчёт для Claude', style='A.TButton', command=self.copy_report).pack(side='left')
-        ttk.Button(row, text='Открыть папку с журналами', command=lambda: os.startfile(self.home) if os.name == 'nt' else None).pack(side='left', padx=8)
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
+        ui_skin.TtkButton(row, text='Скопировать отчёт для Claude', style='A.TButton', command=self.copy_report).pack(side='left')
+        ui_skin.TtkButton(row, text='Открыть папку с журналами', command=lambda: os.startfile(self.home) if os.name == 'nt' else None).pack(side='left', padx=8)
         n = len([ln for ln in tail(os.path.join(self.home, 'errors.log'), 400) if ln[:2] == '20'])
-        self.rep_msg = ttk.Label(f, text=f'В журнале записей: {n}' if n else 'Журнал пуст: ошибок не было.', style='M.TLabel'); self.rep_msg.pack(anchor='w')
+        self.rep_msg = ui_skin.TtkLabel(f, text=f'В журнале записей: {n}' if n else 'Журнал пуст: ошибок не было.', style='M.TLabel'); self.rep_msg.pack(anchor='w')
         f = ui_skin.section(self.tab_upd,self,'Копия настроек')
         self.note(f, 'Сохрани настройки в файл (раскладка окон, клавиши, подсказки и их тексты, вид, звук, таймеры), '
                      'чтобы перенести на другой компьютер или отдать другу. Загрузка из файла заменит текущие настройки.')
-        row = tk.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
-        ttk.Button(row, text='Сохранить в файл', command=self.backup_save).pack(side='left')
-        ttk.Button(row, text='Загрузить из файла', command=self.backup_load).pack(side='left', padx=8)
+        row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=6)
+        ui_skin.TtkButton(row, text='Сохранить в файл', command=self.backup_save).pack(side='left')
+        ui_skin.TtkButton(row, text='Загрузить из файла', command=self.backup_load).pack(side='left', padx=8)
         f = ui_skin.section(self.tab_upd,self,'Сброс')
         self.note(f, 'Вернуть все настройки программы к начальным: подсказки, вид, звук, окна, клавиши, таймеры.')
         self.confirm = None
         def reset_all():
             if self.confirm is None:
-                self.confirm = ttk.Label(f, text='Нажми ещё раз, чтобы подтвердить', style='V.TLabel'); self.confirm.pack(anchor='w')
+                self.confirm = ui_skin.TtkLabel(f, text='Нажми ещё раз, чтобы подтвердить', style='V.TLabel'); self.confirm.pack(anchor='w')
                 return
             self.s.reset([k for ks in SECTIONS.values() for k in ks])
             self.sync_voice(); core.OBJ.update(self.s['obj']); self.rebuild()
             self.status.configure(text='Все настройки сброшены')
-        ttk.Button(f, text='Сбросить все настройки', command=reset_all).pack(anchor='w', pady=6)
+        ui_skin.TtkButton(f, text='Сбросить все настройки', command=reset_all).pack(anchor='w', pady=6)
 
     def backup_save(self):
         path = filedialog.asksaveasfilename(parent=self.root, title='Сохранить настройки', defaultextension='.json',
@@ -3633,18 +3638,18 @@ class App:
         for r in rels[:15]:
             mine = r['tag'] == self.version
             c = self.card(box, edge=C['gold'] if mine else None); c.pack(fill='x', pady=3)
-            hd = tk.Frame(c, bg=C['panel']); hd.pack(fill='x')
-            tk.Label(hd, text=r['tag'], bg=C['panel'], fg=C['gold'] if mine else C['fg'], font=(F['num'], fs(14), 'bold')).pack(side='left')
-            if mine: tk.Label(hd, text='  у тебя сейчас', bg=C['panel'], fg=C['gold'], font=(fn, fs(9), 'bold')).pack(side='left')
+            hd = ui_skin.Frame(c, bg=C['panel']); hd.pack(fill='x')
+            ui_skin.Label(hd, text=r['tag'], bg=C['panel'], fg=C['gold'] if mine else C['fg'], font=(F['num'], fs(14), 'bold')).pack(side='left')
+            if mine: ui_skin.Label(hd, text='  у тебя сейчас', bg=C['panel'], fg=C['gold'], font=(fn, fs(9), 'bold')).pack(side='left')
             when = r['t'][8:10] + '.' + r['t'][5:7] + '.' + r['t'][:4] if len(r['t']) >= 10 else ''
-            tk.Label(hd, text=when, bg=C['panel'], fg=C['mute'], font=(fn, fs(9))).pack(side='right')
+            ui_skin.Label(hd, text=when, bg=C['panel'], fg=C['mute'], font=(fn, fs(9))).pack(side='right')
             lines = [ln.strip() for ln in r['body'].replace('\r', '').split('\n') if ln.strip() and ln.strip() != 'Изменения:']
             for ln in lines:
                 bullet = ln.startswith(('- ', '* '))
                 ln = ln[2:] if bullet else ln
                 if ln.startswith('LoL Helper: '): ln = ln[len('LoL Helper: '):]
                 ln = ln[:1].upper() + ln[1:]
-                tk.Label(c, text=('•  ' if bullet else '') + ln, bg=C['panel'], fg=C['fg'], font=(fn, fs(10), 'normal' if bullet else 'bold'),
+                ui_skin.Label(c, text=('•  ' if bullet else '') + ln, bg=C['panel'], fg=C['fg'], font=(fn, fs(10), 'normal' if bullet else 'bold'),
                          anchor='w', justify='left', wraplength=fs(640)).pack(anchor='w', fill='x', padx=(10 if bullet else 0, 0), pady=1)
 
     def offer_update(self, tag, start):

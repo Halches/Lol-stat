@@ -1,5 +1,6 @@
 """Native widget gallery using the same images as real overlays and existing settings actions."""
 import tkinter as tk
+import ui_skin
 from tkinter import ttk
 from view_components import Components
 
@@ -13,7 +14,7 @@ DESCRIPTIONS={
     'timers':('Таймеры объектов','Время до дракона, личинок, Барона и других известных объектов.'),
     'arena':('Арена','Твой счёт, доступное золото и стоимость инвентаря в режиме Арены.')}
 
-class WindowsScreen(tk.Frame,Components):
+class WindowsScreen(ui_skin.material_ui.Frame,Components):
     def __init__(self,parent,app):
         from ui import C,F,WIDGETS
         super().__init__(parent,bg=C['bg']);self.app,self.c,self.f=app,C,F;self.pack(fill='both',expand=True)
@@ -22,15 +23,15 @@ class WindowsScreen(tk.Frame,Components):
         self.tab_var=tk.BooleanVar(value=app.s['scoreboard'])
         self.label(self,'Виджеты и окна',22,'gold',head=True).pack(anchor='w')
         self.label(self,'Выбери, что видеть во время игры. На изображениях — примеры, а не текущий матч.',10,'mute',wraplength=app.fs(850),justify='left').pack(anchor='w',pady=(3,10))
-        actions=tk.Frame(self,bg=C['bg']);actions.pack(fill='x',pady=(0,10))
+        actions=ui_skin.Frame(self,bg=C['bg']);actions.pack(fill='x',pady=(0,10))
         self.button(actions,'Только Tab',self.only_tab).pack(side='left',padx=(0,8))
         app.demo_btn=self.button(actions,'Завершить расстановку' if app.demo_on else 'Показать виджеты для расстановки',app.toggle_demo)
         app.demo_btn.pack(side='left');self.state_label=self.label(actions,'',10,'gold');self.state_label.pack(side='right')
         self.label(self,f"Двигать: {app.s['keys']['drag'].upper()} + перетаскивание · булавка закрепляет виджет · Tab настраивается своей ручкой.",9,'mute',wraplength=app.fs(900),justify='left').pack(anchor='w',pady=(0,12))
-        self.grid_box=tk.Frame(self,bg=C['bg']);self.grid_box.pack(fill='x')
+        self.grid_box=ui_skin.Frame(self,bg=C['bg']);self.grid_box.pack(fill='x')
         self.advanced_button=self.button(self,'▸ Раскладка, показатели, Tab, телефон и второй монитор',self.toggle_advanced)
         self.advanced_button.pack(anchor='w',pady=(8,10))
-        self.advanced=tk.Frame(self,bg=C['bg']);app.build_windows_options(self.advanced)
+        self.advanced=ui_skin.Frame(self,bg=C['bg']);app.build_windows_options(self.advanced)
         self.advanced.bind('<Configure>',self.wrap_options)
         self.bind('<Configure>',self.resized);self.bind('<Map>',self.mapped);self.bind('<Destroy>',self.cleanup,add='+')
         self.refresh()
@@ -56,7 +57,7 @@ class WindowsScreen(tk.Frame,Components):
     def wrap_options(self,event):
         width=max(200,event.width-self.app.fs(20))
         for widget in self.advanced.winfo_children():
-            if isinstance(widget,(tk.Label,ttk.Label)) and int(str(widget.cget('wraplength')) or 0)>0:widget.configure(wraplength=min(width,self.app.fs(660)))
+            if isinstance(widget,(tk.Label,ttk.Label,ui_skin.material_ui.Label)) and int(str(widget.cget('wraplength')) or 0)>0:widget.configure(wraplength=min(width,self.app.fs(660)))
         self.app.phone_lbl.configure(wraplength=width)
     def only_tab(self):
         for key in self.vars:self.app.s['widgets'][key]=False
@@ -93,7 +94,7 @@ class WindowsScreen(tk.Frame,Components):
         self.label(body,DESCRIPTIONS[key][0],20,'gold',head=True).pack(anchor='w')
         self.label(body,'Демонстрационные данные · тот же рисунок, что в игровом виджете',10,'mute').pack(anchor='w',pady=(5,12))
         shot=im.copy();shot.thumbnail((min(self.app.fs(1000),win.winfo_screenwidth()-100),win.winfo_screenheight()-220),Image.Resampling.LANCZOS)
-        photo=ImageTk.PhotoImage(shot);win.preview_photo=photo;tk.Label(body,image=photo,bg=self.c['deep']).pack(pady=(0,10))
+        photo=ImageTk.PhotoImage(shot);win.preview_photo=photo;ui_skin.Label(body,image=photo,bg=self.c['deep']).pack(pady=(0,10))
         self.label(body,DESCRIPTIONS[key][1],11,'fg',wraplength=min(self.app.fs(800),win.winfo_screenwidth()-150),justify='left').pack(anchor='w')
         self.button(body,'Закрыть',win.destroy).pack(anchor='e',pady=(12,0));win.bind('<Escape>',lambda e:win.destroy());self.preview_window=win
     def refresh(self):
@@ -110,17 +111,17 @@ class WindowsScreen(tk.Frame,Components):
             box=self.panel(self.grid_box,12);box.configure(highlightbackground=self.c['gold' if enabled else 'line'])
             box.grid(row=i//self.columns,column=i%self.columns,sticky='nsew',padx=(0,8) if i%self.columns==0 and self.columns==2 else 0,pady=(0,8));self.cards[key]=box
             self.grid_box.columnconfigure(i%self.columns,weight=1,uniform='widgets')
-            head=tk.Frame(box,bg=self.c['panel']);head.pack(fill='x')
+            head=ui_skin.Frame(box,bg=self.c['panel']);head.pack(fill='x')
             title_label=self.label(head,title,15,'gold' if enabled else 'fg',head=True);title_label.pack(side='left');self.card_titles[key]=title_label
             var=self.tab_var if key=='tab' else self.vars[key]
-            toggle=ttk.Checkbutton(head,text='Включён' if enabled else 'Выключен',variable=var,command=lambda k=key:self.toggle(k));toggle.pack(side='right');self.toggles[key]=toggle
-            preview=tk.Frame(box,bg=self.c['deep'],height=self.app.fs(160));preview.pack(fill='x',pady=(9,8));preview.pack_propagate(False)
+            toggle=ui_skin.Checkbutton(head,text='Включён' if enabled else 'Выключен',variable=var,command=lambda k=key:self.toggle(k));toggle.pack(side='right');self.toggles[key]=toggle
+            preview=ui_skin.Frame(box,bg=self.c['deep'],height=self.app.fs(160));preview.pack(fill='x',pady=(9,8));preview.pack_propagate(False)
             try:photo=self.thumbnail(key)
             except (OSError,ValueError,ImportError):photo=None
-            image=tk.Label(preview,image=photo if photo else '',text='' if photo else 'Предпросмотр недоступен',bg=self.c['deep'],fg=self.c['mute'],cursor='hand2')
+            image=ui_skin.Label(preview,image=photo if photo else '',text='' if photo else 'Предпросмотр недоступен',bg=self.c['deep'],fg=self.c['mute'],cursor='hand2')
             image.pack(expand=True);image.bind('<Button-1>',lambda e,k=key:self.enlarge(k))
             self.label(box,description,10,'fg',wraplength=self.app.fs(430 if self.columns==2 else 720),justify='left').pack(anchor='w')
-            bottom=tk.Frame(box,bg=self.c['panel']);bottom.pack(side='bottom',fill='x',pady=(10,0))
+            bottom=ui_skin.Frame(box,bg=self.c['panel']);bottom.pack(side='bottom',fill='x',pady=(10,0))
             enlarge=self.button(bottom,'Увеличить',lambda k=key:self.enlarge(k));enlarge.pack(side='left')
             if photo is None:enlarge.configure(state='disabled')
             if key!='tab':
