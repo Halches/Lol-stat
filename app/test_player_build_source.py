@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import time
+from urllib.parse import parse_qs, urlsplit
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -17,7 +18,7 @@ class LoaderTests(unittest.TestCase):
     def finish(self):
         while self.callbacks:self.callbacks.pop(0)()
         return self.source.values.get(('Ahri','MIDDLE'))
-    def read(self,url):return copy.deepcopy(FIXTURE['pages'][url.split('=')[-1]] if 'buildID=' in url else FIXTURE['index'])
+    def read(self,url):return copy.deepcopy(FIXTURE['pages'][parse_qs(urlsplit(url).query)['buildID'][0]] if 'buildID=' in url else FIXTURE['index'])
     def test_complete_background_result_and_incremental_updates(self):
         with patch.object(self.source,'read',side_effect=self.read) as request:self.source.get('Ahri','MIDDLE')
         self.assertEqual(request.call_count,6);self.assertGreater(len(self.callbacks),2)

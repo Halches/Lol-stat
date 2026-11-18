@@ -52,7 +52,7 @@ def build_options(full):
     options = []
     if full:
         for key, title in (('pick', 'Популярная'), ('win', 'По винрейту')):
-            variant = full.get(key) or (full if key == 'pick' else None)
+            variant = full.get(key) if key in full else (full if key == 'pick' else None)
             if not variant:
                 continue
             options.append({'key': key, 'title': title, 'variant': variant,

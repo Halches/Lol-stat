@@ -1,56 +1,137 @@
-import os,json,time,urllib.request,urllib.error,sys
-K=os.environ.get('RIOT_API_KEY','').strip().strip('"'); D='data'
-from players import puuids,NAMES
-try:
-  _pu=puuids(K)
-except Exception as e:
-  print('Riot API не отдал аккаунты:',e);_pu={}
-P={NAMES[w]:p for w,p in _pu.items()}
-def get(url):
-  for i in range(6):
+"""Download matches and keep eligible IDs pending until analysis includes them."""
+import json
+import os
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+from players import NAMES, puuids
+
+MATCH_API = 'https://europe.api.riotgames.com/lol/match/v5/matches/'
+QUEUES = {400, 420, 430, 440, 480, 490}
+SEEN = Path('seen.json')
+PENDING = Path('pending_matches.json')
+ARCHIVE = Path('games.json')
+DATA = Path('data')
+
+
+def save(path, value):
+    temp = tempfile.NamedTemporaryFile('w', dir=path.parent, delete=False)
     try:
-      r=urllib.request.urlopen(urllib.request.Request(url,headers={'X-Riot-Token':K,'User-Agent':'curl/8'}),timeout=30)
-      time.sleep(1.25); return json.load(r)
-    except urllib.error.HTTPError as e:
-      if e.code==429: time.sleep(int(e.headers.get('Retry-After','10'))+1); continue
-      if e.code==404: return None
-      raise
-  raise Exception('fail '+url)
-B='https://europe.api.riotgames.com/lol/match/v5/matches/'
-ids=set()
-INC=os.environ.get('INCREMENTAL')=='1'
-os.makedirs(D,exist_ok=True)
-seen=set(json.load(open('seen.json'))) if os.path.exists('seen.json') else set()
-SEASON=int(os.environ.get('SEASON_START','1767830400'))
-try:
-  for n,p in P.items():
-    allids=[]
-    for typ in ('ranked','normal'):
-      st=0
-      while True:
-        l=get(B+f'by-puuid/{p}/ids?type={typ}&startTime={SEASON}&start={st}&count={20 if INC else 100}')
-        allids+=l; st+=100
-        if INC or len(l)<100: break
-    ids|=set(allids)
-    print(n,len(allids),file=sys.stderr,flush=True)
-except urllib.error.HTTPError as e:
-  print(f'Riot API ответил {e.code}: ключ недействителен или истёк',file=sys.stderr)
-  ids=set()
-if INC: ids-=seen
-print('new',len(ids),file=sys.stderr,flush=True)
-if os.environ.get('GITHUB_OUTPUT'):
-  open(os.environ['GITHUB_OUTPUT'],'a').write(f'new={len(ids)}\n')
-n_done=0
-for m in sorted(ids):
-  f=f'{D}/{m}.json'
-  if not os.path.exists(f):
-    x=get(B+m)
-    json.dump(x,open(f,'w'))
-  else: x=json.load(open(f))
-  if x and x['info'].get('queueId') in (400,420,430,440,490,480) and x['info']['gameDuration']>600:
-    t=f'{D}/{m}_tl.json'
-    if not os.path.exists(t): json.dump(get(B+m+'/timeline'),open(t,'w'))
-  n_done+=1
-  if n_done%50==0: print('progress',n_done,file=sys.stderr,flush=True)
-json.dump(sorted(seen|ids),open('seen.json','w'))
-print('done',file=sys.stderr)
+        with temp:
+            json.dump(value, temp)
+        os.replace(temp.name, path)
+    finally:
+        Path(temp.name).unlink(missing_ok=True)
+
+
+def get(url, key):
+    for attempt in range(6):
+        try:
+            request = urllib.request.Request(url, headers={'X-Riot-Token': key, 'User-Agent': 'curl/8'})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.load(response)
+            time.sleep(1.25)
+            return payload
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            if error.code != 429 or attempt == 5:
+                raise
+            time.sleep(int(error.headers.get('Retry-After') or 10) + 1)
+
+
+def listed_ids(accounts, key, start_time, incremental, known):
+    ids = set()
+    count = 20 if incremental else 100
+    for who, puuid in accounts.items():
+        player_ids = set()
+        for queue_type in ('ranked', 'normal'):
+            start = 0
+            while True:
+                url = (f'{MATCH_API}by-puuid/{puuid}/ids?type={queue_type}'
+                       f'&startTime={start_time}&start={start}&count={count}')
+                page = get(url, key)
+                if not isinstance(page, list):
+                    raise ValueError(f'Riot не вернул список матчей для {NAMES[who]}')
+                player_ids.update(page)
+                if len(page) < count or (incremental and known.intersection(page)):
+                    break
+                start += count
+        print(NAMES[who], len(player_ids), file=sys.stderr)
+        ids.update(player_ids)
+    return ids
+
+
+def match_payload(mid, key, timeline=False):
+    path = DATA / (mid + ('_tl.json' if timeline else '.json'))
+    def valid(value):
+        if not isinstance(value, dict) or (value.get('metadata') or {}).get('matchId') != mid:
+            return False
+        info = value.get('info')
+        if not isinstance(info, dict):
+            return False
+        if timeline:
+            return isinstance(info.get('frames'), list) and bool(info['frames'])
+        return type(info.get('queueId')) is int and type(info.get('gameDuration')) is int
+
+    if path.exists():
+        try:
+            cached = json.loads(path.read_text())
+            if valid(cached):
+                return cached
+        except ValueError:
+            pass
+    payload = get(MATCH_API + mid + ('/timeline' if timeline else ''), key)
+    if not valid(payload):
+        return None
+    save(path, payload)
+    return payload
+
+
+def run(acknowledge=False):
+    archived = {g['id'] for g in json.loads(ARCHIVE.read_text())} if ARCHIVE.exists() else set()
+    seen = set(json.loads(SEEN.read_text())) if SEEN.exists() else set()
+    # Older versions also marked missing timelines as seen. Recheck legacy IDs
+    # absent from the archive once, including any intentionally excluded queues.
+    pending = set(json.loads(PENDING.read_text())) if PENDING.exists() else seen - archived
+    seen.update(archived)
+    pending.difference_update(archived)
+    seen.difference_update(pending)
+    if acknowledge:
+        save(SEEN, sorted(seen))
+        save(PENDING, sorted(pending))
+        return
+
+    key = os.environ.get('RIOT_API_KEY', '').strip().strip('"')
+    incremental = os.environ.get('INCREMENTAL') == '1'
+    ids = listed_ids(puuids(key), key, int(os.environ.get('SEASON_START', '1767830400')),
+                     incremental, seen | pending)
+    pending.update(ids - seen if incremental else ids)
+    save(PENDING, sorted(pending))
+    DATA.mkdir(exist_ok=True)
+    ready = 0
+    for mid in sorted(pending):
+        match = match_payload(mid, key)
+        if match is None:
+            continue
+        info = match['info']
+        if info['queueId'] not in QUEUES or info['gameDuration'] < 600:
+            pending.remove(mid)
+            seen.add(mid)
+        elif match_payload(mid, key, timeline=True) is not None:
+            ready += 1
+
+    save(SEEN, sorted(seen))
+    save(PENDING, sorted(pending))
+    print(f'Готово к анализу: {ready}. Ожидают данных: {len(pending) - ready}', file=sys.stderr)
+    if output := os.environ.get('GITHUB_OUTPUT'):
+        with open(output, 'a') as stream:
+            print(f'new={ready}', file=stream)
+
+
+if __name__ == '__main__':
+    run(acknowledge=sys.argv[1:] == ['--acknowledge'])

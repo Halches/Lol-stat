@@ -1800,11 +1800,20 @@ addEventListener('hashchange',openFromHash);
 let WEEK=null;
 $('week').addEventListener('click',e=>{if(e.target.id!=='weekmore')return;const b=$('weekbody');b.classList.toggle('clip');e.target.textContent=b.classList.contains('clip')?'Читать отчёт полностью':'Свернуть'});
 function weekly(){
-  const s=$('weeksec'),sw=$('sumweek');
-  sw.innerHTML=WEEK&&WEEK[st.who]?`<div class="hd"><h2>Отчёт тренера за неделю</h2><span class="chip">до ${esc(WEEK.date||'')}</span></div><div class="msg a clip">${md(WEEK[st.who])}</div><button type="button" class="lnk" data-view="stats" data-tab="week">читать полностью →</button>`
-    :`<div class="hd"><h2>Отчёт тренера за неделю</h2></div><div class="muted">${st.who==='duo'?'Отчёт пишется для каждого игрока отдельно: выбери Halch или DrVoldemar.':'Новый отчёт приходит по понедельникам.'}</div>`;
-  if(!WEEK||!WEEK[st.who]){s.hidden=true;return}
-  s.hidden=false;$('week').innerHTML=`<div class="msg a clip" id="weekbody">${md(WEEK[st.who])}</div><button type="button" class="cbtn" id="weekmore" style="margin-top:6px">Читать отчёт полностью</button><div class="legend"><span>Отчёт тренера за неделю до ${esc(WEEK.date||'')}. Новый приходит по понедельникам.</span></div>`;
+  const section=$('weeksec'), summary=$('sumweek');
+  const report=WEEK && WEEK[st.who];
+  const date=WEEK && WEEK.date || '';
+  if(!report){
+    section.hidden=true;
+    summary.textContent=st.who==='duo'?'Отчёты тренера доступны в профилях игроков.':'Для этого игрока отчёт пока недоступен.';
+    return;
+  }
+  const [day,month,year]=date.split('.').map(Number);
+  const through=Date.UTC(year,month-1,day);
+  const title=Date.now()-through>7*86400000?'Архивный отчёт тренера':'Отчёт тренера за неделю';
+  summary.innerHTML=`<div class="hd"><h2>${title}</h2><span class="chip">до ${esc(date)}</span></div><div class="msg a clip">${md(report)}</div><button type="button" class="lnk" data-view="stats" data-tab="week">читать полностью →</button>`;
+  section.hidden=false;
+  $('week').innerHTML=`<div class="msg a clip" id="weekbody">${md(report)}</div><button type="button" class="cbtn" id="weekmore" style="margin-top:6px">Читать отчёт полностью</button><div class="legend">${title} · до ${esc(date)}</div>`;
 }
 fetch('data/weekly.json').then(r=>r.ok?r.json():null).then(j=>{WEEK=j;if(GAMES.length)weekly()}).catch(()=>{});
 

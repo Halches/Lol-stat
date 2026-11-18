@@ -41,7 +41,7 @@ def parse(html, champion, role, opponent, data):
                     params = candidate; break
         if not params or params.get('region') != 'all' or params.get('tier') != 'emerald_plus' or params.get('mode') != 'ranked': continue
         for obj in objects:
-            if not isinstance(obj, dict) or not all(k in obj for k in ('header','summary','nav')): continue
+            if not isinstance(obj, dict) or not all(k in obj for k in ('header','response','nav')): continue
             try:
                 raw = {k:deref(obj[k]) for k in ('header','summary','nav','response','boots','popularItem') if k in obj}
                 h = raw['header']
@@ -49,8 +49,11 @@ def parse(html, champion, role, opponent, data):
                 if raw.get('response',{}).get('valid') is not True: continue
                 if not isinstance(h.get('n'), (int,float)) or h['n'] <= 0: continue
                 full = core.parse_lola_full(raw, data)
-                if not full: continue
-                full['win'] = core._lola_variant(raw['summary'].get('win') or {})
+                if not full:
+                    wr = h.get('wr')
+                    if type(wr) not in (int, float) or not 0 <= wr <= 100:
+                        continue
+                    full = {'games': h['n'], 'wr': wr, 'pick': None, 'win': None}
                 # The public page explicitly labels this statistic as the primary keystone,
                 # not the full rune page or its joint distribution with items.
                 for key in ('pick','win'):
@@ -60,3 +63,16 @@ def parse(html, champion, role, opponent, data):
                 return full
             except (ValueError, TypeError, KeyError, IndexError): continue
     return None
+
+
+def with_recent_build(current, recent):
+    """Keep the current-patch header independent of a verified 30-day loadout."""
+    if not current or current.get('pick') or not recent or not recent.get('pick'):
+        return current
+    now_meta = current['matchup']
+    previous = recent['matchup']
+    fields = ('champion', 'role', 'opponent', 'region', 'tier', 'queue')
+    if previous.get('patch') != '30' or any(now_meta[k] != previous.get(k) for k in fields):
+        return current
+    return dict(current, pick=recent['pick'], win=recent.get('win'), situ=recent.get('situ', []),
+                win_from_source=bool(recent.get('win')), build_period_days=30, build_games=recent['games'])

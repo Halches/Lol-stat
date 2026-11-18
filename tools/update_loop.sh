@@ -27,24 +27,36 @@ rebuild() {
 }
 
 publish() {
-  (cd .. &&
-   git add index.html data tools/games.json tools/icons.json tools/seen.json tools/ranks.json tools/lp_history.json tools/lola.json tools/arena.json app/data.json &&
-   { git commit -q -m "Новые игры: $1" || exit 0; } &&
-   for i in 1 2 3; do git pull --rebase --autostash -q origin main && git push -q && exit 0; sleep 5; done; exit 1) || return 1
-  gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" > /dev/null || true
+  local message="$1"
+  shift
+  (
+    cd .. || exit 1
+    git add "$@" || exit 1
+    git diff --cached --quiet && exit 0
+    git commit -q -m "$message" || exit 1
+    for i in 1 2 3; do
+      git pull --rebase --autostash -q origin main && git push -q && exit 0
+      sleep 5
+    done
+    exit 1
+  )
 }
 
 [ "${TEST_FIRE:-false}" = "true" ] && fire
 while :; do
   out=$(mktemp)
-  GITHUB_OUTPUT=$out python fetch.py
+  GITHUB_OUTPUT=$out python fetch.py || { rm -f "$out"; exit 1; }
   GITHUB_OUTPUT=$out python arena.py || echo "::warning::Не удалось собрать игры Арены"
   new=$(sed -n 's/^new=//p' "$out" | tail -1); ar=$(sed -n 's/^arena=//p' "$out" | tail -1); rm -f "$out"
   echo "$(date -u +%H:%M) новых игр: ${new:-?}, Арена: ${ar:-?}"
   new=$(( ${new:-0} + ${ar:-0} ))
   if [ "$new" != "0" ]; then
     # версию в Claude обновляем только по просьбе в чате, автоматически не запускаем
-    rebuild && publish "$new" || echo "::error::Не удалось пересобрать или опубликовать $new игр"
+    rebuild && python fetch.py --acknowledge || exit 1
+    publish "Новые игры: $new" index.html data tools/{games,icons,seen,pending_matches,ranks,mastery,lp_history,lola,arena}.json app/data.json || exit 1
+    gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" > /dev/null || true
+  elif ! git diff --quiet -- seen.json pending_matches.json || ! git ls-files --error-unmatch pending_matches.json >/dev/null 2>&1; then
+    publish "Обновить очередь загрузки матчей" tools/{seen,pending_matches}.json || exit 1
   fi
   [ $(( $(date +%s) + 600 )) -lt "$END" ] || break
   sleep 600

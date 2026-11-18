@@ -72,10 +72,11 @@ class ApplicationServices:
         self.engine.prepped = True
         chosen=getattr(self,'_chosen_draft_build',None)
         context=self.s.get('draft_build_context','general')
-        external=context=='offmeta' or context.startswith('player:')
         b=chosen[3] if chosen and chosen[:3]==(g.me['c'],g.role,context) else None
-        if not b and not external:b=self.cached_build(g.me['c'],g.role)
-        if not b and g.role and not external: self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); self.engine.prepped = False
+        if context == 'matchup' and b and (b.get('matchup') or {}).get('opponent') != (g.opp or {}).get('c'):
+            b = None
+        if not b and context == 'general':b=self.cached_build(g.me['c'],g.role)
+        if not b and g.role and context == 'general': self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); self.engine.prepped = False
         v = self.draft_build_variant(b, g.role) or {}
         self.engine.skills, self.engine.skill_prio = v.get('skills', ''), v.get('skill_prio', '')
         self.engine.situ = (b or {}).get('situ') or []
@@ -616,9 +617,17 @@ class ApplicationServices:
                 if saved and type(fetched_at) in (int,float) and time.time()-fetched_at < 12*3600:
                     value = saved
                 else:
-                    req = urllib.request.Request(matchup_data.url(champion, role, opponent), headers={'User-Agent':'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=20) as response: html = response.read().decode('utf-8')
-                    value = matchup_data.parse(html, champion, role, opponent, self.data)
+                    def load_page(url):
+                        request = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
+                        with urllib.request.urlopen(request, timeout=20) as response:
+                            return matchup_data.parse(response.read().decode('utf-8'), champion, role, opponent, self.data)
+                    url = matchup_data.url(champion, role, opponent)
+                    value = load_page(url)
+                    if value and not value.get('pick'):
+                        try:
+                            value = matchup_data.with_recent_build(value, load_page(url + '&patch=30'))
+                        except (OSError, ValueError) as error:
+                            log_error(f'сборка матчапа за 30 дней {champion} против {opponent}', error)
                     if value:
                         value['fetched_at'] = time.time()
                         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -690,6 +699,8 @@ class ApplicationServices:
         cached = self.lola.get(k)
         if not self.begin_lola_request(k): return cached
         name = f'full_{champ}_{role}.json' if kind == 'build' else f'{kind}_{champ}_{role}.json'
+        if role in ('ARAM', 'ARENA'):
+            name = 'v2_' + name
         path = os.path.join(self.home, 'lola', name)
 
         def job():
@@ -710,9 +721,12 @@ class ApplicationServices:
                         with urllib.request.urlopen(request, timeout=20) as response:
                             return response.read().decode('utf-8', 'ignore')
                     if kind == 'build' and role == 'ARAM':   # ARAM: в API нет, только страница сборки (все ранги)
-                        b = core.parse_lola_build(get(core.lola_url(champ, role)))
-                    elif kind == 'arena':   # чемпион в Арене: только винрейт и число игр
-                        b = core.parse_lola_arena(get(f"https://lolalytics.com/lol/{core.LOLA_FIX.get(champ, champ.lower())}/arena/build/"))
+                        html = get(core.lola_url(champ, role))
+                        b = core.mode_build(html, champ, self.data, 'aram')
+                    elif kind == 'arena':
+                        slug = core.LOLA_FIX.get(champ, champ.lower())
+                        html = get(f'https://lolalytics.com/lol/{slug}/arena/build/?patch=30')
+                        b = core.mode_build(html, champ, self.data, 'arena')
                     elif kind.startswith('tier_'):   # средние ранга выше со страницы сборки
                         b = core.parse_lola_avg(get(core.lola_url(champ, role).replace('tier=emerald_plus', 'tier=' + kind[5:])))
                     elif kind == 'build':   # две сборки по Европе из API, иначе одна со страницы сборки
@@ -721,7 +735,8 @@ class ApplicationServices:
                         b = b or core.parse_lola_build(get(core.lola_url(champ, role)))
                     else: b = json.loads(get(core.lola_api(kind, champ, role)))
                     if kind == 'build-team': b = {'team': b.get('team')} if b.get('team') else None
-                    if kind == 'counter': b = {'counters': b.get('counters')} if b.get('counters') else None
+                    if kind == 'counter':
+                        b = {'counters': b['counters']} if isinstance(b.get('counters'), list) and (b.get('response') or {}).get('valid') is not False else None
                     if not isinstance(b, dict) or not b:
                         raise ValueError('Источник не вернул данные')
                     try:
@@ -818,7 +833,7 @@ class ApplicationServices:
             self._auto_after = 0
         pending = tuple(k for k in parts if k not in self._auto_done)
         if pending and not getattr(self, '_import_pending', None) and time.monotonic() >= self._auto_after:
-            if not self.selected_draft_build(cs):
+            if not self.draft_build_variant(self.selected_draft_build(cs), role):
                 self.set_import_msg('Автоимпорт ждёт выбранную сборку')
                 return
             self._auto_attempts += 1
@@ -870,6 +885,8 @@ class ApplicationServices:
         sets = json.loads(json.dumps(sets))
         log_path = os.path.join(self.home, 'import.log') if getattr(self, 'home', None) else None
         source = ((('Против ' + self.data.cn(opponent) + ', все регионы') if opponent else 'Европа') + ', ' + ('лучший винрейт' if chosen == 'win' else 'популярная')) if full else 'из твоих игр'
+        if full and full.get('build_period_days'):
+            source += f", за {full['build_period_days']} дней"
         if full and role == 'ARAM':
             source = 'ARAM · ' + ('по винрейту' if chosen == 'win' else 'популярная')
         if full and full.get('external'):
@@ -1156,10 +1173,13 @@ class ApplicationServices:
         myrole = r.get('role')
         if col == 1:
             cnt = core.lola_counters(self.lola_fetch('counter', c, pos), d)
-            main = d.role_of_champ(c)
-            if not cnt and main and main != pos and self.lola_state.get(('counter', c, pos)) == 'ok':
-                cnt = core.lola_counters(self.lola_fetch('counter', c, main), d)   # на этой линии его почти не играют
-            if not cnt: return [('Контрпики: загружаю lolalytics…', 'mute')] if self.lola_state.get(('counter', c, pos)) == 'loading' else []
+            if not cnt:
+                state = self.lola_state.get(('counter', c, pos))
+                if state == 'loading':
+                    return [('Контрпики: загружаю Lolalytics…', 'mute')]
+                if state == 'ok':
+                    return [('Мало игр для контрпиков на этой роли', 'mute')]
+                return []
             pool = pl.pool.get(myrole, []) if pl and pos == myrole else []
             best, mine = core.counter_picks(cnt, 3, pool)
             out = []

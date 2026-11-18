@@ -356,11 +356,12 @@ class Game:
             sp = p.get('summonerSpells') or {}
             spells = ' '.join((sp.get(k) or {}).get('rawDisplayName', '') for k in ('summonerSpellOne', 'summonerSpellTwo'))
             sc = p.get('scores') or {}
+            cs = sc.get('creepScore')
             riot = p.get('riotId') or (f"{p.get('riotIdGameName', '')}#{p.get('riotIdTagLine', '')}" if p.get('riotIdGameName') else p.get('summonerName', ''))
             self.players.append({
                 'riot': riot, 'c': champ_key(p, data), 'team': p.get('team'), 'pos': p.get('position') or '', 'lvl': p.get('level', 1),
                 'items': its, 'igold': data.items_value(its),
-                'k': sc.get('kills', 0), 'd': sc.get('deaths', 0), 'a': sc.get('assists', 0), 'cs': sc.get('creepScore', 0), 'ward': sc.get('wardScore', 0), 'ward_known': isinstance(sc.get('wardScore'),(int,float)),
+                'k': sc.get('kills', 0), 'd': sc.get('deaths', 0), 'a': sc.get('assists', 0), 'cs': cs if type(cs) is int and cs >= 0 else None, 'ward': sc.get('wardScore', 0), 'ward_known': isinstance(sc.get('wardScore'),(int,float)),
                 'dead': p.get('isDead', False), 'respawn': p.get('respawnTimer', 0), 'smite': 'Smite' in spells, 'tp': 'Teleport' in spells,
                 'spells': re.findall(r'(Summoner(?!Spell)[A-Za-z]+?)(?:_|\b)', spells),
                 'keystone': ((p.get('runes') or {}).get('keystone') or {}).get('id'),
@@ -622,12 +623,16 @@ class Engine:
                 sc = 0
                 for r in roles:
                     a_ = next((x for x in g.allies if x['pos'] == r), None); e_ = next((x for x in g.enemies if x['pos'] == r), None)
-                    if a_ and e_: sc += (a_['lvl'] - e_['lvl']) * 10 + (a_['cs'] - e_['cs'])
+                    if not a_ or not e_ or a_['cs'] is None or e_['cs'] is None:
+                        return None
+                    sc += (a_['lvl'] - e_['lvl']) * 10 + (a_['cs'] - e_['cs'])
                 return sc
             top, bot = side(['TOP', 'MIDDLE']), side(['BOTTOM', 'UTILITY', 'MIDDLE'])
-            where = 'верхнего' if top > bot + 5 else 'нижнего' if bot > top + 5 else None
+            where = None
+            if top is not None and bot is not None:
+                where = 'верхнего' if top > bot + 5 else 'нижнего' if bot > top + 5 else None
             if where: add('crab', f'Крабы в {mmss(OBJ["crab"])}: у {where} краба выше показатели союзных линий по уровню и CS. Проверь волны, здоровье и возможность помочь', f'Крабы скоро, оцени {where} реку и приоритет линий')
-            else: add('crab', f'Крабы в {mmss(OBJ["crab"])}: по уровню и CS явного перевеса нет. Проверь приоритет линий перед выходом', 'Крабы скоро, проверь приоритет линий')
+            else: add('crab', f'Крабы в {mmss(OBJ["crab"])}: проверь приоритет линий перед выходом', 'Крабы скоро, проверь приоритет линий')
 
         # --- ганки (только для линии)
         if laner and t < 300:
@@ -647,7 +652,7 @@ class Engine:
 
 
         # --- CS и золото
-        if g.role != 'UTILITY':
+        if g.role != 'UTILITY' and me['cs'] is not None:
             for m in ((5,) if self.enabled.get('bench', True) else (5, 10, 15)):   # 10 и 15 покрывает «Контрольная точка»
                 if self._due(m*60,g) and norm.get('csm') and self._once(f'cs{m}'):
                     want = norm['cs10'] * m / 10 if m <= 10 and norm.get('cs10') else norm['csm'] * m
@@ -676,7 +681,7 @@ class Engine:
                     prio = f". Дальше максим {' → '.join(self.skill_prio)}" if lv == 3 and self.skill_prio else ''
                     add('skills', f'Порядок сборки на {lv}-м уровне: {k}{prio}. Проверь свободное очко умения', 'Проверь очко умения и порядок сборки')
         for m in (10, 15):
-            if self._due(m*60,g) and g.role != 'UTILITY' and self._once(f'bench{m}'):
+            if me['cs'] is not None and self._due(m*60,g) and g.role != 'UTILITY' and self._once(f'bench{m}'):
                 parts = [f'{m}:00 — {me["cs"]} CS']
                 want = (norm.get('cs10') * m / 10 if m == 10 and norm.get('cs10') else (norm.get('csm') or 0) * m)
                 if want: parts.append(f'твоя норма {want:.0f}')
@@ -789,14 +794,14 @@ def postgame(engine, g, player):
     team_k = sum(p['k'] for p in g.allies) or 1
     goals = engine.goals
     rows = [
-        ('CS в минуту', me['cs'] / mins, goals.get('csm', 7), '>=', 1),
+        ('CS в минуту', me['cs'] / mins if me['cs'] is not None else None, goals.get('csm', 7), '>=', 1),
         ('Смертей до 14 минуты', early, goals.get('early', 1), '<=', 0),
         ('Смертей за игру', me['d'], goals.get('d', 5), '<=', 0),
         ('Обзор в минуту', me['ward'] / mins, goals.get('vsm', .8), '>=', 2),
         ('Участие в убийствах, %', (me['k'] + me['a']) / team_k * 100, goals.get('kp', 50), '>=', 0),
     ]
     if g.role == 'UTILITY': rows = rows[1:]
-    res = [(n, v, th, (v >= th) if op == '>=' else (v <= th), dec) for n, v, th, op, dec in rows]
+    res = [(n, v, th, (v >= th) if op == '>=' else (v <= th), dec) for n, v, th, op, dec in rows if v is not None]
     # невыполненные цели от самой сильной недостачи: «больше» — насколько не дотянул, «меньше» — насколько перебрал
     gap = lambda r: (1 - r[1] / r[2] if r[2] else 1) if r[0] in MORE else (r[1] - r[2]) / max(1, r[2])
     bad = sorted((r for r in res if not r[3]), key=gap, reverse=True)
@@ -1108,6 +1113,42 @@ def lola_build_items(b):
 
 
 # ---------------- Контрпики, синергия и баны (lolalytics, Изумруд+) ----------------
+
+def mode_build(html, champion, data, mode):
+    """Use the champion header of a validated ARAM or Arena page."""
+    cid = next((int(key) for key, name in data.ids.items() if name == champion), None)
+    if cid is None or mode not in ('aram', 'arena'):
+        return None
+    tier = 'all' if mode == 'aram' else 'emerald_plus'
+    for script in re.finditer(r'<script\b[^>]*type=["\']qwik/json["\'][^>]*>(.*?)</script>', html, re.S):
+        try:
+            objects = json.loads(script[1])['objs']
+            def read(ref):
+                return objects[int(ref.rstrip('!'), 36)]
+            records = [obj for obj in objects if isinstance(obj, dict)]
+            context = any(all(key in obj and read(obj[key]) == expected for key, expected in
+                              [('page', 'arena' if mode == 'arena' else 'build'), ('mode', mode), ('tier', tier), ('region', 'all'), ('cid', cid)])
+                          for obj in records)
+            if not context:
+                continue
+            for obj in records:
+                if 'header' not in obj or 'response' not in obj:
+                    continue
+                header = read(obj['header'])
+                if read(read(obj['response'])['valid']) is not True or read(header['cid']) != cid:
+                    continue
+                games, wr = read(header['n']), read(header['wr'])
+                if type(games) is not int or games <= 0 or type(wr) not in (int,float) or not 0 <= wr <= 100:
+                    continue
+                if mode == 'arena':
+                    return {'n': games, 'wr': wr}
+                if read(header['queue']) == 450:
+                    result = parse_lola_build(html) or {'pick': None, 'win': None}
+                    return dict(result, games=games, wr=wr)
+        except (ValueError, AttributeError, KeyError, IndexError, TypeError):
+            continue
+    return None
+
 
 def parse_lola_arena(html):
     """Чемпион в Арене со страницы lolalytics: винрейт и число игр. Винрейты аугментов и предметов Арены Riot показывать запрещает."""

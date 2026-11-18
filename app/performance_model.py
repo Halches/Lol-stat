@@ -24,7 +24,7 @@ def live_values(game):
     team_kills=sum(p['k'] for p in game.allies)
     # Live API даёт оставшиеся деньги и инвентарь, но не всё заработанное золото.
     # Продажи, расходники и скидки делают inventory + currentGold несопоставимым.
-    return {'csm':me['cs']/minutes,'gpm':None,
+    return {'csm':me['cs']/minutes if number(me.get('cs')) else None,'gpm':None,
             'kda':(me['k']+me['a'])/max(1,me['d']),
             'kp':min(100,(me['k']+me['a'])/team_kills*100) if team_kills else None,
             'vsm':me['ward']/minutes if me.get('ward_known',False) else None}

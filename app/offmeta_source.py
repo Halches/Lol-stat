@@ -31,7 +31,7 @@ class OffmetaSource:
                 except (OSError,ValueError,TypeError,AttributeError):pass
                 if saved and now-saved['fetched_at']<12*3600:value=saved
                 else:
-                    req=urllib.request.Request(offmeta_data.url(champion),headers={'User-Agent':'LoLHelper/1.0 (public build page)'})
+                    req=urllib.request.Request(offmeta_data.url(champion,role),headers={'User-Agent':'LoLHelper/1.0 (public build page)'})
                     with urllib.request.urlopen(req,timeout=20) as response:
                         raw=response.read(5*1024*1024+1)
                     if len(raw)>5*1024*1024:raise ValueError('Ответ слишком большой')

@@ -48,6 +48,14 @@ def lola_status(app,key,champion,role,value=None):
 def loadout(app,full,variant,*,title=None):
     compact = title is not None
     p=Panel();p.box.addWidget(Label(title or 'Выбранный вариант',17,'gold',serif=True))
+    if full and full.get('games') and full.get('wr') is not None:
+        patch = (full.get('matchup') or {}).get('patch')
+        text = f"Победы чемпиона · {fmt(full['wr'], 2)}% · {full['games']} игр"
+        if patch:
+            text += f' · патч {patch}'
+        p.box.addWidget(Label(text, 11, 'gold'))
+    if (full or {}).get('build_period_days'):
+        p.box.addWidget(Label(f"Сборка этого матчапа · {full['build_period_days']} дней · {full['build_games']} игр",10,'mute'))
     if not variant:p.box.addWidget(Label('Подтверждённые руны и предметы пока недоступны.',11,'mute'));return p
     if not compact and (full or {}).get('external'):p.box.addWidget(Label(str(full['external'])+' · '+str(full.get('external_name','')),11,'gold'))
     p.box.addWidget(row(*[app.icons.label('rune',r,32) for r in variant.get('perks',[])[:6]],*[app.icons.label('rune',r,22) for r in variant.get('shards',[])]))
@@ -63,6 +71,9 @@ def loadout(app,full,variant,*,title=None):
         line = row(label,*icons)
         line.layout().addStretch()
         p.box.addWidget(line)
+    if (full or {}).get('source') == 'Mobalytics' or (full or {}).get('external') == 'Mobalytics':
+        if not variant.get('i6'):
+            p.box.addWidget(Label('Источник указал пять предметов. Шестой слот открыт.',10,'mute'))
     priority=variant.get('skill_prio') or [];skills=variant.get('skills') or []
     if priority:p.box.addWidget(Label('Умения: '+' › '.join(priority),14,'gold',bold=True))
     if skills and compact:
@@ -75,15 +86,15 @@ def loadout(app,full,variant,*,title=None):
         p.box.addLayout(grid)
     elif skills:
         p.box.addWidget(table([str(i) for i in range(1,len(skills)+1)],[[str(x) for x in skills]]))
-    for title,wr,n in [('Руны',variant.get('wr_runes'),variant.get('n_runes')),('Предметы',variant.get('wr_core'),variant.get('n_core'))]:p.box.addWidget(Label(title+': '+fmt(wr)+'% · '+(str(n)+' игр' if n is not None else 'выборка недоступна'),10,'mute'))
-    p.box.addWidget(Label('Руны и предметы рассчитаны по отдельным выборкам.',9,'mute'))
+    for title,wr,n in [('Ключевая руна',variant.get('wr_runes'),variant.get('n_runes')),('Предметы',variant.get('wr_core'),variant.get('n_core'))]:p.box.addWidget(Label(title+': '+fmt(wr,2)+'% · '+(str(n)+' игр' if n is not None else 'выборка недоступна'),10,'mute'))
+    p.box.addWidget(Label('Для ключевой руны и основных предметов использованы отдельные выборки.',9,'mute'))
     for iid,short,when in (full or {}).get('situ',[])[:6]:p.box.addWidget(row(app.icons.label('item',iid,26),Label(short+' · '+when,10,'mute')))
     return p
 
 class ChampionPage(Page):
     def __init__(self,app):
         super().__init__(app);self.champion=None;self.role='TOP';self.opponent=None;self.context='general';self.variant='pick'
-        self.title('Чемпион');self.select=champion_choice(app,changed=lambda c:self.choose(c or None));self.role_select=combo(core.ROLE_RU,self.role,lambda role:self.choose(self.champion,role));self.enemy=champion_choice(app,changed=self.select_opponent,empty='Все оппоненты');self.box.addWidget(row(self.select,self.role_select,self.enemy))
+        self.title('Чемпион');self.select=champion_choice(app,changed=lambda c:self.choose(c or None));self.role_select=combo({r:core.ROLE_RU[r] for r in [*core.ROLES, 'ARAM']},self.role,lambda role:self.choose(self.champion,role));self.enemy=champion_choice(app,changed=self.select_opponent,empty='Все оппоненты');self.box.addWidget(row(self.select,self.role_select,self.enemy))
         self.body=QWidget();self.body_box=QVBoxLayout(self.body);self.body_box.setContentsMargins(0,0,0,0);self.box.addWidget(self.body);self.box.addStretch();self.refresh()
     def choose(self,champion,role=None):
         self.champion=champion;self.role=role or self.role;self.app.cp_sel=(champion,self.role) if champion else None
@@ -96,7 +107,22 @@ class ChampionPage(Page):
         clear_layout(self.body_box);a=self.app;c=self.champion
         if not c:
             self.body_box.addWidget(Label('Выбери чемпиона по русскому или английскому имени.',13,'mute'));return
-        role=self.role;full=a.lola_build(c,role);offmeta=a.offmeta_build(c,role);players=a.player_builds(c,role);match=a.lola_matchup(c,role,self.opponent) if self.opponent else None
+        role = self.role
+        ranked = role in core.ROLES
+        self.enemy.setEnabled(ranked)
+        full = a.lola_build(c, role)
+        if role == 'ARAM':
+            self.body_box.addWidget(row(a.icons.label('champ',c,68), Label(a.data.cn(c),25,bold=True,serif=True)))
+            self.body_box.addWidget(Label('ARAM · все ранги',10,'mute'))
+            variant = full if full and full.get('perks') else None
+            self.body_box.addWidget(loadout(a, full, variant))
+            status = lola_status(a, (c,role), c, role, full)
+            if status:
+                self.body_box.addWidget(status)
+            return
+        offmeta = a.offmeta_build(c, role)
+        players = a.player_builds(c, role)
+        match = a.lola_matchup(c,role,self.opponent) if self.opponent else None
         self.body_box.addWidget(row(a.icons.label('champ',c,68),Label(a.data.cn(c),25,bold=True,serif=True),Button('Убрать из пула' if c in a.current_pool()[role] else 'Добавить в пул',self.toggle_pool)))
         self.body_box.addWidget(row(Button('Все матчапы',lambda:self.select_build('general','pick'),self.context=='general'),Button('Против оппонента',lambda:self.select_build('matchup','pick'),self.context=='matchup')) if self.opponent else Label('EUW · Изумруд+ · все матчапы',10,'mute'))
         source=match if self.context=='matchup' else full;options=draft_model.build_options(source);buttons=row()

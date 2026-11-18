@@ -17,18 +17,18 @@ def get(url):
   raise Exception('fail '+url)
 out=json.load(open('arena.json')) if os.path.exists('arena.json') else []
 have={g['id'] for g in out}
-try: pu=puuids(K)
-except Exception as e: print('arena: аккаунты не получены',e); sys.exit(0)
+pu=puuids(K)
 ids=set()
 for w,p in pu.items():
   st=0
   while True:
-    l=get(B+f'by-puuid/{p}/ids?queue=1700&startTime={SEASON}&start={st}&count=100') or []
+    l=get(B+f'by-puuid/{p}/ids?queue=1700&startTime={SEASON}&start={st}&count=100')
+    if not isinstance(l,list): raise ValueError('Riot не вернул список матчей Арены')
     ids|=set(l); st+=100
     if len(l)<100: break
 new=sorted(ids-have)
 print('arena new',len(new),file=sys.stderr)
-if os.environ.get('GITHUB_OUTPUT'): open(os.environ['GITHUB_OUTPUT'],'a').write(f'arena={len(new)}\n')
+
 mine={p:w for w,p in pu.items()}
 for m in new:
   x=get(B+m)
@@ -45,3 +45,7 @@ for m in new:
 out.sort(key=lambda g:-g['t'])
 json.dump(out,open('arena.json','w'),ensure_ascii=False,separators=(',',':'))
 print('arena total',len(out),file=sys.stderr)
+
+if os.environ.get('GITHUB_OUTPUT'):
+  with open(os.environ['GITHUB_OUTPUT'],'a') as stream:
+    print(f'arena={len({g["id"] for g in out} - have)}', file=stream)

@@ -109,7 +109,7 @@ class LaneOverlay(Overlay):
         value.row(('text','против '+self.app.data.cn(o['c']),render.OVERLAY['fg'],11,False))
         segs = ([('img', icon)] if icon else []) + [('img',value.render())]
         c.row(*segs)
-        c.row(('text', f"ур. {me['lvl']} / {o['lvl']} · CS {me['cs']} / {o['cs']} · {o['k']}/{o['d']}/{o['a']}", 'mute', 10, False))
+        c.row(('text', f"ур. {me['lvl']} / {o['lvl']} · CS {me['cs'] if me['cs'] is not None else '—'} / {o['cs'] if o['cs'] is not None else '—'} · {o['k']}/{o['d']}/{o['a']}", 'mute', 10, False))
         self.put(c)
 
     def demo(self):

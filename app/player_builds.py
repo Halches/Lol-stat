@@ -32,7 +32,7 @@ def record(build,champion,role,patch):
     variant,situ=decoded if decoded else (None,[])
     return {'id':bid,'name':name.strip(),'kind':player['type'],'champion':champion,'role':role,'patch':patch,
             'games':n,'winrate':w/n*100,'perks':runes,'variant':variant,'situ':situ,
-            'source':'Mobalytics','source_url':detail_url(champion,bid),'region':'ALL','tier':'EmeraldPlus'}
+            'source':'Mobalytics','source_url':detail_url(champion,bid,patch),'region':'ALL','tier':'EmeraldPlus'}
 
 
 def listing(cache,champion,role):
@@ -49,9 +49,9 @@ def listing(cache,champion,role):
     return {'champion':champion,'role':role,'patch':filters['patch'],'groups':groups}
 
 
-def detail_url(champion,bid):
+def detail_url(champion,bid,patch):
     if not isinstance(bid,str) or not re.fullmatch(r'\d{1,20}',bid):raise ValueError('Некорректная сборка')
-    return data.url(champion)+'?buildID='+bid
+    return data.url(champion)+'?buildID='+bid+'&patch='+patch
 
 
 def detail(cache,expected):

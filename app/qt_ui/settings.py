@@ -90,6 +90,7 @@ class SettingsPage(Page):
         b=self.section('Показатели')
         for key,title in [('csm','Фарм / мин'),('gpm','Золото / мин'),('kda','KDA'),('kp','Участие'),('vsm','Обзор / мин')]:b.addWidget(check(title,a.s['perf']['metrics'].get(key),lambda v,k=key:self.perf('metrics',v,k)))
         b.addWidget(combo({'vertical':'В столбец','horizontal':'В строку'},a.s['perf']['layout'],lambda v:self.perf('layout',v)))
+        b.addWidget(Label('Если источник даёт только CS за весь матч, сравнение фарма с Изумруд+ по минутам недоступно.',10,'mute'))
         b.addWidget(combo({'norm':'Сравнение с твоей нормой','emerald':'Сравнение с Изумруд+'},a.s['perf']['compare'],lambda v:self.perf('compare',v)))
         b=self.section('Tab и второе окно')
         for key,title in [('scoreboard','Перевес поверх таблицы Tab'),('tab_auto','Автоматически находить таблицу Tab'),('dashboard','Окно драфта и игры'),('postgame','Послематчевый разбор')]:b.addWidget(check(title,a.s[key],lambda v,k=key:self.set(k,v)))

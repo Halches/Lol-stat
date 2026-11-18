@@ -155,7 +155,11 @@ class Dashboard(QWidget):
         if c:
             stats=core.arena_stats(games,c);external=a.lola_fetch('arena',c,'ARENA')
             self.box.addWidget(Label(a.data.cn(c),20,'gold',serif=True))
-            if external:self.box.addWidget(Label(f"Изумруд+: {external['wr']:.1f}% · {external['n']} игр"))
+            if external:
+                self.box.addWidget(Label(f"Изумруд+ · 30 дней · {external['wr']:.1f}% · {external['n']} игр"))
+            status = lola_status(a, ('arena',c,'ARENA'), c, 'ARENA', external)
+            if status:
+                self.box.addWidget(status)
             if stats:self.box.addWidget(Label(f"Ты: {stats['n']} игр · место {stats['avg']:.1f} · топ-4 {stats['top4']:.0f}%"))
         self.box.addWidget(Label('Твои лучшие в Арене',17,'gold',serif=True))
         for c,st in core.arena_best(games):self.box.addWidget(row(a.icons.label('champ',c,36),Label(f"{a.data.cn(c)} · место {st['avg']:.1f} · {st['n']} игр")))
@@ -194,7 +198,7 @@ class Dashboard(QWidget):
         self.objectives.setText(' · '.join(f'{key}: {core.mmss(t-g.t) if t>g.t else "на карте"}' for key,t in g.objectives().items() if type(t) in (int,float)))
         for p in g.players:
             card=self.cards[p['riot']];card['name'].setText(a.data.cn(p['c'])+f" · {p['k']}/{p['d']}/{p['a']}"+(' · мёртв '+core.mmss(p['respawn']) if p['dead'] else ''))
-            line = f"{core.ROLE_RU.get(p['pos'],'')} · {p['lvl']} ур. · CS {p['cs']} · предметы {p['igold']:.0f}"
+            line = f"{core.ROLE_RU.get(p['pos'],'')} · {p['lvl']} ур. · CS {p['cs'] if p['cs'] is not None else '—'} · предметы {p['igold']:.0f}"
             rank = ranks.get(p['riot'])
             if rank and a.s['show']['ranks']:
                 line += '\n' + rank_short(rank)

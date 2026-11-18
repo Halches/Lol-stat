@@ -22,6 +22,19 @@ class PlayerBuildTests(unittest.TestCase):
                 with self.subTest(player=row['name']):
                     detail=model.detail(FIXTURE['pages'][row['id']],row);self.assertIsNotNone(detail)
                     self.assertEqual(detail['id'],row['id']);self.assertEqual(detail['name'],row['name']);self.assertIsNotNone(detail['variant'])
+    def test_detail_url_pins_patch_and_preserves_five_recorded_items(self):
+        row = self.listing()['groups']['Pro'][0]
+        self.assertIn('patch='+row['patch'], row['source_url'])
+        page = copy.deepcopy(FIXTURE['pages'][row['id']])
+        build = next(v for v in page.values() if v.get('id') == row['id'])
+        groups = {item['type']: item for item in build['items']}
+        core = groups['Core']['items']
+        full = list(dict.fromkeys(core + groups['FullBuild']['items']))
+        groups['FullBuild']['items'] = full[:5]
+        variant = model.detail(page, row)['variant']
+        self.assertEqual(variant['core'] + variant['i4'] + variant['i5'], full[:5])
+        self.assertEqual(variant['i6'], [])
+
     def test_wrong_player_id_kind_and_patch_rejected(self):
         row=self.listing()['groups']['Pro'][0];page=FIXTURE['pages'][row['id']]
         for key,value in [('id','123'),('name','Somebody else'),('kind','OTP'),('patch','16.20'),('role','TOP')]:

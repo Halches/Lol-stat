@@ -50,7 +50,7 @@ class PlayerBuildSource:
                 index_ttl=300 if saved.get('partial') else 12*3600
                 fresh=packet and type(stamp) in (int,float) and 0<stamp<=now and now-stamp<index_ttl
                 if not fresh:
-                    index=self.read(offmeta_data.url(champion));packet=player_builds.listing(index,champion,role);stamp=time.time()
+                    index=self.read(offmeta_data.url(champion,role));packet=player_builds.listing(index,champion,role);stamp=time.time()
                 if not packet:raise ValueError('Источник не подтвердил чемпиона и роль')
                 packet.update(fetched_at=stamp,partial=True)
                 pages=saved.get('pages') if isinstance(saved.get('pages'),dict) else {}
@@ -68,7 +68,10 @@ class PlayerBuildSource:
                         recent=cached and type(date) in (int,float) and 0<date<=now and now-date<12*3600
                         try:
                             if not recent:
-                                page=self.read(row['source_url']);resolved=player_builds.detail(page,row)
+                                page = self.read(row['source_url'])
+                                if not player_builds.context(page, champion, role):
+                                    page = self.read(row['source_url'] + '&role=' + offmeta_data.ROLES[role])
+                                resolved = player_builds.detail(page,row)
                                 if not resolved:raise ValueError('Не подтверждена полная сборка '+row['name'])
                                 pages[bid]=page;dates[bid]=time.time()
                             else:resolved=cached

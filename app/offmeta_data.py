@@ -11,7 +11,9 @@ def slug(champion):
     if not isinstance(champion,str) or not re.fullmatch(r'[A-Za-z0-9]+',champion):raise ValueError('Некорректный чемпион')
     return SLUGS.get(champion,champion.lower())
 
-def url(champion):return 'https://mobalytics.gg/lol/champions/'+quote(slug(champion))+'/build'
+def url(champion, role=None):
+    path = 'https://mobalytics.gg/lol/champions/'+quote(slug(champion))+'/build'
+    return path + '?role=' + ROLES[role] if role in ROLES else path
 
 def ids(values,length=None):
     return isinstance(values,list) and (length is None or len(values)==length) and all(type(x) is int and x>0 for x in values)
@@ -82,11 +84,12 @@ def equipment(build):
         if isinstance(row,dict) and ids(row.get('items')):groups[row.get('type')]=row['items']
     if not groups.get('Core') or not groups.get('FullBuild') or not groups.get('Starter'):return None
     items=list(dict.fromkeys(groups['Core']+groups['FullBuild']))
-    if len(items)!=6:return None
+    if not 5 <= len(items) <= 6:
+        return None
     order,priority=build.get('skillOrder'),build.get('skillMaxOrder')
     if not ids(order) or len(order)>18 or any(x>4 for x in order) or not ids(priority,3) or set(priority)!={1,2,3}:return None
     variant={'prim':perks['style'],'sec':perks['subStyle'],'perks':perks['IDs'][:6],'shards':perks['IDs'][6:],
              'spells':[core.SPELL_KEY[s] for s in spells],'start':groups['Starter'],'core':items[:3],
-             'i4':[items[3]],'i5':[items[4]],'i6':[items[5]],'skills':''.join('QWER'[x-1] for x in order),'skill_prio':''.join('QWER'[x-1] for x in priority)}
+             'i4':items[3:4],'i5':items[4:5],'i6':items[5:6],'skills':''.join('QWER'[x-1] for x in order),'skill_prio':''.join('QWER'[x-1] for x in priority)}
     situ=[(iid,*core.SITU[iid]) for iid in groups.get('Situational',[]) if iid in core.SITU]
     return variant,situ
