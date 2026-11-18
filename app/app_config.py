@@ -127,7 +127,7 @@ DEFAULTS = {
     'widgets': {k: False for k in WIDGETS},
     'widget_pins': {},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
-    'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
+    'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True, 'augment_advice': True,
     'draft_scope': 'pool', 'draft_build_context': 'general', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
     'theme': 'lol', 'accent': 'theme', 'font': 'Golos Text', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
@@ -140,7 +140,7 @@ DEFAULTS = {
 SECTIONS = {   # что сбрасывает кнопка «По умолчанию» в каждом разделе
     'hints': ['hints', 'hints_role'], 'voice': ['voice', 'volume', 'rate', 'master', 'beep_volume', 'sound'],
     'look': ['theme', 'accent', 'font', 'scale', 'icon', 'alpha', 'widget_bg', 'show'],
-    'windows': ['widgets', 'widget_pins', 'perf', 'tab_step', 'tab_pos', 'tab_rect', 'tab_auto', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
+    'windows': ['widgets', 'widget_pins', 'perf', 'tab_step', 'tab_pos', 'tab_rect', 'tab_auto', 'augment_advice', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
 }
 
 SETTING_RANGES = {

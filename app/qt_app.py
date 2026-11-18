@@ -17,6 +17,7 @@ from qt_ui.champion import ChampionPage
 from qt_ui.settings import HintsPage,SettingsPage
 from qt_ui.overlays import HintsOverlay,PerfOverlay,LaneOverlay,InventoryOverlay,ItemOverlay,TimersOverlay,ArenaOverlay
 from qt_ui.tab_overlay import TabPlates
+from qt_ui.augment_overlay import AugmentOverlay
 from qt_ui.dashboard import Dashboard
 
 class Window(QMainWindow):
@@ -48,6 +49,7 @@ class App(ApplicationServices):
         for folder in (Path(bundle_dir())/'fonts',Path(bundle_dir())/'qt_ui/fonts'):
             for font in folder.glob('*.ttf'):QFontDatabase.addApplicationFont(str(font))
         self.configure_theme();self.set_who(self.s['who'] or 'halch')
+        self.augment_overlay=AugmentOverlay(self)
         self.create_overlays();self.build_window();self.sync_voice()
         self.shortcut=QShortcut(QKeySequence('Escape'),self.window);self.shortcut.activated.connect(self.stop_demo)
         if not offline:
@@ -329,6 +331,7 @@ class App(ApplicationServices):
         self.root.after(1000,self.tick_ui)
     def shutdown(self):
         if self.stopping.is_set():return
+        self.augment_overlay.close()
         self.stopping.set();self.root.scheduler.stop();self._import_generation=getattr(self,'_import_generation',0)+1
         for w in list(self.ov.values())+list(self.tab.values()):w.close()
         if self.dash:self.dash.hide();self.dash.deleteLater();self.dash=None

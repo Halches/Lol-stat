@@ -10,3 +10,5 @@ app/assets.json
 
 # Generated match archive, rebuilt from tools/games.json.
 app/history-details.json
+
+app/augment_data/tessdata/

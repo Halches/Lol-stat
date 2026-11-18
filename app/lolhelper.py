@@ -262,6 +262,18 @@ def selftest():
         assert tab_detect.detect(Image.new('RGB',(640,480)),{},[]) is None
         out.append('OpenCV и распознавание Tab: OK')
         if FROZEN:
+            from augment_scan import Reader
+            from augment_advice import names, popularity
+            from PIL import ImageDraw, ImageFont
+            probe = Image.new('RGB', (1600, 300), '#101c24')
+            pen = ImageDraw.Draw(probe)
+            font = ImageFont.truetype(str(Path(sys._MEIPASS)/'qt_ui/fonts/PT_Serif-Web-Bold.ttf'), 26)
+            for x, title in zip((450, 800, 1150), ('Проворство', 'Тяжеловес', 'Голиаф')):
+                pen.text((x, 120), title, fill='#eedfc7', font=font, anchor='mt')
+            detected = Reader().read(probe, 'arena', 1080)
+            assert [card['ru'] for _, _, card in detected] == ['Проворство', 'Тяжеловес', 'Голиаф']
+            assert names("mayhem") and popularity()["rates"]
+            out.append("Распознавание аугментаций RU/EN: OK")
             import edge_tts,webview,sitewin
             from voice import Voice
             with tempfile.TemporaryDirectory(prefix='lolhelper-voice-test-') as directory:

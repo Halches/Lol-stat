@@ -92,6 +92,18 @@ class SettingsPage(Page):
         b.addWidget(combo({'vertical':'В столбец','horizontal':'В строку'},a.s['perf']['layout'],lambda v:self.perf('layout',v)))
         b.addWidget(Label('Если источник даёт только CS за весь матч, сравнение фарма с Изумруд+ по минутам недоступно.',10,'mute'))
         b.addWidget(combo({'norm':'Сравнение с твоей нормой','emerald':'Сравнение с Изумруд+'},a.s['perf']['compare'],lambda v:self.perf('compare',v)))
+        b=self.section('Аугментации')
+        b.addWidget(check('Подсказки над карточками Арены и ARAM Хаоса', a.s['augment_advice'],
+                          lambda enabled: self.set('augment_advice', enabled)))
+        b.addWidget(Label('Распознаёт видимые названия на русском и английском. Совместимость оценена по механике чемпиона.',10,'mute'))
+        b.addWidget(Label('Оценка над карточкой показывает, насколько аугментация подходит чемпиону или его классу.',10,'mute'))
+        b.addWidget(Label('«Берут» показывает долю выбора на текущем чемпионе. Патч указан рядом с процентом.',10,'mute'))
+        b.addWidget(Button('Источник частоты выбора в Арене · ggez.gg (CC BY 4.0)',
+                           lambda: a.open_url('https://ggez.gg/tierlist/arena/augments')))
+        b.addWidget(Button('Источник частоты выбора в Хаосе · arammayhem.com',
+                           lambda: a.open_url('https://arammayhem.com/builds/')))
+        a.augment_status=Label(a.augment_overlay.status,10,'mute')
+        b.addWidget(a.augment_status)
         b=self.section('Tab и второе окно')
         for key,title in [('scoreboard','Перевес поверх таблицы Tab'),('tab_auto','Автоматически находить таблицу Tab'),('dashboard','Окно драфта и игры'),('postgame','Послематчевый разбор')]:b.addWidget(check(title,a.s[key],lambda v,k=key:self.set(k,v)))
         a.tab_auto_label=Label(next(iter(a.tab.values())).auto_status if a.tab else 'Ожидаю Tab',10,'mute');b.addWidget(a.tab_auto_label)

@@ -188,7 +188,7 @@ def verify_live_audit(app, check, cs):
     stopper.is_set.side_effect = lambda: len(states) >= len(snapshots)
     stopper.wait.side_effect = drain_sample
     with (patch.object(lcu, 'live_data', side_effect=snapshots),
-          patch.object(app.client, 'live_match_id', return_value=102),
+          patch.object(app.client, 'live_match_context', return_value=(102, 420)),
           patch.object(app.client, 'phase', side_effect=[None, 'Reconnect', 'EndOfGame', 'EndOfGame']),
           patch.object(app.client, 'me', return_value=None),
           patch.object(app, 'stopping', stopper), patch.object(app.root, 'after'),
@@ -197,7 +197,7 @@ def verify_live_audit(app, check, cs):
         app.poll()
     check('Обрыв связи и переподключение сохраняют снимок и карточки', states[0][0] is states[1][0] is states[2][0]
           and 'последние данные в 15:00' in states[1][1] and states[1][2] == states[2][2] == 10
-          and states[3][0].t == 902 and 'Игра: 15:02' in states[3][1])
+          and states[3][0].queue_id == 420 and states[3][0].t == 902 and 'Игра: 15:02' in states[3][1])
     check('Подтверждённый конец матча показывает итог один раз',
           states[4][0] is None and states[4][1] == 'Игра закончилась' and postgame.call_count == 1
           and postgame.call_args.args[0].get('match_id') == 102)

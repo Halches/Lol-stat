@@ -1,0 +1,661 @@
+{
+  "source": "https://arammayhem.com/data/",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "patch": "26.22",
+  "date": "2026-11-16",
+  "rates": {
+    "ADAPt": 37.84,
+    "All For You": 2.9,
+    "Apex Inventor": 10.51,
+    "Archmage": 37.37,
+    "Back To Basics": 29.86,
+    "From Downtown": 15.25,
+    "Big Brain": 9.23,
+    "Blade Waltz": 11.41,
+    "Blunt Force": 47.48,
+    "Bread And Butter": 26.07,
+    "Bread and Cheese": 19.61,
+    "Bread And Jam": 16.24,
+    "Can't Touch This": 13.44,
+    "Celestial Body": 20.16,
+    "Circle of Death": 8.78,
+    "Clown College": 27.31,
+    "Courage of the Colossus": 9.26,
+    "Critical Healing": 2.75,
+    "Cruelty": 9.44,
+    "Dashing": 17.07,
+    "Dawnbringer's Resolve": 12.38,
+    "Deft": 27.61,
+    "Dive Bomber": 21.36,
+    "Rite of Ascension": 15.16,
+    "Divine Intervention": 8.35,
+    "Don't Blink": 6.66,
+    "Double Tap": 13.68,
+    "Draw Your Sword": 15.24,
+    "Dual Wield": 26.11,
+    "Empowered By The Faithful": 3.31,
+    "En Passant": 7.67,
+    "Erosion": 19.63,
+    "Ethereal Weapon": 40.19,
+    "Eureka": 44.09,
+    "Fey Magic": 13,
+    "Firebrand": 10.29,
+    "FireFox": 9.5,
+    "First-Aid Kit": 4.61,
+    "Flashbang": 0.5,
+    "From Beginning To End": 28.76,
+    "Get Excited!": 16.39,
+    "Giant Slayer": 28.61,
+    "Goliath": 35.61,
+    "Goredrink": 34.99,
+    "Heavy Hitter": 27.72,
+    "Homeguard": 26.51,
+    "Ice Cold": 20.93,
+    "Titan's Resolve": 17.93,
+    "Impassable": 4.73,
+    "Infernal Conduit": 21.67,
+    "Infernal Soul": 14.38,
+    "Triggered Inferno": 15.82,
+    "It's Critical": 13.55,
+    "It's Killing Time": 19.56,
+    "Jeweled Gauntlet": 57.41,
+    "Juiced": 13.23,
+    "Leg Day": 24.25,
+    "Light 'Em Up!": 7.25,
+    "Mad Scientist": 36.32,
+    "Magic Missile": 23.88,
+    "Marksmage": 18.64,
+    "Master of Duality": 11.53,
+    "Mind to Matter": 17.19,
+    "Minionmancer": 5.55,
+    "Mountain Soul": 3.76,
+    "Multishot": 6.61,
+    "Mystic Punch": 31.54,
+    "Ocean Soul": 16.2,
+    "Ok Boomerang": 2.61,
+    "Omni Soul": 9.71,
+    "Outlaw's Grit": 8.41,
+    "Overflow": 9.99,
+    "Pandora's Box": 20.49,
+    "Phenomenal Evil": 28.55,
+    "Protein Shake": 3.16,
+    "Purist - Caster": 37.16,
+    "Icathia's Fall": 9.15,
+    "Quickstep": 7.62,
+    "Recursion": 55.22,
+    "Scoped Weapons": 20.32,
+    "Scopier Weapons": 28.37,
+    "Scopiest Weapons": 20.64,
+    "Searing Dawn": 3.32,
+    "Shadow Runner": 22.81,
+    "Shrink Ray": 9.22,
+    "Skilled Sniper": 23.82,
+    "Slap Around": 13.52,
+    "Snowday": 10.15,
+    "Sonic Boom": 3.91,
+    "Soul Siphon": 31.51,
+    "Pursuit of Haste": 23.86,
+    "Spin To Win": 15.65,
+    "Stackosaurus Rex": 6.65,
+    "Stats!": 8.51,
+    "Stats on Stats!": 14.65,
+    "Stats on Stats on Stats!": 8.22,
+    "Stuck In Here With Me": 6.13,
+    "Siphon": 15.38,
+    "Symphony of War": 13.7,
+    "Tank Engine": 34.79,
+    "Tank It Or Leave It": 18.1,
+    "Tap Dancer": 12.13,
+    "Thread the Needle": 24.15,
+    "Transmute: Chaos": 30.1,
+    "Transmute: Prismatic": 59.85,
+    "Typhoon": 15.14,
+    "Ultimate Revolution": 21.82,
+    "Ultimate Unstoppable": 18.21,
+    "Upgrade Collector": 30.11,
+    "Upgrade Infinity Edge": 33.97,
+    "Upgrade Immolate": 14.28,
+    "Upgrade Sheen": 13.96,
+    "Upgrade Zhonya's": 20.41,
+    "Vulnerability": 26.65,
+    "Wee Woo Wee Woo": 2.31,
+    "Windspeaker's Blessing": 2.23,
+    "Witchful Thinking": 28.45,
+    "With Haste": 16.27,
+    "Zealot": 29.03,
+    "escAPADe": 20.79,
+    "Echo Cast": 8.72,
+    "Arcane Axiom": 32.14,
+    "Armored Impact": 21.55,
+    "BEES!!!": 57.44,
+    "Big Shot": 24.71,
+    "Biggest Snowball Ever": 26.82,
+    "Blue Barrier": 12.05,
+    "BONK!": 8.79,
+    "Bouncing Bees": 11.06,
+    "Brass Blast": 7.64,
+    "Chain Reaction": 6.81,
+    "CRIMSON COBALT": 24.15,
+    "Critical Rhythm": 20.61,
+    "Ravenous Bind": 17.69,
+    "Donation": 24.08,
+    "Don't Change the Channel": 6.2,
+    "Double Time": 10.03,
+    "Empyrean Promise": 1.64,
+    "Enchanting Butterflies": 6.25,
+    "Escape Plan": 34.21,
+    "Final Form": 23.4,
+    "Flash 2": 0.48,
+    "Flow of Spirit": 14.86,
+    "Fruitify": 9.02,
+    "Get Jinxed": 18.82,
+    "Gift of the Drowned": 11.16,
+    "Glass Cannon": 4.98,
+    "Holy Snowball": 7.98,
+    "Goldrend": 7.7,
+    "Group Hug": 1.79,
+    "Growth Spurt": 12.96,
+    "Hand of Baron": 4.73,
+    "Hands off the Talent": 9.17,
+    "Heavy Is The Crown": 16.89,
+    "Hextech Soul": 14.74,
+    "Infinite Recursion": 35.55,
+    "It's Go Time": 7.57,
+    "Jeweled Bracelet": 27.02,
+    "Kill Secured": 9.12,
+    "King Me": 4.11,
+    "Lich Brain": 20.58,
+    "Lil' Extra Help": 13.11,
+    "Lonely Warrior": 18.05,
+    "Mercy's Strike": 1.98,
+    "Mighty Shield": 3.11,
+    "Spell Split": 9.27,
+    "Mosh Monster": 2.63,
+    "Nightstalking": 15.06,
+    "No Mana, No Problem": 20.06,
+    "Ominous Pact": 9.27,
+    "Overextender": 2.82,
+    "Pin Cushion": 5.23,
+    "Overloaded": 16.51,
+    "Porcupine": 6.74,
+    "Pinball": 9.27,
+    "Poltergeist": 2.88,
+    "Pressure Cooker": 12.6,
+    "Prom Queen": 2.88,
+    "Ultra Hydra": 18.39,
+    "Recoil": 9.71,
+    "Salvation": 9.81,
+    "Sap Magic": 16.94,
+    "Shrink Engine": 50.24,
+    "Sonata": 3.36,
+    "Soul Eater": 7.93,
+    "Sound Barrier": 1.9,
+    "Tripleshot": 5.89,
+    "Still Here": 38.71,
+    "Swift and Safe": 11.84,
+    "Take'em Down Down Down": 37.94,
+    "Terrain'd": 4.13,
+    "The Boom and the Bass": 46.36,
+    "Third Times the Harm": 8.14,
+    "Tickle Monster": 7.18,
+    "Stay Resolute": 8.21,
+    "Totentanz": 5.99,
+    "Trusty Weapon": 7.78,
+    "Twin Fire": 32.65,
+    "Ultimate Awakening": 23.94,
+    "Ultimate Recursion": 44.91,
+    "Upgrade Death's Dance": 25.19,
+    "Upgrade Stormsurge": 28.97,
+    "Adaptive Ward": 4.87,
+    "Warlock Juicebox": 37.86,
+    "Weapon of Destiny": 52.62,
+    "Spin Me Right Round": 2.55,
+    "Bread And Cheese": 19.61,
+    "Firefox": 9.5,
+    "From Beginning to End": 28.76,
+    "Light 'em Up!": 7.25,
+    "OK Boomerang": 2.61,
+    "Quest: Steel Your Heart": 25.84,
+    "Quest: Wooglet's Witchcap": 19.92
+  },
+  "champion_pairs": {
+    "Brand": {
+      "Infernal Conduit": "strong",
+      "Magic Missile": "strong"
+    },
+    "Shyvana": {
+      "Marksmage": "trap"
+    },
+    "Ryze": {
+      "ADAPt": "strong",
+      "Mind to Matter": "strong",
+      "Goliath": "strong",
+      "Mad Scientist": "strong",
+      "Tank Engine": "strong",
+      "Overflow": "strong"
+    },
+    "DrMundo": {
+      "Vampirism": "trap",
+      "Protein Shake": "trap",
+      "Heavy Hitter": "strong"
+    },
+    "Graves": {
+      "Back To Basics": "strong",
+      "Slow and Steady": "strong",
+      "Draw Your Sword": "strong"
+    },
+    "Morgana": {
+      "Skilled Sniper": "strong",
+      "Executioner": "strong",
+      "Infernal Conduit": "strong"
+    },
+    "Caitlyn": {
+      "Twice Thrice": "trap"
+    },
+    "AurelionSol": {
+      "Ice Cold": "strong",
+      "Stackosaurus Rex": "strong"
+    },
+    "Rell": {
+      "Cruelty": "strong",
+      "Courage of the Colossus": "strong"
+    },
+    "Fizz": {
+      "Infernal Conduit": "strong",
+      "Dashing": "strong",
+      "Fan the Hammer": "strong"
+    },
+    "Lillia": {
+      "Infernal Conduit": "strong",
+      "Spin To Win": "strong"
+    },
+    "Kayle": {
+      "Ethereal Weapon": "strong",
+      "Draw Your Sword": "trap",
+      "Marksmage": "strong"
+    },
+    "Zaahen": {
+      "Snowball Upgrade": "trap",
+      "Fan the Hammer": "strong",
+      "Blade Waltz": "strong",
+      "Orbital Laser": "strong"
+    },
+    "Veigar": {
+      "Eureka": "strong"
+    },
+    "Smolder": {
+      "Jeweled Gauntlet": "strong",
+      "Scopiest Weapons": "strong",
+      "Scopier Weapons": "strong",
+      "Scoped Weapons": "strong",
+      "Draw Your Sword": "trap"
+    },
+    "Kayn": {
+      "Dashing": "strong"
+    },
+    "Tristana": {
+      "Draw Your Sword": "strong",
+      "Fan the Hammer": "strong"
+    },
+    "Lucian": {
+      "Vulnerability": "strong",
+      "Jeweled Gauntlet": "strong"
+    },
+    "Mel": {
+      "Infernal Conduit": "trap",
+      "Skilled Sniper": "strong"
+    },
+    "Ornn": {
+      "Fey Magic": "strong"
+    },
+    "Aurora": {
+      "Ethereal Weapon": "strong",
+      "Dashing": "strong"
+    },
+    "Malzahar": {
+      "Infernal Conduit": "strong"
+    },
+    "TwistedFate": {
+      "Ethereal Weapon": "trap"
+    },
+    "Jayce": {
+      "Slow and Steady": "strong",
+      "Purist - Caster": "strong"
+    },
+    "Jax": {
+      "Upgrade Sheen": "strong"
+    },
+    "Kaisa": {
+      "Ethereal Weapon": "strong"
+    },
+    "Singed": {
+      "Infernal Conduit": "strong"
+    },
+    "MissFortune": {
+      "Skilled Sniper": "strong",
+      "Quest: Wooglet's Witchcap": "strong"
+    },
+    "Ekko": {
+      "Fan the Hammer": "strong",
+      "Ethereal Weapon": "strong"
+    },
+    "Corki": {
+      "Vulnerability": "strong",
+      "Jeweled Gauntlet": "strong"
+    },
+    "Garen": {
+      "Slow and Steady": "strong",
+      "Blade Waltz": "strong",
+      "Vampirism": "trap",
+      "Deft": "trap",
+      "Lightning Strikes": "trap",
+      "Jeweled Gauntlet": "trap"
+    },
+    "Gangplank": {
+      "Back To Basics": "strong",
+      "Don't Blink": "strong",
+      "Ethereal Weapon": "strong"
+    },
+    "Syndra": {
+      "Executioner": "strong",
+      "Cruelty": "strong"
+    },
+    "Hwei": {
+      "Cruelty": "strong"
+    },
+    "Kalista": {
+      "Dashing": "strong",
+      "Shadow Runner": "strong",
+      "Fan the Hammer": "strong"
+    },
+    "Yunara": {
+      "Master of Duality": "strong",
+      "Tap Dancer": "strong"
+    },
+    "Rumble": {
+      "Ethereal Weapon": "strong",
+      "Vulnerability": "strong"
+    },
+    "Darius": {
+      "Fan the Hammer": "trap",
+      "Blade Waltz": "trap"
+    },
+    "Hecarim": {
+      "Ultimate Awakening": "strong",
+      "Ethereal Weapon": "strong",
+      "Rabble Rousing": "strong"
+    },
+    "Sylas": {
+      "Dashing": "strong",
+      "Marksmage": "strong",
+      "Final Form": "strong",
+      "Ultimate Awakening": "strong"
+    },
+    "Seraphine": {
+      "Slap Around": "strong"
+    },
+    "Aphelios": {
+      "Back To Basics": "strong"
+    },
+    "Jhin": {
+      "Back To Basics": "strong"
+    },
+    "Viktor": {
+      "Ethereal Weapon": "trap"
+    },
+    "Pantheon": {
+      "Back To Basics": "strong"
+    },
+    "Ambessa": {
+      "Back To Basics": "strong",
+      "Rabble Rousing": "strong",
+      "Ethereal Weapon": "trap",
+      "Dashing": "trap"
+    },
+    "Senna": {
+      "Dual Wield": "strong",
+      "Ethereal Weapon": "strong",
+      "Draw Your Sword": "strong",
+      "Stackosaurus Rex": "strong"
+    },
+    "Twitch": {
+      "Infernal Conduit": "trap",
+      "Ethereal Weapon": "trap",
+      "Fey Magic": "strong",
+      "Marksmage": "strong"
+    },
+    "Mordekaiser": {
+      "Protein Shake": "strong"
+    },
+    "Lux": {
+      "Ethereal Weapon": "strong"
+    },
+    "Maokai": {
+      "Circle of Death": "strong"
+    },
+    "Sivir": {
+      "Vulnerability": "trap",
+      "Skilled Sniper": "strong",
+      "Ethereal Weapon": "trap"
+    },
+    "Kindred": {
+      "Back To Basics": "strong",
+      "Stackosaurus Rex": "strong"
+    },
+    "Rengar": {
+      "Scopiest Weapons": "strong",
+      "Scopier Weapons": "strong",
+      "Scoped Weapons": "strong"
+    },
+    "Riven": {
+      "Ethereal Weapon": "trap"
+    },
+    "Pyke": {
+      "Dashing": "trap"
+    },
+    "Talon": {
+      "Ethereal Weapon": "strong"
+    },
+    "Ezreal": {
+      "Ethereal Weapon": "strong"
+    },
+    "Heimerdinger": {
+      "It's Killing Time": "trap"
+    },
+    "Viego": {
+      "Jeweled Gauntlet": "strong"
+    },
+    "Urgot": {
+      "Slow and Steady": "strong",
+      "Blade Waltz": "strong"
+    },
+    "Swain": {
+      "Slap Around": "strong",
+      "Cruelty": "strong"
+    },
+    "Aatrox": {
+      "Slap Around": "strong"
+    },
+    "Fiddlesticks": {
+      "Clown College": "strong",
+      "Light 'em Up!": "trap",
+      "Blade Waltz": "strong",
+      "Upgrade Zhonya's": "strong"
+    },
+    "Katarina": {
+      "Slow and Steady": "strong",
+      "Master of Duality": "strong",
+      "Vulnerability": "strong",
+      "Lightning Strikes": "trap",
+      "Ethereal Weapon": "strong"
+    },
+    "Udyr": {
+      "Ethereal Weapon": "strong",
+      "Scopiest Weapons": "strong",
+      "Jeweled Gauntlet": "strong"
+    },
+    "Briar": {
+      "Dashing": "strong",
+      "Executioner": "strong"
+    },
+    "Thresh": {
+      "Cruelty": "trap"
+    },
+    "Samira": {
+      "Blade Waltz": "strong",
+      "Clown College": "strong",
+      "Draw Your Sword": "strong",
+      "Vulnerability": "trap",
+      "Ethereal Weapon": "strong"
+    },
+    "Illaoi": {
+      "Ethereal Weapon": "strong",
+      "Glass Cannon": "strong",
+      "Blade Waltz": "strong"
+    },
+    "Naafiri": {
+      "Infernal Conduit": "strong",
+      "Ethereal Weapon": "strong"
+    },
+    "Draven": {
+      "Spin To Win": "strong"
+    },
+    "Gragas": {
+      "Ethereal Weapon": "strong"
+    },
+    "Zac": {
+      "Circle of Death": "strong"
+    },
+    "Akshan": {
+      "Dual Wield": "strong"
+    },
+    "Kennen": {
+      "Clown College": "strong"
+    },
+    "Yorick": {
+      "Ethereal Weapon": "strong"
+    },
+    "Lissandra": {
+      "Don't Blink": "strong"
+    },
+    "Rammus": {
+      "Ethereal Weapon": "strong"
+    },
+    "Zeri": {
+      "Fey Magic": "strong",
+      "Slow and Steady": "trap",
+      "Upgrade Infinity Edge": "strong"
+    },
+    "Leblanc": {
+      "Dashing": "strong"
+    },
+    "Nunu": {
+      "Circle of Death": "strong",
+      "Overflow": "trap"
+    },
+    "Yuumi": {
+      "Circle of Death": "strong"
+    },
+    "Azir": {
+      "Magic Missile": "strong",
+      "Minionmancer": "trap",
+      "Scopiest Weapons": "trap",
+      "Marksmage": "strong"
+    },
+    "Bard": {
+      "Ethereal Weapon": "trap",
+      "Orbital Laser": "strong"
+    },
+    "Braum": {
+      "Blade Waltz": "strong"
+    },
+    "Vayne": {
+      "Dual Wield": "strong",
+      "Fan the Hammer": "strong",
+      "Twice Thrice": "strong"
+    },
+    "Alistar": {
+      "Executioner": "strong"
+    },
+    "MonkeyKing": {
+      "Blade Waltz": "strong"
+    },
+    "Renata": {
+      "Slap Around": "strong",
+      "Cruelty": "strong"
+    },
+    "XinZhao": {
+      "Master of Duality": "strong"
+    },
+    "Leona": {
+      "Infernal Conduit": "strong"
+    },
+    "Nautilus": {
+      "Courage of the Colossus": "strong"
+    },
+    "Malphite": {
+      "Ultimate Revolution": "strong"
+    },
+    "Sett": {
+      "Clown College": "strong",
+      "Jeweled Gauntlet": "strong",
+      "Back To Basics": "strong"
+    },
+    "Gwen": {
+      "Ethereal Weapon": "strong"
+    },
+    "MasterYi": {
+      "Mystic Punch": "strong"
+    },
+    "Yasuo": {
+      "Swift and Safe": "strong"
+    },
+    "Neeko": {
+      "From Beginning to End": "trap",
+      "Poro Blaster": "trap"
+    },
+    "Diana": {
+      "Critical Healing": "strong"
+    },
+    "Zed": {
+      "Executioner": "trap"
+    },
+    "Shaco": {
+      "Executioner": "strong",
+      "Back To Basics": "strong",
+      "Quantum Computing": "strong",
+      "Clown College": "strong",
+      "Don't Blink": "strong",
+      "Slow and Steady": "trap",
+      "Vampirism": "trap",
+      "Poro Blaster": "trap"
+    },
+    "JarvanIV": {
+      "Dive Bomber": "strong"
+    },
+    "Yone": {
+      "Critical Healing": "strong"
+    },
+    "Vladimir": {
+      "Infernal Conduit": "strong"
+    },
+    "Karthus": {
+      "Clown College": "strong",
+      "Ultimate Revolution": "strong",
+      "Infinite Recursion": "strong",
+      "Eureka": "strong"
+    },
+    "Janna": {
+      "Skilled Sniper": "strong"
+    },
+    "Evelynn": {
+      "Bread And Butter": "strong"
+    },
+    "Teemo": {
+      "Marksmage": "strong"
+    },
+    "Zyra": {
+      "Ethereal Weapon": "strong"
+    }
+  }
+}

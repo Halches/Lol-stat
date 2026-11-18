@@ -138,14 +138,19 @@ class ApplicationServices:
                     if not in_game:
                         self.ranks, self.hists, self.scout = {}, {}, {}
                         last_scout, game_ended = 0, False
-                        match_id, next_id_check = None, 0
+                        match_id, queue_id, next_id_check = None, None, 0
                     in_game = True
                     live_missing = False
                     g = core.Game(raw, self.data)
-                    if match_id is None and now >= next_id_check:
-                        match_id = self.client.live_match_id()
+                    if (match_id is None or queue_id is None) and now >= next_id_check:
+                        gid, qid = self.client.live_match_context()
+                        if gid and gid != match_id:
+                            match_id, queue_id = gid, qid
+                        elif qid is not None:
+                            queue_id = qid
                         next_id_check = now + 10
                     g.match_id = match_id
+                    g.queue_id = queue_id
                     if self.engine is None: self.new_engine()
                     if g.me and not getattr(self.engine, 'prepped', False): self.prep_engine(g)
                     self.engine.enabled = self.hint_flags(g.role)

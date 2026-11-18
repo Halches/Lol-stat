@@ -190,15 +190,20 @@ class LCU:
         return self.queue_and_map()[0]
 
     def live_match_id(self):
+        return self.live_match_context()[0]
+
+    def live_match_context(self):
         try:
             session = self.call('/lol-gameflow/v1/session') or {}
         except Exception:
-            return None
+            return None, None
         if session.get('phase') in ('GameStart', 'InProgress', 'Reconnect', 'WaitingForStats', 'PreEndOfGame', 'EndOfGame'):
-            gid = (session.get('gameData') or {}).get('gameId')
-            if type(gid) is int and gid > 0:
-                return gid
-        return None
+            game = session.get('gameData') or {}
+            gid = game.get('gameId')
+            queue = (game.get('queue') or {}).get('id')
+            return (gid if type(gid) is int and gid > 0 else None,
+                    queue if type(queue) is int else None)
+        return None, None
 
     def timeline(self, gid):
         """Таймлайн игры из клиента: кадры по минутам с событиями и координатами (для карты смертей)."""
