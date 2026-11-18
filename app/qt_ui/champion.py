@@ -39,7 +39,7 @@ def lola_status(app,key,champion,role,value=None):
     if value and value.get('stale'):
         text, tone = 'Показаны сохранённые данные', 'warn'
     elif state == 'fail':
-        text, tone = 'Источник не ответил. Данные недоступны.', 'warn'
+        text, tone = 'Не удалось загрузить данные.', 'warn'
     else:
         return None
     return row(Label(text,10,tone),Button('Повторить',lambda:app.retry_lola(key,champion,role)))

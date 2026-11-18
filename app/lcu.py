@@ -294,6 +294,29 @@ class LCU:
             return True
         return False
 
+    @staticmethod
+    def _legacy_helper_item_set(page, champ_id):
+        """Распознаём старые автосборки по шаблону заголовка и блоков."""
+        title = page.get('title')
+        if (not isinstance(title, str) or not re.fullmatch(r'LoL Helper: .+: (?:популярная|лучший винрейт)', title)
+                or page.get('associatedChampions') != [champ_id] or page.get('type') != 'custom'
+                or page.get('startedFrom') != 'blank' or page.get('preferredItemSlots')):
+            return False
+        blocks = page.get('blocks')
+        if not isinstance(blocks, list) or len(blocks) < 2 or not all(
+                isinstance(block, dict) and isinstance(block.get('type'), str) for block in blocks):
+            return False
+        wards = blocks[-1].get('items')
+        if (blocks[-1]['type'] != 'Тотемы' or not isinstance(wards, list)
+                or not all(isinstance(item, dict) for item in wards)
+                or [(item.get('id'), item.get('count')) for item in wards] != [('2055', 1), ('3340', 1), ('3364', 1)]):
+            return False
+        start = 1 if blocks[0]['type'] == 'Старт' else 0
+        labels = [block['type'] for block in blocks[start:-1]]
+        return bool(labels and re.fullmatch(r'Основа(?: \(\d+ игр, \d+%\))?', labels[0]) and all(
+            label in ('Предмет 4', 'Предмет 5', 'Предмет 6') or label.startswith('Ситуативно: ')
+            for label in labels[1:]))
+
     def set_items(self, summoner_id, champ_id, title, blocks, map_id=11):
         """Наборы предметов в магазине для чемпиона. blocks: [(название, [id предметов])]; несколько наборов — title=[(название, blocks)]."""
         if not summoner_id:
@@ -315,11 +338,25 @@ class LCU:
         # Одинаковые ранги встречаются у старых страниц. При равенстве сохраняем порядок клиента.
         ordered = sorted(pages, key=lambda p: p['sortrank'] if type(p.get('sortrank')) is int else 0)
         incoming = [(title, blocks)] if isinstance(title, str) else list(title)
-        # Два постоянных слота. Старые и личные наборы с произвольными UUID сохраняем.
+        champ_id = int(champ_id)
+        # Постоянные слоты заменяем. Старые автосборки текущего чемпиона могут иметь другие UID.
         slot_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, f'LoLHelper/item-sets/{summoner_id}/{i}'))
                     for i in range(max(2, len(incoming)))]
         owned = {page['uid']: page for page in ordered if page.get('uid') in slot_ids}
-        personal_pages = [page for page in ordered if page.get('uid') not in owned]
+        personal_pages = []
+        seen_by_uid = {}
+        for page in ordered:
+            uid = page.get('uid')
+            if uid in slot_ids or self._legacy_helper_item_set(page, champ_id):
+                continue
+            # Повтор одной записи узнаём по UID и содержимому. Номер позиции может отличаться.
+            if isinstance(uid, str) and uid:
+                seen = seen_by_uid.setdefault(uid, [])
+                content = dict(page, sortrank=0)
+                if content in seen:
+                    continue
+                seen.append(content)
+            personal_pages.append(page)
         imported = []
         for slot, (name, groups) in enumerate(incoming):
             item_blocks = [{'type': label, 'items': [{'id': str(i), 'count': 1} for i in items]}
@@ -330,7 +367,7 @@ class LCU:
             previous = owned.get(slot_ids[slot], {})
             # UID принадлежит позиции помощника, чтобы следующий импорт обновлял ту же страницу.
             imported.append({**previous, 'uid': slot_ids[slot],
-                             'title': f'LoL Helper: {name}'[:75], 'associatedChampions': [int(champ_id)],
+                             'title': f'LoL Helper: {name}'[:75], 'associatedChampions': [champ_id],
                              'associatedMaps': [map_id] if map_id else [], 'type': 'custom', 'map': 'any', 'mode': 'any',
                              'sortrank': slot, 'startedFrom': 'blank', 'blocks': item_blocks})
         if not imported:

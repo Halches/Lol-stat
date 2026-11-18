@@ -486,6 +486,7 @@ class ApplicationServices:
             self._import_generation = getattr(self, '_import_generation', 0) + 1
             self._import_pending = None
             self._auto_key = None
+            self._draft_export_target = None
             self.applied_runes = None
             self.import_text = ''
             self.imported = None; return
@@ -510,6 +511,11 @@ class ApplicationServices:
                 except Exception as e: log_error('второе окно: Арена', e)
             return
         role, how = self.draft_role(cs)
+        export_target = self.draft_export_target(cs, role)
+        if getattr(self, '_draft_export_target', None) != export_target:
+            self._draft_export_target = export_target
+            self.imported = None
+            self.set_import_msg('')
         if role == 'ARAM':
             if dash:
                 try: dash.show_aram(cs)
@@ -518,9 +524,6 @@ class ApplicationServices:
             return
         r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'], scope=self.s.get('draft_scope', 'pool'))
         r['role'], r['how'] = role, how
-        export_target = (cs['me'], role, self.s.get('draft_build_context'), r.get('opp') if self.s.get('draft_build_context') == 'matchup' else None)
-        if getattr(self, '_draft_export_target', None) != export_target:
-            self.imported = None; self._draft_export_target = export_target
         for a in cs.get('allies') or []:
             if a.get('me') and (not a.get('pos') or a.get('auto')): a['pos'], a['auto'] = role, True
         pool = core.ban_pool(p, role)
@@ -568,6 +571,11 @@ class ApplicationServices:
     def draft_opponent(self, cs, role):
         roles = core.guess_enemy_roles(self.data, cs.get('enemies') or [])
         return next((champ for champ, lane in roles.items() if lane == role), None)
+
+    def draft_export_target(self, cs, role):
+        context = self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general'
+        opponent = self.draft_opponent(cs, role) if context == 'matchup' else None
+        return cs.get('me'), role, context, opponent, self.s['rune_pick']
 
     def selected_draft_build(self, cs=None):
         cs = cs or self.draft
@@ -828,9 +836,7 @@ class ApplicationServices:
             return
         parts = tuple(k for k, enabled in self.s['auto_parts'].items() if enabled)
         role = self.draft_role(cs)[0]
-        context = self.s.get('draft_build_context', 'general')
-        key = (cs['me'], role, context, self.draft_opponent(cs, role) if context == 'matchup' else None,
-               self.s['rune_pick'], parts)
+        key = (*self.draft_export_target(cs, role), parts)
         if getattr(self, '_auto_key', None) != key:
             self._auto_key = key
             self._auto_done = set()
@@ -856,16 +862,15 @@ class ApplicationServices:
         parts = tuple(k for k in parts if k in ('runes', 'items', 'spells'))
         if not parts:
             self.set_import_msg('Выбери, что экспортировать: руны, предметы или заклинания'); return
-        me, role = cs['me'], self.draft_role(cs)[0]
-        context = self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general'
-        opponent = self.draft_opponent(cs, role) if context == 'matchup' else None
+        target = self.draft_export_target(cs, self.draft_role(cs)[0])
+        me, role, context, opponent, chosen = target
         full = self.selected_draft_build(cs)
         if not full and (context != 'general' or auto_key is not None):
             self.set_import_msg('Выбранная сборка ещё не подтверждена или не загружена. Экспорт не выполнен.');return
         variant = self.draft_build_variant(full, role)
         if full and not variant:
             self.set_import_msg('Выбранный вариант сборки недоступен. Экспорт не выполнен.'); return
-        signature = (me, role, self.s['rune_pick'], parts, context, opponent)
+        signature = (*target, parts)
         if getattr(self, '_import_pending', None) == signature: return
         self._import_pending = signature
         self._import_generation = getattr(self, '_import_generation', 0) + 1
@@ -874,7 +879,6 @@ class ApplicationServices:
         name, client = self.data.cn(me) + (' против ' + self.data.cn(opponent) if opponent else ''), self.client
         account = dict(self.account or {})
         cid = next((key for key, value in self.data.ids.items() if value == me), None)
-        chosen = self.s['rune_pick']
         map_id = cs.get('map_id')
         if type(map_id) is not int or map_id <= 0:
             map_id = None if role == 'ARAM' else 11
@@ -900,15 +904,15 @@ class ApplicationServices:
         runes = variant or personal_runes
         self.set_import_msg('Экспортирую выбранные данные…')
 
+        def target_is_current(draft):
+            return (bool(draft) and draft.get('me') == me and not self.last_game
+                    and self.draft_export_target(draft, self.draft_role(draft)[0]) == target)
+
         def current():
-            draft = self.draft or {}
-            return (self._import_generation == generation and draft.get('me') == me
-                    and self.draft_role(draft)[0] == role and self.s['rune_pick'] == chosen
-                    and (self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general') == context
-                    and (context != 'matchup' or self.draft_opponent(draft, role) == opponent)
+            draft = self.draft
+            return (self._import_generation == generation and target_is_current(draft)
                     and (not follow_selection or all(self.s['auto_parts'].get(k) for k in parts))
-                    and (auto_key is None or (draft.get('locked') and self.s['auto_import']))
-                    and not self.last_game)
+                    and (auto_key is None or (draft.get('locked') and self.s['auto_import'])))
 
         def job():
             results = []
@@ -941,7 +945,9 @@ class ApplicationServices:
                 if self._import_generation != generation: return
                 self._import_pending = None
                 if not current():
-                    self.set_import_msg('Экспорт остановлен: выбор изменился или драфт завершён'); return
+                    if target_is_current(self.draft):
+                        self.set_import_msg('Экспорт остановлен: настройки импорта изменились')
+                    return
                 success = len(results) == len(parts) and all(ok for ok, _ in results)
                 if auto_key is not None and auto_key == getattr(self, '_auto_key', None):
                     self._auto_done.update(part for part, (ok, _) in zip(parts, results) if ok)
@@ -950,7 +956,7 @@ class ApplicationServices:
                         self.applied_runes = None
                         if ok:
                             shards = runes.get('shards', []) if variant else [5008, 5008, 5011]
-                            self.applied_runes = (name, source, list(runes['perks']), list(shards))
+                            self.applied_runes = (name, source, list(runes['perks']), list(shards), target)
                         if getattr(self, 'dash', None):
                             self.redraw_draft()
                 self.imported = me if success else None

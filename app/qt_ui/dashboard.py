@@ -60,25 +60,28 @@ class Dashboard(QWidget):
                 card.box.addWidget(Label(title,9,'mute'))
                 for champion,value,color in values:card.box.addWidget(row(a.icons.label('champ',champion,24),Label(a.data.cn(champion)+' '+value,10,color)))
         return card
-    def toolbar(self,cs,role,parent=None):
+    def toolbar(self, cs, role, variant, parent=None):
         a = self.app
+        target = a.draft_export_target(cs, role)
         b = Panel(kind=None,padding=0)
         b.box.addWidget(row(combo({**core.ROLE_RU,'':'Авто'},a.role_override or '',lambda v:a.set_draft_role(v or None)),combo({'pool':'Советовать из пула','all':'Все чемпионы'},a.s['draft_scope'],a.set_draft_scope)))
         parts = {'runes':'Руны','items':'Предметы','spells':'Заклинания'}
         def part(key,value):
             a.s['auto_parts'][key] = value
             a.s.save()
-        action = Button('Импортировать в клиент',a.do_import,active=bool(cs.get('me')))
+        _, _, context, _, _ = target
+        enabled = bool(cs.get('me')) and (context != 'matchup' or variant is not None)
+        action = Button('Импортировать в клиент', a.do_import, active=enabled)
+        action.setEnabled(enabled)
         b.box.addWidget(row(*(check(title,a.s['auto_parts'][key],lambda v,k=key:part(k,v)) for key,title in parts.items()),action))
         b.box.addWidget(check('Автоимпорт после подтверждения',a.s['auto_import'],self.auto))
         self.import_lbl=Label(a.import_text,10,'mute');b.box.addWidget(self.import_lbl)
         applied = getattr(a, 'applied_runes', None)
-        if applied:
-            champion, source, perks, shards = applied
+        if applied and applied[-1] == target and (variant or context == 'general'):
+            champion, source, perks, shards, _ = applied
             line = row(a.icons.label('rune', perks[0], 28),
                        Label(f'Подтверждено клиентом · {champion} · {source}', 10, 'good'))
-            chosen = a.draft_build_variant(a.selected_draft_build(cs), role)
-            if chosen and (chosen.get('perks'), chosen.get('shards')) != (perks, shards):
+            if variant and (variant.get('perks'), variant.get('shards')) != (perks, shards):
                 line.layout().addWidget(Label('Руны сборки изменились', 10, 'warn'))
                 line.layout().addWidget(Button('Применить новые руны', lambda: a.do_import(('runes',))))
             b.box.addWidget(line)
@@ -120,10 +123,14 @@ class Dashboard(QWidget):
         if role in core.ROLES:
             off=a.offmeta_build(c,role);players=a.player_builds(c,role)
             if off and off.get('variant'):parent.addWidget(Button('Оффметовая · Mobalytics',lambda:a.set_draft_build('offmeta','pick'),a.s['draft_build_context']=='offmeta'))
-            for kind,title in [('OTP','Мейнеры'),('Pro','Проигроки')]:
-                group=(players or {}).get('groups',{}).get(kind,[]);parent.addWidget(Label(title+f' · {len(group)}/3',11,'gold'))
-                for p in group:
-                    button=Button(p['name']+f" · {p['winrate']:.1f}%",lambda pid=p['id']:a.set_draft_build('player:'+pid,'pick'),a.s['draft_build_context']=='player:'+p['id']);button.setEnabled(bool(p.get('variant')));parent.addWidget(button)
+            if players is None:
+                parent.addWidget(Label('Сборки мейнеров и про-игроков пока недоступны.',11,'mute'))
+            else:
+                for kind,title in [('OTP','Мейнеры'),('Pro','Проигроки')]:
+                    group=players.get('groups',{}).get(kind,[]);parent.addWidget(Label(title+f' · {len(group)}/3',11,'gold'))
+                    for p in group:
+                        button=Button(p['name']+f" · {p['winrate']:.1f}%",lambda pid=p['id']:a.set_draft_build('player:'+pid,'pick'),a.s['draft_build_context']=='player:'+p['id']);button.setEnabled(bool(p.get('variant')));parent.addWidget(button)
+        return variant
     def show_draft(self,cs,r,bans):
         self.clear('draft');a=self.app;self.draft_title='Выбор чемпионов';self.tick();self.sub.setText(core.ROLE_RU.get(r['role'],r['role'])+' · '+r.get('how',''))
         columns=row();left=Panel(kind=None,padding=0);middle=Panel(kind=None,padding=0);right=Panel(kind=None,padding=0)
@@ -133,8 +140,8 @@ class Dashboard(QWidget):
         for p in draft_model.role_slots(allies,core.ROLES):left.box.addWidget(self.player(p,r,0,allies))
         roles=core.guess_enemy_roles(a.data,cs.get('enemies') or [])
         for p in draft_model.role_slots([{'c':c,'pos':role} for c,role in roles.items()],core.ROLES):right.box.addWidget(self.player(p,r,1,allies))
-        self.builds(middle.box,cs,r['role'])
-        self.toolbar(cs,r['role'],middle.box)
+        variant = self.builds(middle.box,cs,r['role'])
+        self.toolbar(cs,r['role'],variant,middle.box)
         advice = self.disclosure(middle.box,'Советы по пикам и банам','draft_advice') if cs.get('me') else middle.box
         for choice in r.get('picks',[]):
             p=row(a.icons.label('champ',choice['c'],42),Label(choice['name']+'\n'+choice['why'],11));advice.addWidget(p)
@@ -145,7 +152,9 @@ class Dashboard(QWidget):
         for column in (left,middle,right):column.box.addStretch()
         if not self._manual_hidden:self.deiconify()
     def show_aram(self,cs):
-        self.clear('draft');self.draft_title='ARAM';self.tick();self.sub.setText('Сборки ARAM и скамейка');self.builds(self.box,cs,'ARAM');self.toolbar(cs,'ARAM')
+        self.clear('draft');self.draft_title='ARAM';self.tick();self.sub.setText('Сборки ARAM и скамейка')
+        variant = self.builds(self.box,cs,'ARAM')
+        self.toolbar(cs,'ARAM',variant)
         for p in cs.get('allies',[]):self.box.addWidget(self.player(p))
         self.box.addWidget(Label('Скамейка',16,'gold',serif=True));self.box.addWidget(row(*[row(self.app.icons.label('champ',c,36),Label(self.app.data.cn(c))) for c in cs.get('bench',[])]))
         if not self._manual_hidden:self.deiconify()

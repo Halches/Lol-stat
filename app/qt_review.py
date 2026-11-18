@@ -230,6 +230,41 @@ def verify(app,directory=None):
     viewport=app.dash.scroll.viewport()
     check('Прокачка видна без прокрутки',viewport.rect().contains(build_step.mapTo(viewport,build_step.rect().bottomLeft())))
     if directory:check('Снимок драфта',app.dash.grab().save(str(directory/'draft-fixture.png')))
+
+    def draft_labels():
+        return [label.text() for label in app.dash.findChildren(QLabel)]
+
+    def import_button():
+        return next(button for button in app.dash.findChildren(QPushButton)
+                    if button.text() == 'Импортировать в клиент')
+
+    general = app.draft_export_target(cs,'MIDDLE')
+    app.applied_runes = ('Ари','Европа, популярная',build['perks'],build['shards'],general)
+    app.draft_sig = None
+    app.on_draft(cs)
+    pump()
+    check('Подтверждение импорта видно у применённой сборки',
+          any(text.startswith('Подтверждено клиентом') for text in draft_labels()))
+    app.set_import_msg('Европа, популярная · Руны: применено')
+    opponent = app.draft_opponent(cs,'MIDDLE')
+    matchup = ('matchup','Ahri','MIDDLE',opponent)
+    app.lola_state[matchup] = 'fail'
+    app.set_draft_build('matchup','win')
+    pump()
+    check('Недоступный матчап скрывает прежний результат и блокирует импорт',
+          not import_button().isEnabled() and not app.dash.import_lbl.text()
+          and not any(text.startswith('Подтверждено клиентом') for text in draft_labels())
+          and 'Не удалось загрузить данные.' in draft_labels()
+          and 'Сборки мейнеров и про-игроков пока недоступны.' in draft_labels())
+    app.lola[matchup] = {'pick':build,'win':build}
+    app.lola_state[matchup] = 'ok'
+    app.draft_sig = None
+    app.on_draft(cs)
+    pump()
+    check('После загрузки матчапа доступен импорт выбранного варианта',
+          import_button().isEnabled()
+          and not any(text.startswith('Подтверждено клиентом') for text in draft_labels()))
+    app.set_draft_build('general','pick')
     app.dash.show_aram(dict(cs,aram=True,bench=['Lux','Viktor']));pump();check('ARAM Qt',app.dash.mode=='draft')
     app.dash.show_arena(dict(cs,arena=True));pump();check('Арена Qt',app.dash.mode=='draft')
     app.on_draft(None);g=live_fixture(app.data);app.new_engine();app.s['widgets']={k:True for k in app.ov};app.on_game(g,[],None);pump();check('Живая игра Qt',app.dash.mode=='game')

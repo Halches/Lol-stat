@@ -160,6 +160,7 @@ class QtServiceImportTests(unittest.TestCase):
         self.assertEqual(app.calls[0][1][3], [8369])
         self.assertIn('против Viktor', app.calls[0][1][0])
         self.assertEqual(app.calls[1][1][2][0][1][1][1], [3089])
+        self.assertEqual(app.applied_runes[-1], ('Ahri','MIDDLE','matchup','Viktor','win'))
 
     def test_missing_matchup_never_exports_general_build_as_a_fallback(self):
         app, _, _, _ = self.app()
@@ -183,6 +184,7 @@ class QtServiceImportTests(unittest.TestCase):
         callbacks.get(timeout=2)()
         self.assertEqual([call[0] for call in app.calls], ['runes'])
         self.assertIsNone(app.imported)
+        self.assertEqual(app.messages, ['Экспортирую выбранные данные…'])
 
     def test_external_build_exports_exact_runes_and_items(self):
         for context in ('offmeta','player:42'):
