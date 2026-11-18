@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt,QTimer,QUrl
 from PySide6.QtGui import QFontDatabase,QFont,QDesktopServices,QIcon,QShortcut,QKeySequence
 from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QStackedWidget,QScrollArea,QDialog,QMessageBox
 from shiboken6 import isValid
-import core,lcu,phone,player_evidence,champion_pool,render,app_config
+import core,lcu,player_evidence,champion_pool,render,app_config
 from voice import Voice
 from app_config import *
 from app_services import ApplicationServices
@@ -41,7 +41,7 @@ class App(ApplicationServices):
         self.client=lcu.LCU();self.voice=Voice(self.home)
         self.q=queue.Queue();self.hidden=False;self.account=None;self.my_rank=None;self.ranks={};self.hists={};self.rank_pu={};self.hraw={};self.jg_cache={}
         self.evidence=player_evidence.Evidence();self.evidence_region=None;self.evidence_region_at=0;self.pus={};self.hist_exp=set()
-        self.role_override=None;self.lola={};self.lola_state={};self.import_text='';self.cp_sel=None;self.phone_srv=None;self.player=None;self.engine=None
+        self.role_override=None;self.lola={};self.lola_state={};self.import_text='';self.cp_sel=None;self.player=None;self.engine=None
         self.draft=None;self.draft_sig=None;self.draft_observed_at=0;self.draft_deadline=None;self.imported=None;self.scout={};self.last_game=None;self.live_stale=False;self.result=None;self.keys_prev={};self.demo_on=False;self.pending_data=None;self.dash=None
         self.icons=Icons(assets);self.icons.settings=self.s;self.dialogs=[];self.pages={};self.ov={};self.tab={};self.active_page=0
         self.window=Window(self);self.root=self.window;self.root.scheduler.failed.connect(lambda error:self.errors.append(str(error)));self.window.setWindowTitle('LoL Helper '+version);self.window.setWindowIcon(QIcon(str(Path(bundle_dir())/'icon.png')));self.window.resize(1536,864);self.window.setMinimumSize(940,640)
@@ -51,7 +51,7 @@ class App(ApplicationServices):
         self.create_overlays();self.build_window();self.sync_voice()
         self.shortcut=QShortcut(QKeySequence('Escape'),self.window);self.shortcut.activated.connect(self.stop_demo)
         if not offline:
-            self.sync_phone();threading.Thread(target=self.poll,daemon=True,name='client-poll').start();threading.Thread(target=self.load_lanes,daemon=True,name='lane-data').start();self.root.after(300,self.drain);self.root.after(40,self.keys);self.root.after(1000,self.tick_ui)
+            threading.Thread(target=self.poll,daemon=True,name='client-poll').start();threading.Thread(target=self.load_lanes,daemon=True,name='lane-data').start();self.root.after(300,self.drain);self.root.after(40,self.keys);self.root.after(1000,self.tick_ui)
         self.window.show()
     def configure_theme(self):
         C.clear();C.update(THEMES.get(self.s['theme'],THEMES['lol'])[1])
@@ -201,17 +201,8 @@ class App(ApplicationServices):
             self.on_draft(self.draft)
         elif self.last_game and self.s['dashboard']:
             self.dash.show(self.last_game,self.scout,self.ranks,self.hists)
-    def sync_phone(self,restart=False):
-        if self.offline:return
-        if self.phone_srv and (restart or not self.s['phone']):self.phone_srv.stop();self.phone_srv=None
-        if self.s['phone'] and not self.phone_srv:
-            try:
-                self.phone_srv=phone.PhoneServer(self.s['phone_port'],lambda:self.root.after(0,self.do_import),self.s['phone_token'] or None);self.s['phone_token']=self.phone_srv.token;self.s.save()
-            except Exception as error:log_error('сервер телефона',error);self.status.setText('Не удалось запустить телефон: '+str(error))
-        if hasattr(self,'phone_lbl'):self.phone_lbl.setText(self.phone_srv.url if self.phone_srv else 'Выключено')
     def set_import_msg(self,text):
         self.import_text=text
-        if self.phone_srv and self.phone_srv.state.get('mode')=='draft':self.phone_srv.state['imp']=text
         if self.dash and self.dash.import_lbl:self.dash.import_lbl.setText(text)
     def toggle_demo(self):
         self.demo_on=not self.demo_on;self.keys_prev['drag']=self.demo_on;self._demo_epoch=getattr(self,'_demo_epoch',0)+1;epoch=self._demo_epoch
@@ -240,7 +231,7 @@ class App(ApplicationServices):
     def apply_settings(self):
         index=self.active_page;self.stop_demo();self.configure_theme();self.sync_voice();core.OBJ.update(self.s['obj'])
         for w in list(self.ov.values())+list(self.tab.values()):w.close()
-        self.create_overlays();self.build_window();self.navigate(index);self.sync_phone()
+        self.create_overlays();self.build_window();self.navigate(index)
         self.draft_sig = None
         if self.draft:
             self.on_draft(self.draft)
@@ -340,7 +331,6 @@ class App(ApplicationServices):
         if self.stopping.is_set():return
         self.stopping.set();self.root.scheduler.stop();self._import_generation=getattr(self,'_import_generation',0)+1
         for w in list(self.ov.values())+list(self.tab.values()):w.close()
-        if self.phone_srv:self.phone_srv.stop();self.phone_srv=None
         if self.dash:self.dash.hide();self.dash.deleteLater();self.dash=None
         for d in list(self.dialogs):d.close()
         self.dialogs=[];self.voice.muted=True;sys.excepthook=self.previous_exception_hook

@@ -66,7 +66,6 @@ class SettingsPage(Page):
             if key=='dashboard':a.set_dashboard_enabled()
             a.apply_visibility()
             if a.demo_on:a.set_unlocked(True)
-        if key=='phone':a.sync_phone()
     def number(self,b,title,key,lo,hi,decimals=0):
         w=QDoubleSpinBox() if decimals else QSpinBox();w.setRange(lo,hi)
         if decimals:w.setDecimals(decimals);w.setSingleStep(.1)
@@ -157,8 +156,7 @@ class SettingsPage(Page):
     def build_updates(self):
         a=self.app;b=self.section('Обновления · '+a.version);b.addWidget(check('Проверять обновления автоматически',a.s['auto_update'],lambda v:self.set('auto_update',v)));b.addWidget(Button('Проверить обновления',lambda:a.check_updates(True)));a.upd_msg=Label('',11,'mute');b.addWidget(a.upd_msg)
         b.addWidget(row(Button('Список выпусков',lambda:a.open_url(RELEASES)),Button('Скопировать диагностику',a.copy_report),Button('Сохранить настройки',self.backup_save),Button('Восстановить настройки',self.backup_load)))
-        b=self.section('Драфт на телефоне');b.addWidget(check('Разрешить просмотр драфта в домашней сети',a.s['phone'],lambda v:self.set('phone',v)));self.number(b,'Порт','phone_port',1024,65535);a.phone_lbl=Label(a.phone_srv.url if a.phone_srv else 'Выключено',10,'mute');b.addWidget(a.phone_lbl);b.addWidget(Button('Применить порт',lambda:a.sync_phone(restart=True)))
-        b.addWidget(Label('Первоначальные настройки версии 1 сохранены в settings.json.pre-v2. Импорт рун и предметов на телефоне выполняется только по твоему действию.',10,'mute'));b.addWidget(Label(RIOT_NOTE,8,'mute'))
+        b.addWidget(Label('Первоначальные настройки версии 1 сохранены в settings.json.pre-v2.',10,'mute'));b.addWidget(Label(RIOT_NOTE,8,'mute'))
     def backup_save(self):
         path,_=QFileDialog.getSaveFileName(self,'Сохранить настройки','LoLHelper-settings.json','JSON (*.json)')
         if path:
@@ -171,12 +169,9 @@ class SettingsPage(Page):
         if path:
             try:
                 dashboard = self.app.s['dashboard']
-                old_port, old_server = self.app.s['phone_port'], self.app.phone_srv
                 with open(path,encoding='utf-8') as f:self.app.s.load_backup(json.load(f))
                 self.app.apply_settings()
                 if dashboard != self.app.s['dashboard']:
                     self.app.set_dashboard_enabled()
-                if old_server is not None and self.app.phone_srv is old_server and old_port != self.app.s['phone_port']:
-                    self.app.sync_phone(restart=True)
                 self.app.status.setText('Настройки восстановлены')
             except (ValueError,OSError) as e:QMessageBox.warning(self,'Не удалось восстановить',str(e))

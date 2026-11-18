@@ -211,9 +211,9 @@ def test_settings_backup():
     try: import ui
     except Exception: return   # без tkinter (CI-ранер Linux) пропускаем
     d = tempfile.mkdtemp()
-    s = ui.Settings(d); s['scale'] = 130; s['phone_token'] = 'secret'
+    s = ui.Settings(d); s['scale'] = 130
     b = js.loads(js.dumps(s.export('v-test')))
-    assert 'phone_token' not in b['settings']
+    assert 'design3' not in b['settings']
     s2 = ui.Settings(tempfile.mkdtemp())
     n = s2.load_backup(b)
     assert s2['scale'] == 130 and n > 5, n

@@ -17,7 +17,7 @@ def main():
         ui.app_home=lambda:folder
         Path(folder,'settings.json').write_text(json.dumps({'design3':True,'dashboard':False,'sound':'off',
             'widgets':dict.fromkeys(ui.WIDGETS,False),'scoreboard':True}),encoding='utf-8')
-        for name in ('poll','load_lanes','load_changelog','hist_refresh','check_updates','ensure_home_icon','sync_phone'):
+        for name in ('poll','load_lanes','load_changelog','hist_refresh','check_updates','ensure_home_icon'):
             setattr(ui.App,name,lambda *a,**k:None)
         ui.Voice.warm=lambda *a:None
         lcu.LCU.image=lambda *a:None

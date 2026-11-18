@@ -1,7 +1,6 @@
 """Проверка настоящих Qt-окон в изолированном профиле, без игры и сети."""
 import io,json,os,sys,tempfile,time,traceback
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock,patch
 from PySide6.QtCore import Qt,QCoreApplication,QEvent
 from PySide6.QtTest import QTest
@@ -18,7 +17,7 @@ def live_fixture(data):
     return core.Game(snap,data)
 
 
-def verify_audit(app, check, cs, build):
+def verify_audit(app, check, cs):
     app.s['dashboard'] = False
     app.set_dashboard_enabled()
     app.on_draft(dict(cs,locked=False))
@@ -39,21 +38,7 @@ def verify_audit(app, check, cs, build):
         app.on_draft(cs)
         check('При выключенной автоматике подтверждение не вызывает импорт', not write.called)
 
-    opponent = app.draft_opponent(cs,'MIDDLE')
-    app.lola['matchup','Ahri','MIDDLE',opponent] = {'pick':dict(build,start=[1055],skills='WWW')}
-    app.phone_srv = SimpleNamespace(state={},url='fixture')
-    try:
-        app.set_draft_build('matchup','pick')
-        state = app.phone_srv.state
-        check('Телефон показывает выбранную сборку матчапа', state['skills']=='WWW'
-              and dict(state['build'])['Старт']==app.data.iname(1055)
-              and app.data.cn(opponent) in state['build_source'])
-        app.set_draft_build('matchup','win')
-        check('Телефон явно показывает недоступный вариант', 'build' not in app.phone_srv.state
-              and app.phone_srv.state.get('build_status'))
-    finally:
-        app.phone_srv = None
-        app.on_draft(None)
+    app.on_draft(None)
 
     record = app.history_view.filtered[0]
     previous = len(app.window.findChildren(QDialog))
@@ -277,7 +262,7 @@ def verify(app,directory=None):
         if (width,height) in tested:continue
         tested.add((width,height))
         app.window.resize(width,height);pump(100);check(f'Размер окна {width}x{height}',app.window.width()==width and app.window.height()==height);capture(f'history-{width}x{height}')
-    verify_audit(app,check,cs,build)
+    verify_audit(app,check,cs)
     verify_live_audit(app,check,cs)
     check('Нет ошибок обработчиков Qt',not app.errors)
     return checks

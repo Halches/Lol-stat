@@ -29,7 +29,7 @@ class WindowsScreen(ui_skin.material_ui.Frame,Components):
         app.demo_btn.pack(side='left');self.state_label=self.label(actions,'',10,'gold');self.state_label.pack(side='right')
         self.label(self,f"Двигать: {app.s['keys']['drag'].upper()} + перетаскивание · булавка закрепляет виджет · Tab настраивается своей ручкой.",9,'mute',wraplength=app.fs(900),justify='left').pack(anchor='w',pady=(0,12))
         self.grid_box=ui_skin.Frame(self,bg=C['bg']);self.grid_box.pack(fill='x')
-        self.advanced_button=self.button(self,'▸ Раскладка, показатели, Tab, телефон и второй монитор',self.toggle_advanced)
+        self.advanced_button=self.button(self,'▸ Раскладка, показатели, Tab и второй монитор',self.toggle_advanced)
         self.advanced_button.pack(anchor='w',pady=(8,10))
         self.advanced=ui_skin.Frame(self,bg=C['bg']);app.build_windows_options(self.advanced)
         self.advanced.bind('<Configure>',self.wrap_options)
@@ -53,12 +53,11 @@ class WindowsScreen(ui_skin.material_ui.Frame,Components):
         self.advanced_open=not self.advanced_open
         if self.advanced_open:self.advanced.pack(fill='x')
         else:self.advanced.pack_forget()
-        self.advanced_button.configure(text=('▾' if self.advanced_open else '▸')+' Раскладка, показатели, Tab, телефон и второй монитор')
+        self.advanced_button.configure(text=('▾' if self.advanced_open else '▸')+' Раскладка, показатели, Tab и второй монитор')
     def wrap_options(self,event):
         width=max(200,event.width-self.app.fs(20))
         for widget in self.advanced.winfo_children():
             if isinstance(widget,(tk.Label,ttk.Label,ui_skin.material_ui.Label)) and int(str(widget.cget('wraplength')) or 0)>0:widget.configure(wraplength=min(width,self.app.fs(660)))
-        self.app.phone_lbl.configure(wraplength=width)
     def only_tab(self):
         for key in self.vars:self.app.s['widgets'][key]=False
         self.app.s['scoreboard']=True;self.app.s.save();self.app.apply_visibility();self.sync_demo();self.update_states()
