@@ -46,6 +46,34 @@ def test_no_positions():
     assert g.opp and g.opp['c'] == 'Darius', g.opp
 
 
+def test_champion_alias_priority_and_fallback():
+    data = core.Data({**D.d, 'names': {'Lux': 'Люкс', 'Other': 'L-ux'}})
+    assert core.champ_key({'championName': 'L-ux'}, data) == 'Lux'
+    assert core.champ_key({'rawChampionName': '?', 'championName': 'Люкс'}, data) == 'Lux'
+    assert core.champ_key({'rawChampionName': 'game_character_displayname_NewChamp'}, data) == 'NewChamp'
+
+
+def test_enemy_roles_with_ties_and_updated_lane_counts():
+    data = core.Data({**D.d, 'lola': {}})
+    assert core.guess_enemy_roles(data, ['A', 'B']) == {'A': 'TOP', 'B': 'JUNGLE'}
+    data.lanes = {'B': {'TOP': 500}}
+    assert core.guess_enemy_roles(data, ['A', 'B']) == {'A': 'JUNGLE', 'B': 'TOP'}
+    assert core.guess_enemy_roles(data, ['A', 'A']) == {}
+
+
+def test_draft_role_and_matchup_samples_are_independent():
+    games = [
+        {'c': 'A', 'pos': 'TOP', 'w': 1, 'opp': 'B', 'g15': None},
+        {'c': 'A', 'pos': 'MIDDLE', 'w': 0, 'opp': 'B', 'g15': None},
+        {'c': 'A', 'pos': 'TOP', 'w': 1, 'opp': 'C', 'g15': None},
+    ]
+    data = core.Data({**D.d, 'players': {'x': {'g': games}}, 'pools': {'x': {'TOP': ['A']}},
+                      'names': {}, 'lola': {}})
+    pick, = core.draft_suggest(core.Player(data, 'x'), 'TOP', ['B'], scope='pool')['picks']
+    assert pick['why'] == '2 игры на роли, 100%, с B 1–1'
+    assert pick['s'] == core.smooth(2, 2, 20) * .6 + core.smooth(1, 2, 2) * .4 + .01
+
+
 def test_gank_windows():
     eng = core.Engine(D, core.Player(D, 'halch'))
     hs = run(eng, [snap(t) for t in range(0, 300, 1)])

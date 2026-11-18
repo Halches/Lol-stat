@@ -1,6 +1,7 @@
 # Логика LoL Helper без интерфейса и без Windows: драфт, разбор живой игры, подсказки.
 # Всё здесь проверяется тестами на любой системе (app/test_core.py).
 import json, math, re, time
+from collections import defaultdict
 import rune_catalog
 
 ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY']
@@ -39,6 +40,9 @@ class Data:
     def __init__(self, d):
         self.d = d
         self.names = d['names']
+        # При совпадении перевода с ключом Data Dragon приоритет у ключа.
+        self.champion_aliases = {_norm(name): key for key, name in self.names.items()}
+        self.champion_aliases.update((_norm(key), key) for key in self.names)
         self.ids = d['ids']                    # '62' -> 'MonkeyKing'
         self.items = d['items']
         self.lola = d['lola']
@@ -202,49 +206,78 @@ def comp_advice(data, allies, role, pool, dmgs=None):
 def guess_enemy_roles(data, champs):
     """Распределить вражеских чемпионов по ролям, максимизируя частоту по lolalytics."""
     champs = [c for c in champs if c]
-    best, best_s = {}, -1
-    def rec(i, used, cur, s):
-        nonlocal best, best_s
-        if i == len(champs):
-            if s > best_s: best, best_s = dict(cur), s
+    # В этих составах нельзя однозначно сопоставить ключи чемпионов и роли.
+    if len(champs) > len(ROLES) or len(set(champs)) != len(champs):
+        return {}
+
+    # Частоты могут обновиться между снимками. Внутри одного расчёта читаем их один раз.
+    options = []
+    for champ in champs:
+        counts = [(role, data.lane_n(champ, role)) for role in ROLES]
+        counts.sort(key=lambda pair: pair[1], reverse=True)
+        options.append([(role, math.log1p(count)) for role, count in counts])
+
+    best_roles = ()
+    best_score = -1
+
+    def assign(roles, score):
+        nonlocal best_roles, best_score
+        if len(roles) == len(champs):
+            if score > best_score:
+                best_roles, best_score = roles, score
             return
-        c = champs[i]
-        opts = sorted(ROLES, key=lambda r: -data.lane_n(c, r))
-        for r in opts:
-            if r in used: continue
-            cur[c] = r
-            rec(i + 1, used | {r}, cur, s + math.log1p(data.lane_n(c, r)))
-            del cur[c]
-    rec(0, frozenset(), {}, 0)
-    return best
+        for role, weight in options[len(roles)]:
+            if role not in roles:
+                assign((*roles, role), score + weight)
+
+    assign((), 0)
+    return dict(zip(champs, best_roles))
 
 
 def draft_suggest(player, role, enemies=(), unavailable=(), top=3, scope=None):
     """Кого взять: винрейт на роли со сглаживанием + матчап против вероятного оппонента + Изумруд+."""
     data = player.data
-    roles = guess_enemy_roles(data, list(enemies))
+    roles = guess_enemy_roles(data, enemies)
     opp = next((c for c, r in roles.items() if r == role), None)
-    cands = set(player.pool.get(role, [])) | {g['c'] for g in player.on(pos=role)}
+    pool = set(player.pool.get(role, []))
+    role_results = defaultdict(list)
+    matchup_results = defaultdict(list)
+    for game in player.games:
+        champ = game['c']
+        if role is None or game['pos'] == role:
+            role_results[champ].append(game['w'])
+        if opp and game['opp'] == opp:
+            matchup_results[champ].append(game['w'])
+
     if scope == 'pool':
-        cands = set(player.pool.get(role, []))
+        cands = pool
     elif scope == 'all':
         cands = {c for c in data.ids.values() if data.lane_n(c, role) > 0}
+    else:
+        cands = pool | set(role_results.keys())
     out = []
     for c in cands:
         if c in unavailable: continue
-        gs = player.on(c, role)
-        if len(gs) < 2 and c not in player.pool.get(role, []) and scope != 'all': continue
-        w = sum(g['w'] for g in gs)
-        s = smooth(w, len(gs), 20)
-        v = player.vs(c, opp) if opp else {'n': 0}
-        if v['n']: s = s * .6 + smooth(v['w'], v['n'], 2) * .4
+        results = role_results.get(c, ())
+        n, w = len(results), sum(results)
+        in_pool = c in pool
+        if n < 2 and not in_pool and scope != 'all': continue
+        s = smooth(w, n, 20)
+        matchup = matchup_results.get(c, ())
+        if matchup:
+            wins = sum(matchup)
+            s = s * .6 + smooth(wins, len(matchup), 2) * .4
         lo = data.lola.get(f'{c}|{role}')
         if lo: s += (lo['wr'] - 50) / 400
-        if c in player.pool.get(role, []): s += .01
-        why = [f'{plural(len(gs), "игра", "игры", "игр")} на роли, {round(w / len(gs) * 100)}%' if gs else 'в пуле, игр на роли нет' if c in player.pool.get(role, []) else 'статистика роли, личных игр нет']
-        if v['n']: why.append(f'с {data.cn(opp)} {v["w"]}–{v["n"] - v["w"]}')
+        if in_pool: s += .01
+        if n:
+            history_note = f'{plural(n, "игра", "игры", "игр")} на роли, {round(w / n * 100)}%'
+        else:
+            history_note = 'в пуле, игр на роли нет' if in_pool else 'статистика роли, личных игр нет'
+        why = [history_note]
+        if matchup: why.append(f'с {data.cn(opp)} {wins}–{len(matchup) - wins}')
         if lo: why.append(f'Изумруд+ {lo["wr"]:.1f}%')
-        out.append({'c': c, 'name': data.cn(c), 's': s, 'why': ', '.join(why), 'pool': c in player.pool.get(role, [])})
+        out.append({'c': c, 'name': data.cn(c), 's': s, 'why': ', '.join(why), 'pool': in_pool})
     out.sort(key=lambda x: -x['s'])
     return {'opp': opp, 'roles': roles, 'picks': out[:top]}
 
@@ -285,16 +318,13 @@ def _norm(s):
 def champ_key(p, data):
     """Ключ чемпиона (как в Data Dragon) из любых вариантов имени, которые отдаёт игра:
     game_character_displayname_Seraphine, Character_Seraphine_Name, русское имя и т.п."""
-    keys = data.__dict__.setdefault('_keys', {_norm(k): k for k in data.names})
-    ru = data.__dict__.setdefault('_ru', {_norm(n): k for k, n in data.names.items()})
     for cand in (p.get('rawChampionName'), p.get('championName')):
         c = (cand or '').replace('game_character_displayname_', '')
         m = re.search(r'Character_([A-Za-z]+?)_Name', c)
         if m: c = m.group(1)
         n = _norm(c)
-        if not n: continue
-        if n in keys: return keys[n]
-        if n in ru: return ru[n]
+        if n and n in data.champion_aliases:
+            return data.champion_aliases[n]
     raw = (p.get('rawChampionName') or '').replace('game_character_displayname_', '')
     return raw or p.get('championName', '')
 
