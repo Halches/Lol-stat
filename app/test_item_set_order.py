@@ -31,10 +31,10 @@ class ShopImportTests(unittest.TestCase):
         self.assertTrue(self.client.set_items(7, 103, self.builds, None))
         first, second, *personal = self.collection['itemSets']
         self.assertEqual(first['title'], 'LoL Helper: Ари: винрейт')
-        self.assertEqual(first['uid'], 'existing-helper')
+        self.assertNotEqual(first['uid'], self.old['uid'])
         self.assertEqual(second['title'], 'LoL Helper: Ари: популярная')
-        self.assertEqual(personal, [dict(self.personal, sortrank=2), dict(self.other, sortrank=3)])
-        self.assertEqual([p['sortrank'] for p in self.collection['itemSets']], [0, 1, 2, 3])
+        self.assertEqual(personal, [dict(self.personal, sortrank=2), dict(self.old, sortrank=3), dict(self.other, sortrank=4)])
+        self.assertEqual([p['sortrank'] for p in self.collection['itemSets']], [0, 1, 2, 3, 4])
         self.assertEqual(self.calls, ['GET', 'PUT', 'GET'])
         self.assertEqual(self.collection['timestamp'], 42)
         self.calls.clear()
@@ -45,8 +45,15 @@ class ShopImportTests(unittest.TestCase):
         self.assertEqual([p['uid'] for p in updated], [first['uid'], second['uid']])
         self.assertEqual(updated[0]['blocks'][0]['items'][0]['id'], '2031')
         self.assertTrue(self.client.set_items(7, 105, 'Физз', [('Старт', [1054])]))
-        self.assertEqual([p['uid'] for p in self.collection['itemSets']], ['existing-helper', 'personal', 'notes'])
+        self.assertEqual([p['uid'] for p in self.collection['itemSets']], [first['uid'], 'personal', 'existing-helper', 'notes'])
         self.assertEqual(self.collection['itemSets'][0]['associatedChampions'], [105])
+
+    def test_personal_page_with_helper_title_survives_repeat_import(self):
+        self.assertTrue(self.client.set_items(7, 103, self.builds, None))
+        mine = dict(self.personal, uid='copy', title='LoL Helper: мой запасной', sortrank=5)
+        self.collection['itemSets'].append(mine)
+        self.assertTrue(self.client.set_items(7, 103, self.builds[::-1], None))
+        self.assertEqual(self.collection['itemSets'][-1], mine)
 
     def test_first_import_into_empty_collection(self):
         self.collection['itemSets'] = []

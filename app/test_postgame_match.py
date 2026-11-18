@@ -13,6 +13,30 @@ class PostgameMatchTests(unittest.TestCase):
             with patch.object(client, 'call', return_value={'phase': phase, 'gameData': {'gameId': match_id}}):
                 self.assertEqual(client.live_match_id(), expected)
 
+    def test_arena_waits_for_exact_match_and_placement(self):
+        app = object.__new__(App)
+        app.stopping = Mock()
+        app.stopping.is_set.return_value = False
+        app._arena_result_id = 102
+        app.last_game = app.draft = None
+        app.account = {'puuid': 'player'}
+        app.show_arena_post = Mock()
+        app.client = Mock()
+        game = {'queueId': 1700, 'gameId': 102, 'participantIdentities': [
+            {'participantId': 1, 'player': {'puuid': 'player'}}],
+            'participants': [{'participantId': 1, 'stats': {'subteamPlacement': 2}}]}
+        app.client.game.side_effect = [dict(game, gameId=101), dict(game, participants=[]), game]
+        app.background = lambda work, done: done(work(), None)
+        callbacks = []
+        app.root = SimpleNamespace(after=lambda ms, cb: callbacks.append(cb))
+        app.arena_post(102, 'player')
+        callbacks.pop()()
+        app.show_arena_post.assert_not_called()
+        callbacks.pop()()
+        app.client.history.assert_not_called()
+        self.assertEqual(app.show_arena_post.call_args.args[0]['place'], 2)
+        self.assertFalse(callbacks)
+
     def test_wait_for_this_match_then_for_timeline(self):
         callbacks = []
         client = Mock()

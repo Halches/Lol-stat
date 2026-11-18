@@ -72,6 +72,16 @@ class Dashboard(QWidget):
         b.box.addWidget(row(*(check(title,a.s['auto_parts'][key],lambda v,k=key:part(k,v)) for key,title in parts.items()),action))
         b.box.addWidget(check('Автоимпорт после подтверждения',a.s['auto_import'],self.auto))
         self.import_lbl=Label(a.import_text,10,'mute');b.box.addWidget(self.import_lbl)
+        applied = getattr(a, 'applied_runes', None)
+        if applied:
+            champion, source, perks, shards = applied
+            line = row(a.icons.label('rune', perks[0], 28),
+                       Label(f'Подтверждено клиентом · {champion} · {source}', 10, 'good'))
+            chosen = a.draft_build_variant(a.selected_draft_build(cs), role)
+            if chosen and (chosen.get('perks'), chosen.get('shards')) != (perks, shards):
+                line.layout().addWidget(Label('Руны сборки изменились', 10, 'warn'))
+                line.layout().addWidget(Button('Применить новые руны', lambda: a.do_import(('runes',))))
+            b.box.addWidget(line)
         (parent if parent is not None else self.box).addWidget(b)
     def auto(self,value):self.app.s['auto_import']=value;self.app.s.save()
     def disclosure(self,parent,title,key):

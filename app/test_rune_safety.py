@@ -62,6 +62,6 @@ class RuneImportTests(unittest.TestCase):
 
     def test_old_lolalytics_cache(self):
         old = dict(prim=8400, sec=8400, perks=PERKS)
-        build = dict(old, pick=dict(old), win=dict(old))
+        build = dict(old, pick=dict(old), win=dict(old, start=[1056]))
         core.restore_lola_styles(build)
         self.assertEqual([build['sec'], build['pick']['sec'], build['win']['sec']], [8300] * 3)
