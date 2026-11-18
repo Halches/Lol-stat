@@ -128,7 +128,6 @@ DEFAULTS = {
     'widget_pins': {},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
-    'phone': False, 'phone_port': 8765, 'phone_token': '',
     'draft_scope': 'pool', 'draft_build_context': 'general', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
     'theme': 'lol', 'accent': 'theme', 'font': 'Golos Text', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
@@ -146,7 +145,7 @@ SECTIONS = {   # что сбрасывает кнопка «По умолчан�
 
 SETTING_RANGES = {
     'scale': (70, 170), 'icon': (20, 64), 'alpha': (30, 100),
-    'phone_port': (1024, 65535), 'rate': (.7, 1.6),
+    'rate': (.7, 1.6),
     **{key: (0, 100) for key in ('master', 'volume', 'beep_volume')},
 }
 
@@ -224,6 +223,8 @@ class Settings(dict):
                     shutil.copyfileobj(original,backup)
             except OSError as error:
                 log_error('резервная копия настроек', error)
+        for key in ('phone', 'phone_port', 'phone_token'):
+            saved.pop(key, None)
         self.update(merge_settings(DEFAULTS, saved))
         if 'qt_dashboard_geometry' in self and not valid_setting('qt_dashboard_geometry', self['qt_dashboard_geometry'], None):
             self.pop('qt_dashboard_geometry')
@@ -245,7 +246,7 @@ class Settings(dict):
             self[k] = json.loads(json.dumps(v))
         self.save()
 
-    BACKUP_SKIP = ('phone_token', 'design2', 'design3')   # адрес телефона у каждого свой
+    BACKUP_SKIP = ('design2', 'design3')
 
     def export(self, version=''):
         """Копия настроек в файл: окна, клавиши, подсказки и их тексты, вид, звук, таймеры."""

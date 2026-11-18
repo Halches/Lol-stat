@@ -10,7 +10,7 @@ from scroll_canvas import ScrollCanvas
 import performance_model
 import ui_skin
 import layered_image
-import core, lcu, phone, tab_detect, player_comments, player_traits, player_evidence, champion_rank, champion_pool, profile_ranks
+import core, lcu, tab_detect, player_comments, player_traits, player_evidence, champion_rank, champion_pool, profile_ranks
 
 RELEASES = 'https://github.com/Halches/Lol-stat/releases'   # список всех версий с изменениями
 from voice import Voice, VOICES, SOUNDS
@@ -167,7 +167,6 @@ DEFAULTS = {
     'widget_pins': {},
     'perf': {'metrics': {'csm': True, 'gpm': True, 'kda': True, 'kp': True, 'vsm': True}, 'layout': 'vertical', 'compare': 'norm'},
     'tab_step': 76, 'tab_pos': {}, 'tab_rect': None, 'tab_auto': True,
-    'phone': False, 'phone_port': 8765, 'phone_token': '',
     'draft_scope': 'pool', 'draft_build_context': 'general', 'draft_auto_mode_v1': True, 'dashboard': True, 'scoreboard': True, 'postgame': True, 'auto_import': False, 'auto_parts': {'runes': False, 'items': False, 'spells': False}, 'rune_pick': 'pick', 'hint_text': {},
     'theme': 'lol', 'accent': 'theme', 'font': 'Golos Text', 'scale': 100, 'icon': 36, 'alpha': 90, 'widget_bg': 'panel',
     'show': {k: True for k in SHOW},
@@ -209,7 +208,7 @@ class Settings(dict):
             self[k] = json.loads(json.dumps(v))
         self.save()
 
-    BACKUP_SKIP = ('phone_token', 'design2', 'design3')   # адрес телефона у каждого свой
+    BACKUP_SKIP = ('design2', 'design3')
 
     def export(self, version=''):
         """Копия настроек в файл: окна, клавиши, подсказки и их тексты, вид, звук, таймеры."""
@@ -1735,7 +1734,6 @@ class App:
         self.lola, self.lola_state = {}, {}
         self.import_text = ''
         self.cp_sel = None
-        self.phone_srv = None
         self.player = None
         self.engine = None
         self.draft = None
@@ -1760,7 +1758,6 @@ class App:
         self.icons = Icons(self)
         self.set_who(self.s['who'] or 'halch')
         self.build_all()
-        self.sync_phone()
         threading.Thread(target=self.poll, daemon=True).start()
         threading.Thread(target=self.load_lanes, daemon=True).start()
         self.root.after(300, self.drain)
@@ -2237,7 +2234,6 @@ class App:
         new_draft=self.draft is None and cs is not None
         self.draft = cs
         if cs is None:
-            if self.phone_srv: self.phone_srv.state = {'mode': 'idle'}
             self.role_override = None
             if self.dash and self.draft_sig not in (None, 'none'): self.dash.idle()
             self.draft_sig = 'none'
@@ -2262,7 +2258,6 @@ class App:
         if role == 'ARAM':
             try: self.dash.show_aram(cs)
             except Exception as e: log_error('второе окно: ARAM', e)
-            self.phone_draft(cs, {'role': 'ARAM', 'picks': [], 'opp': None}, [])
             auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
             if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
             return
@@ -2278,7 +2273,6 @@ class App:
         bans = core.ban_suggest(p, cs['unavailable'], 3, role, {m: v for m, v in cnt.items() if v})
         try: self.dash.show_draft(cs, r, bans)
         except Exception as e: log_error('второе окно: драфт', e)
-        self.phone_draft(cs, r, bans)
         auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
         if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
 
@@ -2568,48 +2562,8 @@ class App:
         self.draft_sig = None
         if self.draft: self.on_draft(self.draft)
 
-    def sync_phone(self):
-        """Включить или выключить сервер для телефона по настройке. Адрес постоянный: токен хранится в настройках."""
-        if self.s['phone'] and not self.phone_srv:
-            try:
-                self.phone_srv = phone.PhoneServer(self.s['phone_port'], lambda: self.root.after(0, self.do_import), self.s['phone_token'] or None)
-                if self.s['phone_token'] != self.phone_srv.token: self.s['phone_token'] = self.phone_srv.token; self.s.save()
-            except Exception as e:
-                log_error('сервер для телефона', e); self.phone_srv = None
-        elif not self.s['phone'] and self.phone_srv:
-            self.phone_srv.stop(); self.phone_srv = None
-        if getattr(self, 'phone_lbl', None):
-            try: self.phone_lbl.configure(text=(f'Открой на телефоне: {self.phone_srv.url}' if self.phone_srv else
-                                                'Выключено' if not self.s['phone'] else f"Не удалось открыть порт {self.s['phone_port']}: подробности в журнале ошибок"))
-            except tk.TclError: pass
-
-    def phone_draft(self, cs, r, bans):
-        """То же, что во втором окне, текстом для телефона."""
-        if not self.phone_srv: return
-        d, me, role = self.data, cs.get('me'), r.get('role')
-        st = {'mode': 'draft', 'me': d.cn(me) if me else '', 'imp': self.import_text,
-              'title': 'ARAM' if role == 'ARAM' else 'Драфт' + (f" · {core.ROLE_RU.get(role, '')}" if role else ''),
-              'sub': (f"Оппонент: {d.cn(r['opp'])}" if r.get('opp') else 'Оппонент ещё не выбран') if role != 'ARAM' else 'Сборка ARAM по всем рангам',
-              'picks': [(x['name'], x['why']) for x in r.get('picks') or []], 'bans': [(d.cn(c), why) for c, sc, why in bans or []]}
-        if me and r.get('opp'):
-            cnt = core.lola_counters(self.lola.get(('counter', r['opp'], role)), d)
-            if me in cnt: st['mu'] = {'wr': f"{100 - cnt[me][0]:.1f}%", 'text': f"{cnt[me][2]} игр, Европа Изумруд+"}
-        full = self.lola.get((me, role)) if me else None
-        if full:
-            v = full.get(self.s['rune_pick']) or full
-            st['build'] = [('Заклинания', ', '.join(core.SPELL_RU.get(x, x) for x in v.get('spells', [])[:2])),
-                           ('Старт', ', '.join(d.iname(i) for i in v.get('start', []))),
-                           ('Основа', ' → '.join(d.iname(i) for i in core.lola_build_items(v)))]
-            if v.get('skill_prio'): st['build'].append(('Умения', ' › '.join(v['skill_prio'])))
-            st['skills'] = v.get('skills', '')
-        allies = [a['c'] for a in cs.get('allies') or [] if a.get('c') and not a.get('me')]
-        adv = core.comp_advice(d, allies, role, (self.player.pool.get(role) if self.player else []) or [])
-        if adv: st['comp'] = [adv[0] + ('. Из пула: ' + ', '.join(d.cn(c) for c in adv[1]) if adv[1] else '')]
-        self.phone_srv.state = st
-
     def set_import_msg(self, text):
         self.import_text = text
-        if self.phone_srv and self.phone_srv.state.get('mode') == 'draft': self.phone_srv.state['imp'] = text
         if self.dash and getattr(self.dash, 'import_lbl', None):
             try:
                 self.dash.import_lbl.configure(text=text, fg=C['bad'] if 'не получилось' in text else C['mute'])
@@ -3260,14 +3214,6 @@ class App:
         f = parent
         pg = tk.BooleanVar(value=self.s['postgame'])
         ui_skin.Checkbutton(f,text='Окно итога после игры',variable=pg,command=lambda:(self.s.__setitem__('postgame',pg.get()),self.s.save())).pack(anchor='w')
-        self.h(f, 'Драфт на телефоне')
-        self.note(f, 'Телефон в той же Wi-Fi сети, что и компьютер, открывает адрес ниже и видит драфт: кого брать и банить, руны, сборку, умения. '
-                     'Кнопка на телефоне импортирует руны и предметы в клиент. При первом включении Windows спросит разрешение для сети: разреши для частных сетей.')
-        pv = tk.BooleanVar(value=self.s['phone'])
-        ui_skin.Checkbutton(f, text='Включить драфт на телефоне', variable=pv,
-                        command=lambda: (self.s.__setitem__('phone', pv.get()), self.s.save(), self.sync_phone())).pack(anchor='w')
-        self.phone_lbl = ui_skin.TtkLabel(f, text='', style='V.TLabel'); self.phone_lbl.pack(anchor='w', pady=(2, 0))
-        self.sync_phone()
         self.h(f, 'Раскладка виджетов')
         row = ui_skin.Frame(f, bg=C['bg']); row.pack(anchor='w', pady=(8, 0))
         ui_skin.TtkLabel(row, text='Готовая раскладка:').pack(side='left')

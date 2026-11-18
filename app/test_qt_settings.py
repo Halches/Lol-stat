@@ -22,9 +22,19 @@ class QtSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             (Path(home)/'settings.json').write_text('{"auto_import":true}')
             s=Settings(home);self.assertEqual(s['auto_parts'],{'runes':True,'items':True,'spells':False})
-    def test_phone_token_is_not_exported(self):
+    def test_retired_settings_are_discarded_on_upgrade_and_restore(self):
+        retired = {'phone': True, 'phone_port': 8888, 'phone_token': 'old-token'}
         with tempfile.TemporaryDirectory() as home:
-            s=Settings(home);s['phone_token']='private';self.assertNotIn('phone_token',s.export('v2.0.0')['settings'])
+            path = Path(home) / 'settings.json'
+            path.write_text(json.dumps({**retired, 'scale': 120}))
+            settings = Settings(home)
+            self.assertTrue(retired.keys().isdisjoint(settings))
+            self.assertEqual(settings['scale'], 120)
+            settings.load_backup({'app': 'LoL Helper', 'settings': {**retired, 'scale': 130}})
+            self.assertEqual(settings['scale'], 130)
+            self.assertTrue(retired.keys().isdisjoint(settings.export()['settings']))
+            self.assertTrue(retired.keys().isdisjoint(json.loads(path.read_text())))
+
     def test_invalid_backup_preserves_live_settings_and_disk(self):
         with tempfile.TemporaryDirectory() as home:
             s = Settings(home)

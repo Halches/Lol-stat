@@ -3,7 +3,7 @@
 """
 import json,os,platform,queue,threading,time,urllib.request
 from collections import Counter
-import core,lcu,phone,tab_detect,player_comments,player_traits,player_evidence,champion_rank,champion_pool,profile_ranks,performance_model
+import core,lcu,tab_detect,player_comments,player_traits,player_evidence,champion_rank,champion_pool,profile_ranks,performance_model
 from app_config import *
 
 def show_postgame(app,res,result): app.show_postgame(res,result)
@@ -474,7 +474,6 @@ class ApplicationServices:
             self.draft_deadline = observed_at + left if left is not None else None
         self.draft = cs
         if cs is None:
-            if self.phone_srv: self.phone_srv.state = {'mode': 'idle'}
             self.role_override = None
             if self.dash and self.draft_sig not in (None, 'none'): self.dash.idle()
             self.draft_sig = 'none'
@@ -509,7 +508,6 @@ class ApplicationServices:
             if dash:
                 try: dash.show_aram(cs)
                 except Exception as e: log_error('второе окно: ARAM', e)
-            self.phone_draft(cs, {'role': 'ARAM', 'picks': [], 'opp': None}, [])
             self.auto_import_locked(cs)
             return
         r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'], scope=self.s.get('draft_scope', 'pool'))
@@ -525,7 +523,6 @@ class ApplicationServices:
         if dash:
             try: dash.show_draft(cs, r, bans)
             except Exception as e: log_error('второе окно: драфт', e)
-        self.phone_draft(cs, r, bans)
         self.auto_import_locked(cs)
 
     def draft_role(self, cs):
@@ -775,35 +772,6 @@ class ApplicationServices:
         if self.dash: self.dash.draft_sig = None
         self.draft_sig = None
         if self.draft: self.on_draft(self.draft)
-
-    def phone_draft(self, cs, r, bans):
-        """То же, что во втором окне, текстом для телефона."""
-        if not self.phone_srv: return
-        d, me, role = self.data, cs.get('me'), r.get('role')
-        st = {'mode': 'draft', 'me': d.cn(me) if me else '', 'imp': self.import_text,
-              'title': 'ARAM' if role == 'ARAM' else 'Драфт' + (f" · {core.ROLE_RU.get(role, '')}" if role else ''),
-              'sub': (f"Оппонент: {d.cn(r['opp'])}" if r.get('opp') else 'Оппонент ещё не выбран') if role != 'ARAM' else 'Сборка ARAM по всем рангам',
-              'picks': [(x['name'], x['why']) for x in r.get('picks') or []], 'bans': [(d.cn(c), why) for c, sc, why in bans or []]}
-        if me and r.get('opp'):
-            cnt = core.lola_counters(self.lola.get(('counter', r['opp'], role)), d)
-            if me in cnt: st['mu'] = {'wr': f"{100 - cnt[me][0]:.1f}%", 'text': f"{cnt[me][2]} игр, Европа Изумруд+"}
-        full = self.selected_draft_build(cs)
-        v = self.draft_build_variant(full, role)
-        st['build_source'] = self.draft_build_name(cs, role, full)
-        if v:
-            st['build'] = [('Заклинания', ', '.join(core.SPELL_RU.get(x, x) for x in v.get('spells', [])[:2])),
-                           ('Старт', ', '.join(d.iname(i) for i in v.get('start', []))),
-                           ('Основа', ' → '.join(d.iname(i) for i in core.lola_build_items(v)))]
-            if v.get('skill_prio'): st['build'].append(('Умения', ' › '.join(v['skill_prio'])))
-            st['skills'] = v.get('skills', '')
-        elif me:
-            st['build_status'] = 'Выбранная сборка пока недоступна'
-        if full and full.get('stale'):
-            st['build_status'] = 'Сохранённая сборка · источник не обновился'
-        allies = [a['c'] for a in cs.get('allies') or [] if a.get('c') and not a.get('me')]
-        adv = core.comp_advice(d, allies, role, (self.player.pool.get(role) if self.player else []) or [])
-        if adv: st['comp'] = [adv[0] + ('. Из пула: ' + ', '.join(d.cn(c) for c in adv[1]) if adv[1] else '')]
-        self.phone_srv.state = st
 
     def draft_build_name(self, cs, role, full):
         context = self.s['draft_build_context'] if role in core.ROLES else 'general'

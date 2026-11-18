@@ -36,10 +36,8 @@ def main():
     ui.app_home=lambda:str(review)
     lolhelper.home=lambda:str(review)
     settings=review/'settings.json'
-    if not settings.exists():settings.write_text(json.dumps({'design3':True,'auto_import':False,'phone':False}),encoding='utf-8')
-    # updater и сервер телефона не участвуют в проверке приложения.
+    if not settings.exists():settings.write_text(json.dumps({'design3':True,'auto_import':False}),encoding='utf-8')
     ui.App.check_updates=lambda *a,**k:None
-    ui.App.sync_phone=lambda *a:None
     if smoke:
         for method in ('poll','load_lanes','load_changelog','hist_refresh','ensure_home_icon'):
             setattr(ui.App,method,lambda *a,**k:None)
