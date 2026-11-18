@@ -1,6 +1,8 @@
 # Связь с клиентом LoL (LCU) и с игрой (Live Client Data). Только чтение, кроме импорта рун и набора предметов.
 import base64, json, os, re, ssl, subprocess, urllib.parse, urllib.request
+import uuid
 import profile_ranks
+import rune_catalog
 
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -20,7 +22,7 @@ def _req(url, method='GET', body=None, auth=None, timeout=2):
 
 
 def live_data():
-    """Снимок текущей игры или None, если игры нет."""
+    """Снимок текущей игры или None, если данные недоступны."""
     try:
         return _req('https://127.0.0.1:2999/liveclientdata/allgamedata', timeout=1)
     except Exception:
@@ -57,7 +59,11 @@ class LCU:
         return False
 
     def call(self, path, method='GET', body=None):
-        if not self.port and not self.find(): return None
+        if not self.port and not self.find():
+            self.last_error = 'клиент недоступен'
+            if method != 'GET':
+                raise ConnectionError(self.last_error)
+            return None
         try:
             return _req(f'https://127.0.0.1:{self.port}{path}', method, body, self.token, timeout=2 if method == 'GET' else 10)
         except urllib.error.HTTPError as e:
@@ -171,13 +177,28 @@ class LCU:
         try: return ((((self.call('/lol-gameflow/v1/session') or {}).get('gameData') or {}).get('queue') or {}).get('id'))
         except Exception: return None
 
+    def live_match_id(self):
+        try:
+            session = self.call('/lol-gameflow/v1/session') or {}
+        except Exception:
+            return None
+        if session.get('phase') in ('GameStart', 'InProgress', 'Reconnect', 'WaitingForStats', 'PreEndOfGame', 'EndOfGame'):
+            gid = (session.get('gameData') or {}).get('gameId')
+            if type(gid) is int and gid > 0:
+                return gid
+        return None
+
     def timeline(self, gid):
         """Таймлайн игры из клиента: кадры по минутам с событиями и координатами (для карты смертей)."""
         try: return self.call(f'/lol-match-history/v1/game-timelines/{gid}')
         except Exception: return None
 
     def phase(self):
-        return self.call('/lol-gameflow/v1/gameflow-phase') or 'None'
+        """Фаза клиента. None означает отсутствие ответа, строка 'None' — ответ клиента."""
+        try:
+            return self.call('/lol-gameflow/v1/gameflow-phase')
+        except urllib.error.HTTPError:
+            return None
 
     def champ_select(self):
         return self.call('/lol-champ-select/v1/session')
@@ -192,37 +213,68 @@ class LCU:
         return True
 
     def set_runes(self, name, prim, sec, perks, shards=None):
-        """Страница рун «LoL Helper»: правим свою, иначе создаём, иначе перезаписываем текущую редактируемую."""
-        body = {'name': f'LoL Helper: {name}'[:25], 'primaryStyleId': prim, 'subStyleId': sec,
-                'selectedPerkIds': list(perks) + list(shards or [5008, 5008, 5011]), 'current': True}
-        pages = self.call('/lol-perks/v1/pages') or []
-        editable = lambda p: p.get('isEditable', p.get('isDeletable'))
-        mine = next((p for p in pages if p.get('name', '').startswith('LoL Helper') and editable(p)), None)
-        cur = self.call('/lol-perks/v1/currentpage') or {}
-        # Как делают Blitz и Porofessor: удалить свою старую страницу и создать заново; при лимите страниц
-        # заменить текущую редактируемую. Правка через PUT — последний вариант (в части клиентов отвечает 400).
-        plans = []
-        if mine: plans.append(('replace', mine['id']))
-        plans.append(('post', None))
-        if editable(cur) and cur.get('id') != (mine or {}).get('id'): plans.append(('replace', cur['id']))
-        if mine: plans.append(('put', mine['id']))
-        errors = []
-        for kind, pid in plans:
-            try:
-                if kind == 'replace':
-                    self.call(f'/lol-perks/v1/pages/{pid}', 'DELETE')
-                    r = self.call('/lol-perks/v1/pages', 'POST', body)
-                elif kind == 'post': r = self.call('/lol-perks/v1/pages', 'POST', body)
-                else: r = self.call(f'/lol-perks/v1/pages/{pid}', 'PUT', dict(body, id=pid)) or {'id': pid}
-                new_id = (r or {}).get('id')
-                if new_id:
-                    try: self.call('/lol-perks/v1/currentpage', 'PUT', new_id)
-                    except Exception: pass
-                self.last_error = ''
-                return True
-            except Exception:
-                errors.append(self.last_error)
-        self.last_error = '; '.join(e for e in errors if e)
+        """Изменяем только страницу помощника и проверяем активный набор после записи."""
+        self.last_error = ''
+        perks = list(perks or [])
+        shards = list([5008, 5008, 5011] if shards is None else shards)
+        if not rune_catalog.valid_page(prim, sec, perks, shards):
+            self.last_error = 'проверь ветки, шесть рун и три осколка сборки'
+            return False
+
+        path = '/lol-perks/v1/pages'
+        current = '/lol-perks/v1/currentpage'
+        selected = perks + shards
+        body = {'name': f'LoL Helper: {name}'[:25], 'primaryStyleId': prim,
+                'subStyleId': sec, 'selectedPerkIds': selected, 'current': True}
+
+        def matches(page):
+            ids = page.get('selectedPerkIds')
+            return (page.get('primaryStyleId') == prim and page.get('subStyleId') == sec
+                    and isinstance(ids, list) and len(ids) == 9 and ids[:4] == selected[:4]
+                    and set(ids[4:6]) == set(selected[4:6]) and ids[6:] == selected[6:])
+
+        try:
+            pages = self.call(path)
+            if not isinstance(pages, list):
+                self.last_error = 'клиент недоступен'
+                return False
+            mine = next((p for p in pages if p.get('isEditable', p.get('isDeletable'))
+                         and p.get('id') and p.get('name', '').startswith('LoL Helper: ')), None)
+            if mine:
+                pid = mine['id']
+                if mine.get('name') != body['name'] or not matches(mine):
+                    self.call(f'{path}/{pid}', 'PUT', dict(body, id=pid))
+            else:
+                saved = self.call(path, 'POST', body) or {}
+                pid = saved.get('id')
+                if not pid:
+                    # Некоторые клиенты принимают POST без тела ответа.
+                    pages = self.call(path) or []
+                    found = [p for p in pages if p.get('name') == body['name'] and matches(p)]
+                    pid = found[0].get('id') if len(found) == 1 else None
+                if not pid:
+                    self.last_error = 'клиент не подтвердил сохранение страницы'
+                    return False
+        except Exception as error:
+            self.last_error = self.last_error or str(error)
+            return False
+        try:
+            self.call(current, 'PUT', pid)
+        except Exception:
+            pass  # Клиент мог применить запись до обрыва связи. Проверяем фактический выбор.
+        try:
+            active = self.call(current)
+        except Exception:
+            active = None
+        if not active:
+            self.last_error = 'страница сохранена, активная страница не подтверждена'
+        elif active.get('id') != pid:
+            self.last_error = 'страница сохранена, но не выбрана'
+        elif not matches(active):
+            self.last_error = 'активная страница отличается от выбранной сборки'
+        else:
+            self.last_error = ''
+            return True
         return False
 
     def set_items(self, summoner_id, champ_id, title, blocks):
@@ -232,16 +284,67 @@ class LCU:
             summoner_id = s.get('summonerId') or s.get('accountId')
         if not summoner_id: self.last_error = 'клиент не отдал id призывателя'; return False
         path = f'/lol-item-sets/v1/item-sets/{summoner_id}/sets'
-        try: cur = self.call(path) or {}
-        except Exception: cur = {}
-        cur = {'accountId': cur.get('accountId', summoner_id), 'itemSets': cur.get('itemSets') or [], 'timestamp': cur.get('timestamp', 0)}
-        sets = [s for s in cur.get('itemSets', []) if not s.get('title', '').startswith('LoL Helper')]
-        for k, (t, bl) in enumerate([(title, blocks)] if isinstance(title, str) else title):   # title — строка или [(название, блоки)]
-            sets.append({'title': f'LoL Helper: {t}'[:75], 'associatedChampions': [int(champ_id)], 'associatedMaps': [11],
-                         'type': 'custom', 'map': 'any', 'mode': 'any', 'sortrank': k, 'startedFrom': 'blank',
-                         'blocks': [{'type': n, 'items': [{'id': str(i), 'count': 1} for i in its]} for n, its in bl if its]})
-        cur['itemSets'] = sets
+        self.last_error = ''
         try:
-            self.call(path, 'PUT', cur); return True
-        except Exception:
+            collection = self.call(path)
+        except Exception as error:
+            self.last_error = self.last_error or str(error)
             return False
+        pages = collection.get('itemSets') if isinstance(collection, dict) else None
+        if not isinstance(pages, list) or not all(isinstance(p, dict) for p in pages):
+            self.last_error = 'клиент не отдал список наборов предметов'
+            return False
+
+        # Одинаковые ранги встречаются у старых страниц. При равенстве сохраняем порядок клиента.
+        ordered = sorted(pages, key=lambda p: p['sortrank'] if type(p.get('sortrank')) is int else 0)
+        helper_pages, personal_pages = [], []
+        for page in ordered:
+            if str(page.get('title', '')).startswith('LoL Helper: '):
+                helper_pages.append(page)
+            else:
+                personal_pages.append(page)
+
+        incoming = [(title, blocks)] if isinstance(title, str) else title
+        imported = []
+        for slot, (name, groups) in enumerate(incoming):
+            item_blocks = [{'type': label, 'items': [{'id': str(i), 'count': 1} for i in items]}
+                           for label, items in groups if items]
+            if not item_blocks:
+                self.last_error = 'в наборе нет предметов'
+                return False
+            previous = helper_pages[slot] if slot < len(helper_pages) else {}
+            # UID принадлежит позиции помощника, чтобы следующий импорт обновлял ту же страницу.
+            imported.append({**previous, 'uid': previous.get('uid') or str(uuid.uuid4()),
+                             'title': f'LoL Helper: {name}'[:75], 'associatedChampions': [int(champ_id)],
+                             'associatedMaps': [11], 'type': 'custom', 'map': 'any', 'mode': 'any',
+                             'sortrank': slot, 'startedFrom': 'blank', 'blocks': item_blocks})
+        if not imported:
+            self.last_error = 'нет наборов для импорта'
+            return False
+
+        personal = [dict(page, sortrank=i) for i, page in enumerate(personal_pages, start=len(imported))]
+        updated = imported + personal
+        if pages == updated:
+            return True
+        try:
+            self.call(path, 'PUT', dict(collection, itemSets=updated))
+            saved = self.call(path)
+        except Exception as error:
+            self.last_error = self.last_error or str(error)
+            return False
+
+        saved_pages = saved.get('itemSets') if isinstance(saved, dict) else None
+        if not isinstance(saved_pages, list) or len(saved_pages) < len(imported):
+            self.last_error = 'клиент не подтвердил сохранение первых страниц предметов'
+            return False
+        for expected, actual in zip(imported, saved_pages):
+            fields = ('uid', 'sortrank', 'title', 'associatedChampions', 'associatedMaps')
+            if not isinstance(actual, dict) or any(actual.get(k) != expected[k] for k in fields):
+                self.last_error = 'клиент не подтвердил порядок наборов предметов'
+                return False
+            # Клиент может дополнить блоки полями для заклинаний. Сверяем содержимое магазина.
+            actual_blocks = [(b.get('type'), b.get('items')) for b in actual.get('blocks') or []]
+            if actual_blocks != [(b['type'], b['items']) for b in expected['blocks']]:
+                self.last_error = 'предметы на сохранённой странице отличаются от выбранной сборки'
+                return False
+        return True

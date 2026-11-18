@@ -144,25 +144,94 @@ SECTIONS = {   # что сбрасывает кнопка «По умолчан�
     'windows': ['widgets', 'widget_pins', 'perf', 'tab_step', 'tab_pos', 'tab_rect', 'tab_auto', 'dashboard', 'scoreboard', 'postgame', 'layout'], 'keys': ['keys'], 'obj': ['obj'],
 }
 
+SETTING_RANGES = {
+    'scale': (70, 170), 'icon': (20, 64), 'alpha': (30, 100),
+    'phone_port': (1024, 65535), 'rate': (.7, 1.6),
+    **{key: (0, 100) for key in ('master', 'volume', 'beep_volume')},
+}
+
+
+def setting_number(value):
+    return type(value) in (int, float) and -1e9 <= value <= 1e9
+
+
+def coordinates(value, count):
+    return isinstance(value, list) and len(value) == count and all(map(setting_number, value))
+
+
+def valid_setting(key, value, default):
+    if key == 'tab_rect':
+        return value is None or (coordinates(value, 4) and min(value[2:]) > 0)
+    if key == 'qt_dashboard_geometry':
+        return (coordinates(value, 4) and all(type(x) is int for x in value)
+                and min(value[2:]) > 0)
+    if key in SETTING_RANGES:
+        low, high = SETTING_RANGES[key]
+        types = (int, float) if key == 'rate' else (int,)
+        return type(value) in types and low <= value <= high
+    if key == 'layout':
+        return isinstance(value, dict) and all(
+            isinstance(screen, dict) and all(coordinates(pos, 2) for pos in screen.values())
+            for screen in value.values())
+    if key == 'tab_pos':
+        return isinstance(value, dict) and all(coordinates(pos, 2) for pos in value.values())
+    if key == 'champion_pools':
+        return isinstance(value, dict) and all(
+            isinstance(pool, dict) and all(isinstance(picks, list) and all(isinstance(c, str) for c in picks)
+                                           for picks in pool.values())
+            for pool in value.values())
+    if key == 'hint_text':
+        return isinstance(value, dict) and all(
+            isinstance(hint, dict) and all(isinstance(hint.get(part, ''), str) for part in ('text', 'say'))
+            for hint in value.values())
+    if key == 'widget_pins':
+        return isinstance(value, dict) and all(type(pin) is bool for pin in value.values())
+    if type(default) in (int, float):
+        return type(value) is type(default) and setting_number(value)
+    return type(value) is type(default)
+
+
+def merge_settings(base, incoming, *, strict=False, prefix=''):
+    """Fill absent fields and validate known values, including nested defaults."""
+    result = copy.deepcopy(base)
+    for key, value in incoming.items():
+        path = prefix + key
+        if key not in base:
+            result[key] = copy.deepcopy(value)
+        elif not valid_setting(path, value, base[key]):
+            if strict:
+                raise ValueError(f'Некорректное значение настройки «{path}»')
+        elif isinstance(base[key], dict) and base[key] and path not in (
+                'layout', 'tab_pos', 'champion_pools', 'hint_text', 'widget_pins'):
+            result[key] = merge_settings(base[key], value, strict=strict, prefix=path+'.')
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
 class Settings(dict):
     def __init__(self, home):
         super().__init__()
         self.path = os.path.join(home, 'settings.json')
         try:
             with open(self.path, encoding='utf-8') as source: saved = json.load(source)
-        except Exception: saved = {}
+        except (OSError, ValueError): saved = {}
         if not isinstance(saved,dict): saved={}
         if os.path.isfile(self.path) and not os.path.exists(self.path+".pre-v2"):
             import shutil
-            with open(self.path,"rb") as original, open(self.path+".pre-v2","xb") as backup:
-                shutil.copyfileobj(original,backup)
-        self.update(copy.deepcopy(saved))
-        for k, v in DEFAULTS.items():
-            self[k] = (copy.deepcopy({**v, **saved.get(k, {})}) if isinstance(v, dict) and isinstance(saved.get(k, {}),dict) else copy.deepcopy(saved.get(k, v)))
-        if saved.get('auto_import') and 'auto_parts' not in saved:   # раньше была одна галка на всё
+            try:
+                with open(self.path,"rb") as original, open(self.path+".pre-v2","xb") as backup:
+                    shutil.copyfileobj(original,backup)
+            except OSError as error:
+                log_error('резервная копия настроек', error)
+        self.update(merge_settings(DEFAULTS, saved))
+        if 'qt_dashboard_geometry' in self and not valid_setting('qt_dashboard_geometry', self['qt_dashboard_geometry'], None):
+            self.pop('qt_dashboard_geometry')
+        if self['auto_import'] and 'auto_parts' not in saved:   # раньше была одна галка на всё
             self['auto_parts'] = {'runes': True, 'items': True, 'spells': False}
         if 'draft_auto_mode_v1' not in saved:
-            self['auto_import'] = any(self['auto_parts'].values())
+            if type(saved.get('auto_import')) is not bool:
+                self['auto_import'] = any(self['auto_parts'][k] for k in DEFAULTS['auto_parts'])
             self['draft_auto_mode_v1'] = True
         if not saved.get('design3'):   # дизайн 26.10: новые темы и шрифты включаются всем один раз
             self['theme'], self['font'], self['accent'], self['design3'] = 'lol', 'Golos Text', 'theme', True
@@ -186,20 +255,21 @@ class Settings(dict):
         """Применить копию настроек. Неизвестные ключи пропускаются, недостающие остаются как были. Возвращает число разделов."""
         if not isinstance(d, dict) or d.get('app') != 'LoL Helper' or not isinstance(d.get('settings'), dict):
             raise ValueError('это не файл настроек LoL Helper')
-        n = 0
-        for k, v in d['settings'].items():
-            if k not in DEFAULTS or k in self.BACKUP_SKIP: continue
-            dv = DEFAULTS[k]
-            if isinstance(dv, dict) != isinstance(v, dict): continue
-            self[k] = {**dv, **v} if isinstance(dv, dict) else v
-            n += 1
-        self.save()
-        return n
+        incoming = {key: value for key, value in d['settings'].items()
+                    if key in DEFAULTS and key not in self.BACKUP_SKIP}
+        merge_settings(DEFAULTS, incoming, strict=True)
+        candidate = merge_settings(self, incoming)
+        self._write(candidate)
+        self.update(candidate)
+        return len(incoming)
 
     def save(self):
+        self._write(self)
+
+    def _write(self, settings):
         tmp = self.path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as output:
-            json.dump(dict(self), output, ensure_ascii=False, indent=1)
+            json.dump(settings, output, ensure_ascii=False, indent=1)
         os.replace(tmp, self.path)
 
 def bundle_dir():

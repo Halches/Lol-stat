@@ -1,5 +1,7 @@
 """Client export snapshots, failures and cancellation, with no Tk display or network."""
+import io
 import queue
+import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
@@ -56,8 +58,30 @@ class QtServiceImportTests(unittest.TestCase):
             app.do_import(('runes', 'items'))
             callbacks.get(timeout=2)()
         self.assertIsNone(app.imported)
-        self.assertIn('Руны: готово', app.messages[-1])
+        self.assertIn('Руны: применено', app.messages[-1])
         self.assertIn('Предметы: не получилось', app.messages[-1])
+
+    def test_manual_import_uses_desktop_selection(self):
+        app, callbacks, _, _ = self.app()
+        app.s['auto_parts'] = dict(runes=True, items=False, spells=False)
+        app.do_import()
+        callbacks.get(timeout=2)()
+        self.assertEqual([part for part, *_ in app.calls], ['runes'])
+
+    def test_auto_retries_only_unconfirmed_parts_on_same_locked_pick(self):
+        app, callbacks, _, _ = self.app(fail_items=True)
+        app.s.update(auto_import=True, auto_parts=dict(runes=True, items=True, spells=False))
+        app.draft['locked'] = True
+        with patch.object(services, 'log_error'):
+            app.auto_import_locked(app.draft)
+            callbacks.get(timeout=2)()
+            self.assertIsNone(app.imported)
+            app.client.set_items = lambda *args: app.calls.append(('items', args)) or True
+            app.auto_import_locked(app.draft)
+            callbacks.get(timeout=2)()
+            app.auto_import_locked(app.draft)
+        self.assertEqual([c[0] for c in app.calls], ['runes', 'items', 'items'])
+        self.assertEqual(app.imported, 'Ahri')
 
     def test_variant_or_role_change_cancels_remaining_operations(self):
         for change in ('variant', 'role'):
@@ -140,6 +164,36 @@ class QtServiceImportTests(unittest.TestCase):
         app.do_import(('runes','items'));self.assertTrue(entered.wait(2))
         app.s['draft_build_context']='player:42';release.set();callbacks.get(timeout=2)()
         self.assertEqual([call[0] for call in app.calls],['runes'])
+
+
+class QtServiceSourceTests(unittest.TestCase):
+    def test_lolalytics_retries_after_temporary_failure(self):
+        service = services.ApplicationServices()
+        service.lola, service.lola_state = {}, {}
+        service.cp_sel = None
+        callbacks = queue.Queue()
+        service.root = SimpleNamespace(after=lambda delay, fn:callbacks.put((delay,fn)))
+        target = ('counter','Ahri','MIDDLE')
+        service.redraw_draft = lambda:service.lola_fetch(*target)
+        with tempfile.TemporaryDirectory() as home, patch.object(services,'log_error'):
+            service.home = home
+            with patch.object(services.urllib.request,'urlopen',side_effect=OSError) as net:
+                service.lola_fetch(*target)
+                _, done = callbacks.get(timeout=2)
+                done()
+                service.lola_fetch(*target)
+                self.assertEqual(net.call_count,1)
+            self.assertEqual(service.lola_state[target],'fail')
+            delay, retry = callbacks.get(timeout=2)
+            self.assertGreaterEqual(delay,30000)
+            with patch.object(services.urllib.request,'urlopen',
+                              return_value=io.BytesIO(b'{"counters":[{"cid":112}]}')) as net:
+                retry()
+                _, done = callbacks.get(timeout=2)
+                done()
+                self.assertEqual(net.call_count,1)
+            self.assertEqual(service.lola_state[target],'ok')
+            self.assertEqual(service.lola_fetch(*target),{'counters':[{'cid':112}]})
 
 
 if __name__ == '__main__': unittest.main()

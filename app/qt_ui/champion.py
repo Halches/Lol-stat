@@ -1,32 +1,82 @@
 """Чемпион, подтверждённые сборки и навыки на Qt."""
-from PySide6.QtWidgets import QComboBox,QCompleter,QWidget,QVBoxLayout
+from PySide6.QtWidgets import QComboBox,QCompleter,QWidget,QVBoxLayout,QGridLayout
 from PySide6.QtCore import Qt
 from .widgets import *
 from .pages import fmt
 import core,home_model,draft_model,champion_pool
 
+class ChampionCompleter(QCompleter):
+    def splitPath(self, text):
+        return [champion_pool.norm(text)]
+
+    def pathFromIndex(self, index):
+        return index.data(Qt.ItemDataRole.DisplayRole) or ''
+
+
 def champion_choice(app,selected=None,changed=None,empty='Выбери чемпиона'):
     choices={'':empty,**{k:app.data.cn(k) for k in sorted(set(app.data.ids.values()),key=app.data.cn)}}
-    c=combo(choices,selected or '',changed);c.setEditable(True);c.setInsertPolicy(QComboBox.InsertPolicy.NoInsert);c.completer().setFilterMode(Qt.MatchFlag.MatchContains);return c
+    c=combo(choices,selected or '',changed)
+    c.setEditable(True)
+    c.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+    aliases = {'MonkeyKing': 'Wukong', 'Nunu': 'Nunu & Willump', 'Renata': 'Renata Glasc'}
+    search_role = Qt.ItemDataRole.UserRole + 1
+    for index in range(1, c.count()):
+        key = c.itemData(index)
+        search = [c.itemText(index), key, aliases.get(key, '')]
+        c.setItemData(index, ' '.join(map(champion_pool.norm, search)), search_role)
+    completer = ChampionCompleter(c.model(), c)
+    completer.setCompletionRole(search_role)
+    completer.setFilterMode(Qt.MatchFlag.MatchContains)
+    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+    c.setCompleter(completer)
+    return c
 
-def loadout(app,full,variant):
-    p=Panel();p.box.addWidget(Label('Выбранный вариант',17,'gold',serif=True))
+def lola_status(app,key,champion,role,value=None):
+    state = app.lola_state.get(key)
+    if state == 'loading':
+        text = 'Обновляю сохранённые данные…' if value and value.get('stale') else 'Загружаю данные…'
+        return Label(text,10,'mute')
+    if value and value.get('stale'):
+        text, tone = 'Показаны сохранённые данные', 'warn'
+    elif state == 'fail':
+        text, tone = 'Источник не ответил. Данные недоступны.', 'warn'
+    else:
+        return None
+    return row(Label(text,10,tone),Button('Повторить',lambda:app.retry_lola(key,champion,role)))
+
+
+def loadout(app,full,variant,*,title=None):
+    compact = title is not None
+    p=Panel();p.box.addWidget(Label(title or 'Выбранный вариант',17,'gold',serif=True))
     if not variant:p.box.addWidget(Label('Подтверждённые руны и предметы пока недоступны.',11,'mute'));return p
-    if (full or {}).get('external'):p.box.addWidget(Label(str(full['external'])+' · '+str(full.get('external_name','')),11,'gold'))
+    if not compact and (full or {}).get('external'):p.box.addWidget(Label(str(full['external'])+' · '+str(full.get('external_name','')),11,'gold'))
     p.box.addWidget(row(*[app.icons.label('rune',r,32) for r in variant.get('perks',[])[:6]],*[app.icons.label('rune',r,22) for r in variant.get('shards',[])]))
-    for title,items in [('Старт',variant.get('start',[])),('Основа',core.lola_build_items(variant))]:
-        icons=[]
-        for item in items:
-            icon=app.icons.label('item',item,32);icon.setToolTip(app.data.iname(item));icons.append(icon)
-        p.box.addWidget(row(Label(title,11),*icons))
-    p.box.addWidget(row(Label('Заклинания'),*[app.icons.label('spell',s,28) for s in variant.get('spells',[])[:2]]))
-    for title,wr,n in [('Руны',variant.get('wr_runes'),variant.get('n_runes')),('Предметы',variant.get('wr_core'),variant.get('n_core'))]:p.box.addWidget(Label(title+': '+fmt(wr)+'% · '+(str(n)+' игр' if n is not None else 'выборка недоступна'),10,'mute'))
-    p.box.addWidget(Label('Выборки рун и предметов раздельные; совместный винрейт не подтверждён.',9,'mute'))
-    if (full or {}).get('stale'):p.box.addWidget(Label('Сохранённые данные: обновить источник не удалось.',10,'gold'))
+    for name,group,ids in [('Старт','item',variant.get('start',[])),('Основа','item',core.lola_build_items(variant)),
+                           ('Заклинания','spell',variant.get('spells',[])[:2])]:
+        label = Label(name,11)
+        label.setMinimumWidth(label.fontMetrics().horizontalAdvance('Заклинания')+6)
+        icons = []
+        for key in ids:
+            icon = app.icons.label(group,key,32 if group=='item' else 28)
+            icon.setToolTip(app.data.iname(key) if group=='item' else core.SPELL_RU.get(key,key))
+            icons.append(icon)
+        line = row(label,*icons)
+        line.layout().addStretch()
+        p.box.addWidget(line)
     priority=variant.get('skill_prio') or [];skills=variant.get('skills') or []
     if priority:p.box.addWidget(Label('Умения: '+' › '.join(priority),14,'gold',bold=True))
-    if skills:
+    if skills and compact:
+        grid = QGridLayout()
+        grid.setSpacing(3)
+        for index, skill in enumerate(skills):
+            step = Label(f'{index+1} {skill}',9,'gold' if skill=='R' else 'fg',bold=skill=='R')
+            step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            grid.addWidget(step,index//9,index%9)
+        p.box.addLayout(grid)
+    elif skills:
         p.box.addWidget(table([str(i) for i in range(1,len(skills)+1)],[[str(x) for x in skills]]))
+    for title,wr,n in [('Руны',variant.get('wr_runes'),variant.get('n_runes')),('Предметы',variant.get('wr_core'),variant.get('n_core'))]:p.box.addWidget(Label(title+': '+fmt(wr)+'% · '+(str(n)+' игр' if n is not None else 'выборка недоступна'),10,'mute'))
+    p.box.addWidget(Label('Руны и предметы рассчитаны по отдельным выборкам.',9,'mute'))
     for iid,short,when in (full or {}).get('situ',[])[:6]:p.box.addWidget(row(app.icons.label('item',iid,26),Label(short+' · '+when,10,'mute')))
     return p
 
@@ -60,15 +110,22 @@ class ChampionPage(Page):
             for p in group:
                 if self.variant=='player:'+p['id']:source=p;selected=p.get('variant')
         self.body_box.addWidget(buttons);self.body_box.addWidget(loadout(a,source,selected))
+        if self.variant in ('pick','win'):
+            key = ('matchup', c, role, self.opponent) if self.context=='matchup' else (c, role)
+            status = lola_status(a,key,c,role,source)
+            if status:self.body_box.addWidget(status)
         games=a.player.on(c,role) if a.player else []
         if self.context=='matchup':games=[g for g in games if g.get('opp')==self.opponent]
         st=home_model.stats(games);self.body_box.addWidget(Label('Твоя статистика',17,'gold',serif=True));self.body_box.addWidget(table(['Матчи','Победы','KDA','Фарм / мин'],[[st['n'],fmt(st['wr'])+'%',fmt(st['kda'],2),fmt(st['csm'])]]))
-        counters=core.lola_counters(a.lola_fetch('counter',c,role),a.data)
+        counter_data=a.lola_fetch('counter',c,role)
+        counters=core.lola_counters(counter_data,a.data)
         self.body_box.addWidget(Label('Матчапы на линии',17,'gold',serif=True))
         for enemy,values in sorted(counters.items(),key=lambda r:-r[1][1])[:12]:
             wr,delta,n=values
             self.body_box.addWidget(row(a.icons.label('champ',enemy,28),Button(a.data.cn(enemy),lambda e=enemy:self.pick_enemy(e)),Label(f'{wr:.1f}% · {delta:+.1f} · {n} игр',11,'good' if delta>0 else 'bad')))
-        if not counters:self.body_box.addWidget(Label('Матчапы пока недоступны.',10,'mute'))
+        status = lola_status(a,('counter',c,role),c,role,counter_data)
+        if status:self.body_box.addWidget(status)
+        elif not counters:self.body_box.addWidget(Label('Матчапы пока недоступны.',10,'mute'))
         for kind,title in [('OTP','Мейнеры'),('Pro','Проигроки')]:
             group=(players or {}).get('groups',{}).get(kind,[]);self.body_box.addWidget(Label(title+f' · {len(group)}/3',17,'gold',serif=True))
             for p in group:

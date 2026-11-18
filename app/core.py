@@ -1,6 +1,7 @@
 # Логика LoL Helper без интерфейса и без Windows: драфт, разбор живой игры, подсказки.
 # Всё здесь проверяется тестами на любой системе (app/test_core.py).
 import json, math, re, time
+import rune_catalog
 
 ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY']
 ROLE_RU = {'TOP': 'топ', 'JUNGLE': 'лес', 'MIDDLE': 'мид', 'BOTTOM': 'бот', 'UTILITY': 'саппорт', '': '—', 'ARAM': 'ARAM'}
@@ -1005,9 +1006,18 @@ def lola_url(champ, role):
 
 
 def rune_tree(perk):
-    if perk // 100 == 99: return 8100      # Град клинков
-    if perk // 100 == 91: return 8000      # Триумф, Легенды
-    return perk // 100 * 100
+    return rune_catalog.TREE.get(perk)
+
+
+def restore_lola_styles(build):
+    """Обновляем ранее закэшированные сборки, где ветки выводились из цифр ID."""
+    for variant in (build, build.get('pick'), build.get('win')):
+        if isinstance(variant, dict):
+            perks = variant.get('perks')
+            if isinstance(perks, list) and len(perks) == 6:
+                variant['prim'] = rune_tree(perks[0])
+                variant['sec'] = rune_tree(perks[4])
+    return build
 
 
 def parse_lola_build(html):

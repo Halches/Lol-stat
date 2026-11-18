@@ -13,24 +13,74 @@ h1{font-size:20px;margin:0 0 2px}.sub{color:var(--mute);font-size:13px;margin-bo
 .row{display:flex;justify-content:space-between;gap:10px;padding:3px 0}.mute{color:var(--mute)}.big{font-size:28px;font-weight:700}
 .chip{display:inline-block;background:#1A2433;border-radius:6px;padding:2px 7px;margin:2px 3px 2px 0;font-size:13px}
 .r{background:var(--gold);color:#14100A;font-weight:700}
-button{position:fixed;left:16px;right:16px;bottom:16px;padding:14px;border:0;border-radius:10px;background:var(--gold);color:#14100A;font:700 16px system-ui}
-</style></head><body><div id=app class=mute>Жду данные…</div><button id=imp>Импортировать в клиент</button><script>
+footer{position:fixed;left:0;right:0;bottom:0;padding:8px 16px 16px;background:var(--bg)}
+button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--gold);color:#14100A;font:700 16px system-ui}
+button:disabled{opacity:.55}
+#connection,#import-status{color:var(--bad);font-size:13px}
+#connection:not(:empty){position:sticky;top:0;z-index:1;background:var(--bg);padding:8px 0}
+#import-status:not(:empty){margin-bottom:8px}
+</style></head><body><div id=connection role=status></div><div id=app class=mute>Жду данные…</div>
+<footer id=actions hidden><div id=import-status role=status></div><button id=imp disabled>Импортировать в клиент</button></footer><script>
 const T=location.pathname.replace(/\\/$/,''),$=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+const button=$('#imp'),actions=$('#actions'),connection=$('#connection'),importStatus=$('#import-status');
+let connected=false, importing=false, canImport=false, lastUpdate='';
+function syncImport(){actions.hidden=!canImport;button.disabled=!connected||!canImport||importing;}
+function disconnected(){
+ connected=false;
+ connection.textContent='Связь с ПК потеряна'+(lastUpdate?' · последние данные в '+lastUpdate:'');
+ syncImport();
+}
+function request(path,options={}){
+ return fetch(T+path,{...options,signal:globalThis.AbortSignal?.timeout?.(5000)});
+}
 function card(t,b){return b?`<div class=card><div class=cap>${t}</div>${b}</div>`:''}
 function draw(s){
  $('#app').className='';
- if(!s||s.mode!=='draft'){$('#app').innerHTML=`<h1>LoL Helper</h1><div class=sub>${e(s&&s.text||'Ждём выбора чемпионов. Страница обновится сама.')}</div>`;$('#imp').hidden=true;return}
- $('#imp').hidden=!s.me;let h=`<h1>${e(s.title)}</h1><div class=sub>${e(s.sub)}</div>`;
+ canImport=s?.mode==='draft'&&Boolean(s.me);
+ if(!canImport)importStatus.textContent='';
+ if(!s||s.mode!=='draft'){$('#app').innerHTML=`<h1>LoL Helper</h1><div class=sub>${e(s&&s.text||'Ждём выбора чемпионов. Страница обновится сама.')}</div>`;return}
+ let h=`<h1>${e(s.title)}</h1><div class=sub>${e(s.sub)}</div>`;
  if(s.mu)h+=card('Твой матчап',`<div class=big>${e(s.mu.wr)}</div><div class=mute>${e(s.mu.text)}</div>`);
  if(s.comp)h+=card('Состав',s.comp.map(x=>`<div>${e(x)}</div>`).join(''));
- if(s.build)h+=card('Руны и сборка · '+e(s.me),s.build.map(([k,v])=>`<div class=row><span class=mute>${e(k)}</span><span>${e(v)}</span></div>`).join('')+
-   (s.skills?`<div style="margin-top:6px">${[...s.skills].map((k,i)=>`<span class="chip ${k==='R'?'r':''}">${i+1}:${k}</span>`).join('')}</div>`:''));
+ if(s.me)h+=card('Сборка · '+e(s.me),`<div class=sub>${e(s.build_source||'')}</div>`+(s.build||[]).map(([k,v])=>`<div class=row><span class=mute>${e(k)}</span><span>${e(v)}</span></div>`).join('')+
+   (s.skills?`<div style="margin-top:6px">${[...s.skills].map((k,i)=>`<span class="chip ${k==='R'?'r':''}">${i+1}:${e(k)}</span>`).join('')}</div>`:'')+
+   (s.build_status?`<div class=sub>${e(s.build_status)}</div>`:''));
  if(s.picks&&s.picks.length)h+=card('Кого взять',s.picks.map(p=>`<div><b>${e(p[0])}</b> <span class=mute>${e(p[1])}</span></div>`).join(''));
  if(s.bans&&s.bans.length)h+=card('Кого банить',s.bans.map(p=>`<div><b style="color:var(--bad)">${e(p[0])}</b> <span class=mute>${e(p[1])}</span></div>`).join(''));
  if(s.imp)h+=`<div class=sub>${e(s.imp)}</div>`;
  $('#app').innerHTML=h}
-async function tick(){try{draw(await (await fetch(T+'/state.json',{cache:'no-store'})).json())}catch(_){}setTimeout(tick,2000)}
-$('#imp').onclick=async()=>{$('#imp').textContent='Импортирую…';try{await fetch(T+'/import',{method:'POST'})}catch(_){}setTimeout(()=>$('#imp').textContent='Импортировать в клиент',1500)};
+async function tick(){
+ try{
+  const response=await request('/state.json',{cache:'no-store'});
+  if(!response.ok)throw Error('Нет данных драфта');
+  draw(await response.json());
+  lastUpdate=new Date().toLocaleTimeString('ru-RU');
+  connected=true;
+  connection.textContent='';
+  syncImport();
+ }catch(_){disconnected();}
+ setTimeout(tick,2000);
+}
+button.onclick=async()=>{
+ if(button.disabled)return;
+ importing=true;
+ importStatus.textContent='';
+ button.textContent='Отправляю…';
+ syncImport();
+ try{
+  const response=await request('/import',{method:'POST'});
+  if(response.ok)button.textContent='Запрос отправлен на ПК';
+  else if(response.status===409)importStatus.textContent='Драфт уже изменился. Дождись обновления.';
+  else importStatus.textContent='ПК не принял запрос импорта. Попробуй ещё раз.';
+ }catch(_){
+  disconnected();
+  importStatus.textContent='Не удалось отправить запрос импорта. Повтори после восстановления связи.';
+ }finally{
+  importing=false;
+  syncImport();
+  setTimeout(()=>{if(!importing)button.textContent='Импортировать в клиент';},1500);
+ }
+};
 tick()</script></body></html>"""
 
 
@@ -66,6 +116,9 @@ class PhoneServer:
 
             def do_POST(self):
                 if self.path == '/' + srv.token + '/import':
+                    state = srv.state
+                    if state.get('mode') != 'draft' or not state.get('me'):
+                        return self.send_error(409)
                     srv.on_import(); return self._ok('{}', 'application/json')
                 self.send_error(404)
 

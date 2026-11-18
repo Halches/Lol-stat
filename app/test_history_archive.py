@@ -1,8 +1,10 @@
 """Saved match details must come from exact historical records, including offline use."""
 import copy
+import io
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import history_archive as archive
@@ -83,5 +85,20 @@ class HistoryArchive(unittest.TestCase):
             self.assertEqual(data['players']['halch']['g'][0]['id'],'EUW1_1000')
             self.assertEqual((cache/'data.json').read_bytes(),before)
 
+    def test_invalid_newer_statistics_cannot_replace_good_data(self):
+        with tempfile.TemporaryDirectory() as cache, patch.object(lolhelper,'home',return_value=cache):
+            path = Path(cache)/'data.json'
+            path.write_text('{"t":"9999-01-01"}')
+            bundled = lolhelper.load_data()
+            self.assertNotEqual(bundled.d['t'],'9999-01-01')
+            path.write_text(json.dumps(bundled.d))
+            before = path.read_bytes()
+            def unexpected_reload(*args):
+                self.fail('Invalid remote data reached the UI')
+            app = SimpleNamespace(data=bundled,root=SimpleNamespace(after=unexpected_reload))
+            invalid = {**bundled.d,'t':'9999-01-01','players':{'halch':{'riot':'Test#1','g':None}}}
+            with patch.object(lolhelper,'get',return_value=io.BytesIO(json.dumps(invalid).encode())):
+                self.assertFalse(lolhelper.update_data(app))
+            self.assertEqual(path.read_bytes(), before)
 
 if __name__=='__main__':unittest.main()

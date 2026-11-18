@@ -1,6 +1,7 @@
 # LoL Helper: точка входа. Загружает статистику, проверяет обновления, запускает окна.
 # Запуск из исходников: python app/lolhelper.py ; проверка сборки: LoLHelper.exe --selftest
-import json, os, re, subprocess, sys, tempfile, threading, time, traceback, urllib.request
+import copy, json, os, re, subprocess, sys, tempfile, threading, time, traceback, urllib.request
+from datetime import datetime
 
 HERE = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -11,6 +12,7 @@ RAW = f'https://raw.githubusercontent.com/{REPO}/main/app/data.json'
 try: VERSION = open(os.path.join(HERE, 'version.txt')).read().strip()
 except Exception: VERSION = 'dev'
 FROZEN = getattr(sys, 'frozen', False)
+DATA_WRITE_LOCK = threading.Lock()
 
 
 def home():
@@ -24,10 +26,58 @@ def with_history(data):
     matches={}
     try:
         with open(os.path.join(HERE,'history-details.json'),encoding='utf-8') as source:archive=json.load(source)
-        if archive.get('version')==1 and isinstance(archive.get('matches'),dict):matches.update(archive['matches'])
+        if isinstance(archive,dict) and archive.get('version')==1 and isinstance(archive.get('matches'),dict):matches.update(archive['matches'])
     except (OSError,ValueError,TypeError):pass
     if isinstance(data.get('match_details'),dict):matches.update(data['match_details'])
     return history_archive.attach(data,matches)
+
+
+def validated_data(d):
+    """Check the saved statistics format before choosing or writing a cache."""
+    if not isinstance(d, dict):
+        raise ValueError('Ожидается объект со статистикой')
+    stamp = d.get('t')
+    if not isinstance(stamp, str):
+        raise ValueError('У статистики нет даты')
+    date = datetime.fromisoformat(stamp)
+    for key in ('names', 'ids', 'items', 'lola', 'players', 'pools'):
+        if not isinstance(d.get(key), dict):
+            raise ValueError(f'Некорректный раздел статистики «{key}»')
+    for key in ('champs', 'arena', 'match_details'):
+        if key in d and not isinstance(d[key], dict):
+            raise ValueError(f'Некорректный раздел статистики «{key}»')
+    if 'patch' in d and not isinstance(d['patch'], str):
+        raise ValueError('Некорректный патч статистики')
+    for key in ('names', 'ids'):
+        if not all(isinstance(value, str) for value in d[key].values()):
+            raise ValueError(f'Некорректные имена в разделе «{key}»')
+    if not d['names'] or not d['ids']:
+        raise ValueError('Список чемпионов пуст')
+    if not all(isinstance(item, dict) and isinstance(item.get('n'), str)
+               and type(item.get('g')) is int for item in d['items'].values()):
+        raise ValueError('Некорректные данные предметов')
+    if not all(isinstance(value, dict) for value in d['lola'].values()):
+        raise ValueError('Некорректные данные сборок')
+    if not all(isinstance(pool, dict) and all(isinstance(picks, list) and
+               all(isinstance(champ, str) for champ in picks) for picks in pool.values())
+               for pool in d['pools'].values()):
+        raise ValueError('Некорректные пулы чемпионов')
+    for player in d['players'].values():
+        if not isinstance(player, dict) or not isinstance(player.get('riot'), str) or not isinstance(player.get('g'), list):
+            raise ValueError('Некорректный профиль игрока')
+        if player.get('rank') is not None and not isinstance(player['rank'], str):
+            raise ValueError('Некорректный ранг игрока')
+        for game in player['g']:
+            if (not isinstance(game, dict) or not isinstance(game.get('c'), str)
+                    or not isinstance(game.get('pos', ''), str)
+                    or game.get('q') is not None and type(game['q']) is not int):
+                raise ValueError('Некорректная запись матча')
+            for field in ('it', 'spells', 'pk'):
+                value = game.get(field)
+                if value is not None and (not isinstance(value, list) or any(type(item) not in (int, str) for item in value)):
+                    raise ValueError(f'Некорректный список «{field}» в записи матча')
+    # Current and legacy datasets use local, timezone-free timestamps.
+    return date.replace(tzinfo=None), core.Data(with_history(d))
 
 
 def load_data():
@@ -35,11 +85,17 @@ def load_data():
     best = None
     for p in (os.path.join(HERE, 'data.json'), os.path.join(home(), 'data.json')):
         try:
-            with open(p, encoding='utf-8') as source:d = json.load(source)
-            if not best or d['t'] > best['t']: best = d
-        except Exception:
-            pass
-    return core.Data(with_history(best))
+            with open(p, encoding='utf-8') as source:
+                candidate = validated_data(json.load(source))
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+            log(f'Пропущены некорректные данные ({p}): {error}')
+    if best is None:
+        raise ValueError('Не удалось загрузить встроенную статистику или сохранённый кэш')
+    return best[1]
 
 
 def get(url, timeout=20):
@@ -50,13 +106,29 @@ def get(url, timeout=20):
 def update_data(app):
     try:
         with get(RAW) as r: d = json.load(r)
-        if d['t'] <= app.data.d['t']: return False
-        p = os.path.join(home(), 'data.json')
-        json.dump(d, open(p + '.tmp', 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
-        os.replace(p + '.tmp', p)
-        app.root.after(0, lambda: app.reload_data(core.Data(with_history(d))))
+        date, data = validated_data(copy.deepcopy(d))
+        with DATA_WRITE_LOCK:
+            if date <= datetime.fromisoformat(app.data.d['t']).replace(tzinfo=None): return False
+            p = os.path.join(home(), 'data.json')
+            try:
+                with open(p, encoding='utf-8') as source:
+                    current, _ = validated_data(json.load(source))
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                current = None
+            if current is not None and date <= current:return False
+            temp = None
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=os.path.dirname(p), delete=False) as output:
+                    temp = output.name
+                    json.dump(d, output, ensure_ascii=False, separators=(',', ':'))
+                os.replace(temp, p)
+            finally:
+                if temp and os.path.exists(temp):
+                    os.unlink(temp)
+            app.root.after(0, lambda: app.reload_data(data))
         return True
-    except Exception:
+    except Exception as error:
+        log(f'Не удалось обновить статистику: {error}')
         return False
 
 

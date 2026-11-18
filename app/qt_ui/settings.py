@@ -63,6 +63,7 @@ class SettingsPage(Page):
         a.s.save()
         if self.kind=='voice':a.sync_voice()
         if self.kind=='windows':
+            if key=='dashboard':a.set_dashboard_enabled()
             a.apply_visibility()
             if a.demo_on:a.set_unlocked(True)
         if key=='phone':a.sync_phone()
@@ -71,12 +72,20 @@ class SettingsPage(Page):
         if decimals:w.setDecimals(decimals);w.setSingleStep(.1)
         w.setValue(self.app.s[key]);w.valueChanged.connect(lambda value:self.set(key,value));b.addWidget(row(Label(title),w))
     def reset(self,section):
-        self.app.s.reset(SECTIONS[section]);self.app.apply_settings();self.refresh()
+        dashboard = self.app.s['dashboard']
+        self.app.s.reset(SECTIONS[section])
+        self.app.apply_settings()
+        if dashboard != self.app.s['dashboard']:
+            self.app.set_dashboard_enabled()
     def refresh(self):
         self.clear();getattr(self,'build_'+self.kind)();self.box.addStretch()
     def build_windows(self):
         a=self.app;b=self.section('Виджеты поверх игры')
-        for key,title in WIDGETS.items():b.addWidget(row(check(title,a.s['widgets'].get(key),lambda v,k=key:self.set(k,v,'widgets')),check('Закреплён',a.s['widget_pins'].get(key),lambda v,k=key:self.pin(k,v))))
+        for key,title in WIDGETS.items():
+            control = check('Стоимость предметов чемпионов' if key=='inventory' else title,
+                            a.s['widgets'].get(key),lambda v,k=key:self.set(k,v,'widgets'))
+            control.setToolTip(title)
+            b.addWidget(row(control,check('Закреплён',a.s['widget_pins'].get(key),lambda v,k=key:self.pin(k,v))))
         a.demo_btn=Button('Завершить расстановку (Esc)' if a.demo_on else 'Показать все виджеты для расстановки',a.toggle_demo);b.addWidget(a.demo_btn)
         b.addWidget(row(Button('По краям окна игры',lambda:a.preset_layout('edges')),Button('По краям области 16:9',lambda:a.preset_layout('center')),Button('Сбросить позиции',a.reset_layout)))
         b=self.section('Показатели')
@@ -102,18 +111,27 @@ class SettingsPage(Page):
         for key,title in SHOW.items():b.addWidget(check(title,a.s['show'].get(key),lambda v,k=key:self.set(k,v,'show')))
         b.addWidget(Button('Вид по умолчанию',lambda:self.reset('look')))
     def build_voice(self):
-        a=self.app;b=self.section('Голос подсказок');self.voice_msg=Label('',10,'mute');a.voice.on_error=lambda message:a.root.after(0,lambda:self.voice_msg.setText(message))
+        a=self.app;b=self.section('Голос подсказок');self.voice_msg=Label('',10,'mute')
+        a.voice.on_error=lambda message:a.root.after(0,lambda:self.report_voice(message))
         b.addWidget(row(combo({k:v+('' if a.voice.ready(k) else ' (скачать)') for k,v in VOICES.items()},a.s['voice'],self.pick_voice),Button('Прослушать',lambda:a.voice.say('Окно ганка через двадцать секунд, поставь вард в реку',force=True))))
         b.addWidget(self.voice_msg)
         for title,key in [('Общая громкость','master'),('Голос','volume'),('Сигнал','beep_volume')]:self.number(b,title,key,0,100)
         self.number(b,'Скорость речи','rate',.7,1.6,1);b.addWidget(row(combo({k:v[0] for k,v in SOUNDS.items()},a.s['sound'],lambda v:self.set('sound',v)),Button('Проверить сигнал',lambda:a.voice.beep(force=True))))
         b.addWidget(Button('Звук по умолчанию',lambda:self.reset('voice')))
+    def report_voice(self,message):
+        if self.app.pages.get(6) is self:
+            self.voice_msg.setText(message)
     def pick_voice(self,key):
         a=self.app
+        token = self.voice_request = object()
         if a.voice.ready(key):self.set('voice',key);self.voice_msg.setText('Выбран '+VOICES[key]);return
         self.voice_msg.setText('Скачиваю '+VOICES[key]+'…')
-        def work():a.voice.fetch(key,lambda p:a.root.after(0,lambda:self.voice_msg.setText(f'Загрузка: {p*100:.0f}%')))
+        def progress(p):
+            if self.voice_request is token:
+                self.report_voice(f'Загрузка: {p*100:.0f}%')
+        def work():a.voice.fetch(key,lambda p:a.root.after(0,lambda:progress(p)))
         def done(_,error):
+            if a.pages.get(6) is not self or self.voice_request is not token:return
             if error:self.voice_msg.setText('Не удалось скачать: '+str(error))
             else:self.set('voice',key);self.voice_msg.setText('Голос установлен: '+VOICES[key])
         a.background(work,done)
@@ -152,6 +170,13 @@ class SettingsPage(Page):
         path,_=QFileDialog.getOpenFileName(self,'Восстановить настройки','','JSON (*.json)')
         if path:
             try:
+                dashboard = self.app.s['dashboard']
+                old_port, old_server = self.app.s['phone_port'], self.app.phone_srv
                 with open(path,encoding='utf-8') as f:self.app.s.load_backup(json.load(f))
-                self.app.apply_settings();self.refresh();self.app.status.setText('Настройки восстановлены')
+                self.app.apply_settings()
+                if dashboard != self.app.s['dashboard']:
+                    self.app.set_dashboard_enabled()
+                if old_server is not None and self.app.phone_srv is old_server and old_port != self.app.s['phone_port']:
+                    self.app.sync_phone(restart=True)
+                self.app.status.setText('Настройки восстановлены')
             except (ValueError,OSError) as e:QMessageBox.warning(self,'Не удалось восстановить',str(e))

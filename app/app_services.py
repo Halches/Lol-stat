@@ -2,11 +2,17 @@
 Расчёты, ограничения скрытых профилей и валидация импорта сохранены.
 """
 import json,os,platform,queue,threading,time,urllib.request
+from collections import Counter
 import core,lcu,phone,tab_detect,player_comments,player_traits,player_evidence,champion_rank,champion_pool,profile_ranks,performance_model
 from app_config import *
 
 def show_postgame(app,res,result): app.show_postgame(res,result)
 def show_arena_post(app,res): app.show_arena_post(res)
+
+AFTER_GAME_PHASES = {
+    'WaitingForStats', 'PreEndOfGame', 'EndOfGame', 'Lobby',
+    'Matchmaking', 'ReadyCheck', 'ChampSelect', 'None',
+}
 
 class ApplicationServices:
     def layout(self):
@@ -121,29 +127,44 @@ class ApplicationServices:
 
     def poll(self):
         last_lcu, last_me, last_scout, in_game = 0, 0, 0, False
+        game_ended = live_missing = False
         while not self.stopping.is_set():
             try:
                 raw = lcu.live_data()
                 now = time.time()
                 if raw and (raw.get('gameData') or {}).get('gameTime', 0) > 0:
-                    if not in_game: self.ranks, self.hists = {}, {}
+                    if not in_game:
+                        self.ranks, self.hists, self.scout = {}, {}, {}
+                        last_scout, game_ended = 0, False
+                        match_id, next_id_check = None, 0
                     in_game = True
+                    live_missing = False
                     g = core.Game(raw, self.data)
+                    if match_id is None and now >= next_id_check:
+                        match_id = self.client.live_match_id()
+                        next_id_check = now + 10
+                    g.match_id = match_id
                     if self.engine is None: self.new_engine()
                     if g.me and not getattr(self.engine, 'prepped', False): self.prep_engine(g)
                     self.engine.enabled = self.hint_flags(g.role)
                     hints = [] if g.arena else self.engine.tick(g)   # подсказки Ущелья в Арене не имеют смысла
-                    res = next((e.get('Result') for e in g.events if e.get('EventName') == 'GameEnd'), None)
+                    end_event = next((e for e in g.events if e.get('EventName') == 'GameEnd'), None)
+                    game_ended = game_ended or end_event is not None
+                    res = end_event.get('Result') if end_event else None
                     if now - last_scout > 90:
                         last_scout = now
                         self.scout = self.fetch_scout(g)
                     if len(self.ranks) < len(g.players): self.fetch_people(g)
                     elif g.ejg and not g.arena and self.engine.jg_plan is None and g.t < 240: self.scout_jungler(g)
                     self.q.put(('game', g, hints, res))
-                else:
-                    if in_game:
+                elif in_game:
+                    if game_ended or self.client.phase() in AFTER_GAME_PHASES:
                         in_game = False
                         self.q.put(('end', None, None, None))
+                    elif not live_missing:
+                        live_missing = True
+                        self.q.put(('game_stale', None, None, None))
+                else:
                     if now - last_me > 60:
                         last_me = now
                         me = self.client.me()
@@ -159,11 +180,13 @@ class ApplicationServices:
                         if ph == 'ChampSelect':
                             sess = self.client.champ_select()
                             if sess:
+                                observed_at = time.monotonic()
                                 cs = core.parse_champ_select(sess, self.data)
+                                cs['observed_at'] = observed_at
                                 cs['allies'] = self.draft_allies(sess)
                                 cs['arena'] = self.client.queue() == 1700
                                 self.q.put(('draft', cs, None, None))
-                        else:
+                        elif ph is not None:
                             if self.draft is not None: self.q.put(('draft', None, None, None))
                             if ph in ('GameStart', 'InProgress'): self.load_scout()
             except Exception as e:
@@ -268,10 +291,18 @@ class ApplicationServices:
 
     def on_loading(self, ps):
         if self.last_game is not None: return
-        if not self.dash: self.open_dash()
-        try: self.dash.show_loading(ps)
-        except Exception as e: log_error('второе окно: загрузка', e)
-        self.status.configure(text='Экран загрузки: разведка во втором окне')
+        dash = self.dashboard_for_events()
+        if dash:
+            try: dash.show_loading(ps)
+            except Exception as e: log_error('второе окно: загрузка', e)
+        self.status.configure(text='Экран загрузки')
+
+    def dashboard_for_events(self, *, new_draft=False):
+        if not self.s['dashboard']:
+            return self.dash if self.dash and self.dash.opened_manually and not self.dash._manual_hidden else None
+        if not self.dash or (new_draft and self.dash._manual_hidden):
+            self.open_dash(manual=False)
+        return self.dash
 
     def fetch_scout(self, g):
         try:
@@ -279,10 +310,23 @@ class ApplicationServices:
                 live = json.load(r)
         except Exception:
             return self.scout
-        mine = {p['c'] for p in g.players}
+        mine = Counter(p['c'] for p in g.players)
         for gm in live.get('games', []):
-            if {p['c'] for p in gm['players']} == mine:
-                return {p['c']: scout_text(p) for p in gm['players']}
+            if Counter(p['c'] for p in gm['players']) != mine:
+                continue
+            matched = {}
+            for player in g.players:
+                name = player['riot'].partition('#')[0].casefold()
+                team = {'ORDER': 100, 'CHAOS': 200}.get(player['team'])
+                candidates = [
+                    p for p in gm['players'] if p['c'] == player['c']
+                    and (not p.get('n') or p['n'].casefold() == name)
+                    and (team is None or p.get('team', team) == team)
+                ]
+                if len(candidates) == 1:
+                    matched[player['riot']] = scout_text(candidates[0])
+            if matched:
+                return matched
         return self.scout
 
     def drain(self):
@@ -293,6 +337,7 @@ class ApplicationServices:
                 kind, a, b, c = self.q.get_nowait()
                 try:
                     if kind == 'game': self.on_game(a, b, c)
+                    elif kind == 'game_stale': self.on_game_stale()
                     elif kind == 'end': self.on_end()
                     elif kind == 'me': self.on_me(a)
                     elif kind == 'draft': self.on_draft(a)
@@ -325,22 +370,26 @@ class ApplicationServices:
     def on_game(self, g, hints, result):
         first = self.last_game is None
         self.last_game, self.result = g, result or self.result
+        self.live_stale = False
+        if self.draft is not None:
+            self.on_draft(None)
         self.apply_visibility()
         if not g.me:
             self.status.configure(text='Ожидаю данные твоего игрока из клиента')
             return
+        dash = self.dashboard_for_events()
         if first:
             if not self.account:
                 who = self.data.who_by_riot(g.my_riot)
                 if who and who != self.who: self.set_who(who); self.new_engine()
             self.apply_visibility()
-            if self.dash: self.dash.reset()
+            if dash: dash.reset()
         for h in hints:
             mode = self.hint_mode(h.id, g.role)
             if mode == 'off': continue
             self.apply_text(h)
             self.ov['hints'].push(h.text)
-            if self.dash: self.dash.add_log(g.t, h.text)
+            if dash: dash.add_log(g.t, h.text)
             if mode == 'beep': self.voice.beep()
             elif mode == 'voice': self.voice.say(h.say)
         if hints: self.ov['hints'].show()
@@ -349,12 +398,19 @@ class ApplicationServices:
             if not self.s['widgets'].get(k) or (not getattr(g,'sr',not g.arena) and k in self.SR_ONLY) or (k == 'arena' and not g.arena): continue
             try: self.ov[k].show(g)
             except Exception as e: log_error(f'виджет {k}', e)
-        if self.dash and g.arena:
-            if first: self.dash.idle(); self.dash.head.configure(text='Арена'); self.dash.sub.configure(text='Окно игры для Арены пока не сделано.')
-        elif self.dash:
-            try: self.dash.show(g, self.scout, self.ranks, self.hists)
+        if dash:
+            try: dash.show(g, self.scout, self.ranks, self.hists)
             except Exception as e: log_error('второе окно: игра', e)
         self.status.configure(text=f'Игра: {core.mmss(g.t)} · {self.data.cn(g.me["c"]) if g.me else ""}')
+
+    def on_game_stale(self):
+        if not self.last_game:
+            return
+        self.live_stale = True
+        text = 'Связь с игрой потеряна · последние данные в ' + core.mmss(self.last_game.t)
+        self.status.configure(text=text)
+        if self.dash:
+            self.dash.mark_game_stale()
 
     def arena_games(self):
         return (self.data.d.get('arena') or {}).get(self.who or '', [])
@@ -374,8 +430,11 @@ class ApplicationServices:
         if g and g.arena and self.s['postgame'] and self.hint_mode('postgame') != 'off': self.root.after(20000, self.arena_post)
         if g and g.me and getattr(g,'sr',not g.arena) and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
             res = core.postgame(self.engine, g, self.player)
-            if res: show_postgame(self, res, self.result)
+            if res:
+                res['match_id'] = getattr(g, 'match_id', None)
+                show_postgame(self, res, self.result)
         self.last_game, self.result, self.engine, self.scout = None, None, None, {}
+        self.live_stale = False
         self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}   # к следующей игре история у всех уже другая
         if self.pending_data: self.reload_data(self.pending_data)
         self.apply_visibility()
@@ -387,36 +446,48 @@ class ApplicationServices:
     def on_draft(self, cs):
         """Драфт целиком во втором окне (дашборд): карточки, линия, импорт, кого взять и банить."""
         new_draft=self.draft is None and cs is not None
+        if cs is not None and cs is not self.draft:
+            observed_at = cs.get('observed_at', time.monotonic())
+            self.draft_observed_at = observed_at
+            left = cs.get('left')
+            self.draft_deadline = observed_at + left if left is not None else None
         self.draft = cs
         if cs is None:
             if self.phone_srv: self.phone_srv.state = {'mode': 'idle'}
             self.role_override = None
             if self.dash and self.draft_sig not in (None, 'none'): self.dash.idle()
             self.draft_sig = 'none'
+            self._import_generation = getattr(self, '_import_generation', 0) + 1
+            self._import_pending = None
+            self._auto_key = None
             self.imported = None; return
-        if not self.dash:self.open_dash()
-        elif new_draft and getattr(self.dash,'_manual_hidden',False):
-            self.dash._manual_hidden=False;self.dash.deiconify()
-        sig = json.dumps([cs['role'], self.role_override, self.s.get('draft_scope'), cs.get('locked'), cs['me'], cs['enemies'], sorted(cs['unavailable']), len(self.lola), [(a['c'], bool(a['rank']), a.get('hist')) for a in cs.get('allies', [])]], default=str)
-        if sig == self.draft_sig: return
+        dash = self.dashboard_for_events(new_draft=new_draft)
+        sig = json.dumps([cs['role'], self.role_override, self.s.get('draft_scope'), cs.get('locked'), cs['me'], cs['enemies'], sorted(cs['unavailable']), cs.get('arena'), cs.get('aram'), cs.get('bench'), len(self.lola), [(a['c'], bool(a['rank']), a.get('hist')) for a in cs.get('allies', [])]], default=str)
+        if sig == self.draft_sig:
+            if dash: dash.tick()
+            self.auto_import_locked(cs)
+            return
         self.draft_sig = sig
         p, d = self.player, self.data
-        self.status.configure(text='Выбор чемпионов: всё во втором окне')
+        self.status.configure(text='Выбор чемпионов · второе окно' if dash else 'Выбор чемпионов')
         if not p:
-            self.dash.clear('idle')
-            self.dash.head.configure(text='Выбор чемпионов', fg=C['gold'])
-            self.dash.sub.configure(text='Аккаунта нет в статистике сайта: выбери игрока на вкладке «Статус» основного окна'); return
+            if dash:
+                dash.clear('idle')
+                dash.head.configure(text='Выбор чемпионов', fg=C['gold'])
+                dash.sub.configure(text='Аккаунта нет в статистике сайта: выбери игрока на вкладке «Статус» основного окна')
+            return
         if cs.get('arena'):
-            try: self.dash.show_arena(cs)
-            except Exception as e: log_error('второе окно: Арена', e)
+            if dash:
+                try: dash.show_arena(cs)
+                except Exception as e: log_error('второе окно: Арена', e)
             return
         role, how = self.draft_role(cs)
         if role == 'ARAM':
-            try: self.dash.show_aram(cs)
-            except Exception as e: log_error('второе окно: ARAM', e)
+            if dash:
+                try: dash.show_aram(cs)
+                except Exception as e: log_error('второе окно: ARAM', e)
             self.phone_draft(cs, {'role': 'ARAM', 'picks': [], 'opp': None}, [])
-            auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
-            if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
+            self.auto_import_locked(cs)
             return
         r = core.draft_suggest(p, role, cs['enemies'], cs['unavailable'], scope=self.s.get('draft_scope', 'pool'))
         r['role'], r['how'] = role, how
@@ -428,11 +499,11 @@ class ApplicationServices:
         pool = core.ban_pool(p, role)
         cnt = {m: core.lola_counters(self.lola_fetch('counter', m, role), d) for m in pool}
         bans = core.ban_suggest(p, cs['unavailable'], 3, role, {m: v for m, v in cnt.items() if v})
-        try: self.dash.show_draft(cs, r, bans)
-        except Exception as e: log_error('второе окно: драфт', e)
+        if dash:
+            try: dash.show_draft(cs, r, bans)
+            except Exception as e: log_error('второе окно: драфт', e)
         self.phone_draft(cs, r, bans)
-        auto = tuple(k for k, v in self.s['auto_parts'].items() if v)
-        if self.s['auto_import'] and auto and cs['locked'] and cs['me'] and self.imported != cs['me']: self.do_import(auto)
+        self.auto_import_locked(cs)
 
     def draft_role(self, cs):
         """Линия для подсказок: выбранная вручную, назначенная клиентом или основная линия игрока."""
@@ -484,6 +555,14 @@ class ApplicationServices:
                             self.player_builds(cs['me'],role) if context.startswith('player:') else None)
         return self.lola_build(cs['me'],role)
 
+    def draft_build_variant(self, full, role):
+        if not full:
+            return None
+        context = self.s.get('draft_build_context','general') if role in core.ROLES else 'general'
+        if context == 'matchup' or 'pick' in full or 'win' in full:
+            return full.get(self.s['rune_pick'])
+        return full
+
     def set_draft_build(self, context, variant):
         if context not in ('general','matchup','offmeta') and not (context.startswith('player:') and context[7:].isdigit()):return
         if variant not in ('pick','win') or (context not in ('general','matchup') and variant!='pick'):return
@@ -498,12 +577,12 @@ class ApplicationServices:
         """Public matchup page only. Cache includes both champions and the verified source context."""
         if not champion or not opponent or role not in core.ROLES: return None
         key = ('matchup', champion, role, opponent)
-        if key in self.lola: return self.lola[key]
-        if self.lola_state.get(key): return None
-        self.lola_state[key] = 'loading'
+        cached = self.lola.get(key)
+        if not self.begin_lola_request(key): return cached
         path = os.path.join(self.home, 'lola', f'matchup_v1_{champion}_{role}_{opponent}.json')
         def valid(value):
-            meta = (value or {}).get('matchup') or {}
+            meta = value.get('matchup') if isinstance(value, dict) else None
+            if not isinstance(meta, dict):return False
             return (meta.get('champion'), meta.get('role'), meta.get('opponent'), meta.get('region')) == (champion, role, opponent, 'all')
         def job():
             import matchup_data
@@ -511,9 +590,10 @@ class ApplicationServices:
             try:
                 try:
                     with open(path, encoding='utf-8') as source: saved = json.load(source)
-                    if not valid(saved): saved = None
+                    saved = core.restore_lola_styles(saved) if valid(saved) else None
                 except (OSError, ValueError): pass
-                if saved and time.time()-saved.get('fetched_at',0) < 12*3600:
+                fetched_at = saved.get('fetched_at',0) if saved else 0
+                if saved and type(fetched_at) in (int,float) and time.time()-fetched_at < 12*3600:
                     value = saved
                 else:
                     req = urllib.request.Request(matchup_data.url(champion, role, opponent), headers={'User-Agent':'Mozilla/5.0'})
@@ -530,36 +610,85 @@ class ApplicationServices:
                 if saved:
                     value = dict(saved, stale=True)
             def done():
-                if value: self.lola[key] = value
-                self.lola_state[key] = 'ok' if value else 'fail'
-                self.redraw_draft()
-                if getattr(self,'cp_sel',None)==(champion,role): self.cp_show()
+                result = value or cached
+                if result: self.lola[key] = result
+                self.finish_lola_request(key, result, champion, role)
             try: self.root.after(0, done)
             except (RuntimeError, RuntimeError): pass
         threading.Thread(target=job, daemon=True, name='matchup-build').start()
-        return None
+        return cached
 
     def lola_build(self, champ, role):
         """Руны и сборка по Европе (lolalytics, EUW Изумруд+). Нет в памяти — грузим в фоне и перерисовываем драфт."""
         return self.lola_fetch('build', champ, role)
+
+    def begin_lola_request(self, key):
+        state = self.lola_state.get(key)
+        cached = self.lola.get(key)
+        retry_at = self.__dict__.setdefault('_lola_retry_at', {})
+        if ((cached and not cached.get('stale')) or state == 'loading'
+                or time.monotonic() < retry_at.get(key, 0)):
+            return False
+        self.lola_state[key] = 'loading'
+        return True
+
+    def finish_lola_request(self, key, value, champion, role):
+        retry_at = self._lola_retry_at
+        state = 'stale' if value and value.get('stale') else 'ok' if value else 'fail'
+        self.lola_state[key] = state
+        if state == 'ok':
+            retry_at.pop(key, None)
+        else:
+            delay = 30
+            deadline = retry_at[key] = time.monotonic() + delay
+
+            def auto_retry():
+                if self.lola_state.get(key) != state or retry_at.get(key) != deadline:
+                    return
+                retry_at.pop(key, None)
+                self.refresh_lola_views(champion, role)
+
+            self.root.after(delay * 1000 + 50, auto_retry)
+        self.refresh_lola_views(champion, role)
+
+    def refresh_lola_views(self, champion, role):
+        self.redraw_draft()
+        if getattr(self, 'cp_sel', None) == (champion, role):
+            self.cp_show()
+
+    def retry_lola(self, key, champion, role):
+        if self.lola_state.get(key) == 'loading':
+            return
+        self.__dict__.setdefault('_lola_retry_at', {}).pop(key, None)
+        self.refresh_lola_views(champion, role)
 
     def lola_fetch(self, kind, champ, role):
         """Данные lolalytics в фоне с кешем на 12 часов: kind='build' — руны и сборка, 'counter' — матчапы, 'build-team' — синергия.
         Пока грузится — None; по готовности драфт перерисуется."""
         if not champ or not role: return None
         k = (champ, role) if kind == 'build' else (kind, champ, role)
-        if k in self.lola: return self.lola[k]
-        if self.lola_state.get(k): return None
-        self.lola_state[k] = 'loading'
+        cached = self.lola.get(k)
+        if not self.begin_lola_request(k): return cached
         name = f'full_{champ}_{role}.json' if kind == 'build' else f'{kind}_{champ}_{role}.json'
         path = os.path.join(self.home, 'lola', name)
+
         def job():
-            b = None
+            saved, modified = None, 0
             try:
-                if os.path.exists(path) and time.time() - os.path.getmtime(path) < 12 * 3600:
-                    b = json.load(open(path, encoding='utf-8'))
-                else:
-                    get = lambda url: urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=20).read().decode('utf-8', 'ignore')
+                with open(path, encoding='utf-8') as source:
+                    value = json.load(source)
+                    if isinstance(value, dict) and value:
+                        modified = os.fstat(source.fileno()).st_mtime
+                        saved = core.restore_lola_styles(value) if kind == 'build' else value
+            except (OSError, ValueError):
+                pass
+            b = saved if saved and time.time() - modified < 12 * 3600 else None
+            try:
+                if not b:
+                    def get(url):
+                        request = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(request, timeout=20) as response:
+                            return response.read().decode('utf-8', 'ignore')
                     if kind == 'build' and role == 'ARAM':   # ARAM: в API нет, только страница сборки (все ранги)
                         b = core.parse_lola_build(get(core.lola_url(champ, role)))
                     elif kind == 'arena':   # чемпион в Арене: только винрейт и число игр
@@ -573,21 +702,25 @@ class ApplicationServices:
                     else: b = json.loads(get(core.lola_api(kind, champ, role)))
                     if kind == 'build-team': b = {'team': b.get('team')} if b.get('team') else None
                     if kind == 'counter': b = {'counters': b.get('counters')} if b.get('counters') else None
-                    if b:
+                    if not isinstance(b, dict) or not b:
+                        raise ValueError('Источник не вернул данные')
+                    try:
                         os.makedirs(os.path.dirname(path), exist_ok=True)
-                        json.dump(b, open(path, 'w', encoding='utf-8'))
+                        with open(path+'.tmp', 'w', encoding='utf-8') as output:
+                            json.dump(b, output)
+                        os.replace(path+'.tmp', path)
+                    except OSError as error:
+                        log_error(f'кэш lolalytics {kind} {champ} {role}', error)
             except Exception as e:
                 log_error(f'lolalytics {kind} {champ} {role}', e)
-                try: b = json.load(open(path, encoding='utf-8'))   # старый кеш лучше, чем ничего
-                except Exception: b = None
+                b = dict(saved, stale=True) if saved else None
             def done():
-                if b: self.lola[k] = b
-                self.lola_state[k] = 'ok' if b else 'fail'
-                self.redraw_draft()
-                if self.cp_sel and (champ, role) == self.cp_sel: self.cp_show()
+                value = b or cached
+                if value: self.lola[k] = value
+                self.finish_lola_request(k, value, champ, role)
             self.root.after(0, done)
         threading.Thread(target=job, daemon=True).start()
-        return None
+        return cached
 
     def redraw_draft(self):
         """Перерисовать драфт один раз, даже если несколько загрузок lolalytics закончились подряд (иначе окно моргает)."""
@@ -631,18 +764,38 @@ class ApplicationServices:
         if me and r.get('opp'):
             cnt = core.lola_counters(self.lola.get(('counter', r['opp'], role)), d)
             if me in cnt: st['mu'] = {'wr': f"{100 - cnt[me][0]:.1f}%", 'text': f"{cnt[me][2]} игр, Европа Изумруд+"}
-        full = self.lola.get((me, role)) if me else None
-        if full:
-            v = full.get(self.s['rune_pick']) or full
+        full = self.selected_draft_build(cs)
+        v = self.draft_build_variant(full, role)
+        st['build_source'] = self.draft_build_name(cs, role, full)
+        if v:
             st['build'] = [('Заклинания', ', '.join(core.SPELL_RU.get(x, x) for x in v.get('spells', [])[:2])),
                            ('Старт', ', '.join(d.iname(i) for i in v.get('start', []))),
                            ('Основа', ' → '.join(d.iname(i) for i in core.lola_build_items(v)))]
             if v.get('skill_prio'): st['build'].append(('Умения', ' › '.join(v['skill_prio'])))
             st['skills'] = v.get('skills', '')
+        elif me:
+            st['build_status'] = 'Выбранная сборка пока недоступна'
+        if full and full.get('stale'):
+            st['build_status'] = 'Сохранённая сборка · источник не обновился'
         allies = [a['c'] for a in cs.get('allies') or [] if a.get('c') and not a.get('me')]
         adv = core.comp_advice(d, allies, role, (self.player.pool.get(role) if self.player else []) or [])
         if adv: st['comp'] = [adv[0] + ('. Из пула: ' + ', '.join(d.cn(c) for c in adv[1]) if adv[1] else '')]
         self.phone_srv.state = st
+
+    def draft_build_name(self, cs, role, full):
+        context = self.s['draft_build_context'] if role in core.ROLES else 'general'
+        if full and full.get('external'):
+            return ' · '.join(filter(None, (full['external'], full.get('external_name'))))
+        if context == 'offmeta':
+            return 'Оффметовая · Mobalytics'
+        if context.startswith('player:'):
+            return 'Сборка игрока · Mobalytics'
+        source = 'Общая'
+        if context == 'matchup':
+            opponent = self.draft_opponent(cs, role)
+            source = 'Против ' + self.data.cn(opponent) if opponent else 'Против оппонента'
+        variant = 'По винрейту' if self.s['rune_pick'] == 'win' else 'Популярная'
+        return f'{source} · {variant.lower()}'
 
     def report_text(self):
         """Отчёт для Claude: версия, система, состояние клиента и последние строки журналов."""
@@ -659,11 +812,33 @@ class ApplicationServices:
         if len(L) == 4: L.append('Журналы пустые: ошибок не было.')
         return '\n'.join(L)
 
-    def do_import(self, parts=('runes', 'items', 'spells')):
-        """Snapshot the chosen variant in Tk, serialize client mutations in a worker."""
+    def auto_import_locked(self, cs):
+        if not self.s['auto_import'] or not cs.get('locked') or not cs.get('me') or cs.get('arena') or not self.player:
+            return
+        parts = tuple(k for k, enabled in self.s['auto_parts'].items() if enabled)
+        role = self.draft_role(cs)[0]
+        context = self.s.get('draft_build_context', 'general')
+        key = (cs['me'], role, context, self.draft_opponent(cs, role) if context == 'matchup' else None,
+               self.s['rune_pick'], parts)
+        if getattr(self, '_auto_key', None) != key:
+            self._auto_key = key
+            self._auto_done = set()
+            self._auto_attempts = 0
+            self._auto_after = 0
+        pending = tuple(k for k in parts if k not in self._auto_done)
+        if pending and not getattr(self, '_import_pending', None) and time.monotonic() >= self._auto_after:
+            self._auto_attempts += 1
+            self._auto_after = time.monotonic() + min(20, (self._auto_attempts - 1) * 3)
+            self.do_import(pending, auto_key=key)
+
+    def do_import(self, parts=None, *, auto_key=None):
+        """Сохраняем выбор в потоке интерфейса и последовательно отправляем его в клиент."""
         cs, player = self.draft, self.player
         if not cs or not cs.get('me') or not player:
             self.set_import_msg('Сначала выбери чемпиона в драфте'); return
+        follow_selection = parts is None or auto_key is not None
+        if parts is None:
+            parts = tuple(k for k, enabled in self.s['auto_parts'].items() if enabled)
         parts = tuple(k for k in parts if k in ('runes', 'items', 'spells'))
         if not parts:
             self.set_import_msg('Выбери, что экспортировать: руны, предметы или заклинания'); return
@@ -673,9 +848,9 @@ class ApplicationServices:
         full = self.selected_draft_build(cs)
         if context!='general' and not full:
             self.set_import_msg('Выбранная сборка ещё не подтверждена или не загружена. Экспорт не выполнен.');return
-        if context == 'matchup' and not full.get(self.s['rune_pick']):
-            self.set_import_msg('Выбранный вариант матчапа недоступен. Экспорт не выполнен.'); return
-        variant = (full.get(self.s['rune_pick']) or full) if full else None
+        variant = self.draft_build_variant(full, role)
+        if full and not variant:
+            self.set_import_msg('Выбранный вариант сборки недоступен. Экспорт не выполнен.'); return
         signature = (me, role, self.s['rune_pick'], parts, context, opponent)
         if getattr(self, '_import_pending', None) == signature: return
         self._import_pending = signature
@@ -707,6 +882,8 @@ class ApplicationServices:
                     and self.draft_role(draft)[0] == role and self.s['rune_pick'] == chosen
                     and (self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general') == context
                     and (context != 'matchup' or self.draft_opponent(draft, role) == opponent)
+                    and (not follow_selection or all(self.s['auto_parts'].get(k) for k in parts))
+                    and (auto_key is None or (draft.get('locked') and self.s['auto_import']))
                     and not self.last_game)
 
         def job():
@@ -719,7 +896,7 @@ class ApplicationServices:
                         if part == 'runes':
                             runes = variant or personal_runes
                             ok = bool(runes) and client.set_runes(name, runes['prim'], runes['sec'], runes['perks'],
-                                        runes.get('shards') if len(runes.get('shards') or []) == 3 else None)
+                                        runes.get('shards', []) if variant else None)
                         elif part == 'items':
                             acc = account or client.me() or {}
                             ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(acc.get('id'), cid, sets, None)
@@ -731,7 +908,11 @@ class ApplicationServices:
                     except Exception as exc:
                         ok, error = False, str(exc)
                     title = {'runes': 'Руны', 'items': 'Предметы', 'spells': 'Заклинания'}[part]
-                    results.append((ok, title + (': готово' if ok else ': не получилось (' + error + ')')))
+                    if part == 'runes':
+                        status = 'применено' if ok else error
+                    else:
+                        status = 'готово' if ok else 'не получилось (' + error + ')'
+                    results.append((ok, title + ': ' + status))
                     if not ok: log_error('импорт ' + title, error)
             def done():
                 if self._import_generation != generation: return
@@ -739,6 +920,8 @@ class ApplicationServices:
                 if not current():
                     self.set_import_msg('Экспорт остановлен: выбор изменился или драфт завершён'); return
                 success = len(results) == len(parts) and all(ok for ok, _ in results)
+                if auto_key is not None and auto_key == getattr(self, '_auto_key', None):
+                    self._auto_done.update(part for part, (ok, _) in zip(parts, results) if ok)
                 self.imported = me if success else None
                 message = source + ' · ' + ' · '.join(text for _, text in results)
                 self.set_import_msg(message)

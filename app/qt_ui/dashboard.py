@@ -1,16 +1,17 @@
 """Отдельное Qt-окно драфта, загрузки, живой игры и разбора."""
-import time,json
+import math,time,json
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QScrollArea,QDialog,QApplication,QLayout
 from .widgets import *
-from .champion import loadout
+from .champion import loadout,lola_status
 from .pages import equipment,fmt
-from app_config import C,rank_short,hist_tags,scout_plan,scout_text
+from app_config import C,rank_short,hist_tags,scout_plan
 import core,draft_model,player_comments
 
 class Dashboard(QWidget):
     def __init__(self,app):
-        super().__init__();self.app=app;self.mode='idle';self._manual_hidden=False;self.draft_sig=None;self.log=[];self.cards={};self.deadline=0
+        super().__init__();self.app=app;self.mode='idle';self._manual_hidden=False;self.opened_manually=False;self.draft_sig=None;self.log=[]
+        self.expanded = set()
         self.setWindowTitle('LoL Helper · драфт и игра');self.resize(1500,850);self.setMinimumSize(900,580)
         screens=QApplication.screens()
         if len(screens)>1:self.move(screens[1].availableGeometry().topLeft())
@@ -23,12 +24,27 @@ class Dashboard(QWidget):
         self.app.s['qt_dashboard_geometry']=[self.x(),self.y(),self.width(),self.height()];self.app.s.save();self._manual_hidden=True;self.hide();e.ignore()
     def deiconify(self):QWidget.show(self)
     def lift(self):self.raise_()
-    def clear(self,mode):self.mode=mode;clear_layout(self.box);self.cards={};self.import_lbl=None
+    def clear(self,mode):
+        self.mode=mode
+        clear_layout(self.box)
+        self.cards={}
+        self.game_roster=None
+        self.draft_title=None
+        self.import_lbl=None
     def idle(self):self.clear('idle');self.head.setText('Драфт и игра');self.sub.setText('Ожидаю выбор чемпионов');self.box.addWidget(Label('Во время выбора здесь появятся рекомендации, сборки и импорт. Во время игры — команды и показатели.',14,'mute'));self.box.addStretch()
     def reset(self):self.clear('game');self.log=[]
     def add_log(self,t,text):self.log.append((t,text));self.log=self.log[-60:]
     def tick(self):
-        if self.deadline and self.mode=='draft':self.head.setText('Выбор чемпионов · '+str(max(0,int(self.deadline-time.time())))+' с')
+        if not self.draft_title:
+            return
+        a = self.app
+        now = time.monotonic()
+        title = self.draft_title
+        if not a.draft_observed_at or now - a.draft_observed_at > 6:
+            title += ' · жду обновления таймера'
+        elif a.draft_deadline is not None:
+            title += f' · {max(0, math.ceil(a.draft_deadline - now))} с'
+        self.head.setText(title)
     def player(self,p,r=None,side=0,allies=()):
         a=self.app;c=p.get('c');card=Panel(padding=10);card.setMinimumWidth(235)
         head=row(a.icons.label('champ',c,44),Label(a.data.cn(c) if c else 'Ещё не выбран',14,bold=True,serif=True));card.box.addWidget(head)
@@ -44,21 +60,51 @@ class Dashboard(QWidget):
                 card.box.addWidget(Label(title,9,'mute'))
                 for champion,value,color in values:card.box.addWidget(row(a.icons.label('champ',champion,24),Label(a.data.cn(champion)+' '+value,10,color)))
         return card
-    def toolbar(self,cs,role):
-        a=self.app;b=Panel();controls=row(combo({**core.ROLE_RU,'':'Авто'},a.role_override or '',lambda v:a.set_draft_role(v or None)),combo({'pool':'Советовать из пула','all':'Все чемпионы'},a.s['draft_scope'],a.set_draft_scope),Button('Экспортировать выбранное',lambda:a.do_import(tuple(k for k,v in a.s['auto_parts'].items() if v))))
-        b.box.addWidget(controls)
-        def part(key,value):a.s['auto_parts'][key]=value;a.s['auto_import']=any(a.s['auto_parts'].values());a.s.save();a.imported=None
-        b.box.addWidget(row(check('Автоимпорт после подтверждения',a.s['auto_import'],lambda v:self.auto(v)),*[check(title,a.s['auto_parts'][key],lambda v,k=key:part(k,v)) for key,title in [('runes','Руны'),('items','Предметы'),('spells','Заклинания')]]))
-        b.box.addWidget(row(*[Button('Импорт: '+title,lambda k=key:a.do_import((k,))) for key,title in [('runes','руны'),('items','предметы'),('spells','заклинания')]]))
-        self.import_lbl=Label(a.import_text,10,'mute');b.box.addWidget(self.import_lbl);self.box.addWidget(b)
+    def toolbar(self,cs,role,parent=None):
+        a = self.app
+        b = Panel(kind=None,padding=0)
+        b.box.addWidget(row(combo({**core.ROLE_RU,'':'Авто'},a.role_override or '',lambda v:a.set_draft_role(v or None)),combo({'pool':'Советовать из пула','all':'Все чемпионы'},a.s['draft_scope'],a.set_draft_scope)))
+        parts = {'runes':'Руны','items':'Предметы','spells':'Заклинания'}
+        def part(key,value):
+            a.s['auto_parts'][key] = value
+            a.s.save()
+        action = Button('Импортировать в клиент',a.do_import,active=bool(cs.get('me')))
+        b.box.addWidget(row(*(check(title,a.s['auto_parts'][key],lambda v,k=key:part(k,v)) for key,title in parts.items()),action))
+        b.box.addWidget(check('Автоимпорт после подтверждения',a.s['auto_import'],self.auto))
+        self.import_lbl=Label(a.import_text,10,'mute');b.box.addWidget(self.import_lbl)
+        (parent if parent is not None else self.box).addWidget(b)
     def auto(self,value):self.app.s['auto_import']=value;self.app.s.save()
+    def disclosure(self,parent,title,key):
+        body = Panel(kind=None,padding=0)
+        button = Button(title)
+        button.setCheckable(True)
+        button.setChecked(key in self.expanded)
+        body.setVisible(button.isChecked())
+        def toggle(shown):
+            if shown:self.expanded.add(key)
+            else:self.expanded.discard(key)
+            body.setVisible(shown)
+        button.toggled.connect(toggle)
+        parent.addWidget(button)
+        parent.addWidget(body)
+        return body.box
     def builds(self,parent,cs,role):
         a=self.app;c=cs.get('me')
         if not c:parent.addWidget(Label('Выбери чемпиона для сборки.',12,'mute'));return
-        full=a.lola_build(c,role);options=row()
+        chosen = a.selected_draft_build(cs)
+        variant = a.draft_build_variant(chosen,role)
+        title = a.data.cn(c)+' · '+a.draft_build_name(cs,role,chosen)
+        parent.addWidget(loadout(a,chosen,variant,title=title))
+        context = a.s['draft_build_context'] if role in core.ROLES else 'general'
+        opponent=a.draft_opponent(cs,role) if role in core.ROLES else None
+        if context in ('general','matchup'):
+            key = ('matchup',c,role,opponent) if context=='matchup' else (c,role)
+            status = lola_status(a,key,c,role,chosen)
+            if status:parent.addWidget(status)
+        parent = self.disclosure(parent,'Другие сборки','build_options')
+        options=row()
         for key,title in [('pick','Популярная'),('win','По винрейту')]:options.layout().addWidget(Button(title,lambda key=key:a.set_draft_build('general',key),a.s['draft_build_context']=='general' and a.s['rune_pick']==key))
         parent.addWidget(options)
-        opponent=a.draft_opponent(cs,role) if role in core.ROLES else None
         if opponent:
             parent.addWidget(row(*[Button('Против '+a.data.cn(opponent)+' · '+title,lambda k=k:a.set_draft_build('matchup',k),a.s['draft_build_context']=='matchup' and a.s['rune_pick']==k) for k,title in [('pick','популярная'),('win','винрейт')]]))
         if role in core.ROLES:
@@ -68,10 +114,8 @@ class Dashboard(QWidget):
                 group=(players or {}).get('groups',{}).get(kind,[]);parent.addWidget(Label(title+f' · {len(group)}/3',11,'gold'))
                 for p in group:
                     button=Button(p['name']+f" · {p['winrate']:.1f}%",lambda pid=p['id']:a.set_draft_build('player:'+pid,'pick'),a.s['draft_build_context']=='player:'+p['id']);button.setEnabled(bool(p.get('variant')));parent.addWidget(button)
-        chosen=a.selected_draft_build(cs);variant=(chosen.get(a.s['rune_pick']) or chosen) if chosen else None
-        parent.addWidget(loadout(a,chosen,variant))
     def show_draft(self,cs,r,bans):
-        self.clear('draft');a=self.app;self.head.setText('Выбор чемпионов');self.sub.setText(core.ROLE_RU.get(r['role'],r['role'])+' · '+r.get('how',''));self.deadline=time.time()+cs.get('left',0);self.toolbar(cs,r['role'])
+        self.clear('draft');a=self.app;self.draft_title='Выбор чемпионов';self.tick();self.sub.setText(core.ROLE_RU.get(r['role'],r['role'])+' · '+r.get('how',''))
         columns=row();left=Panel(kind=None,padding=0);middle=Panel(kind=None,padding=0);right=Panel(kind=None,padding=0)
         columns.layout().addWidget(left,3);columns.layout().addWidget(middle,4);columns.layout().addWidget(right,3);self.box.addWidget(columns)
         for column,title in [(left,'Твоя команда'),(middle,'Выбор и сборка'),(right,'Противники')]:column.box.addWidget(Label(title,16,'gold',serif=True))
@@ -79,22 +123,24 @@ class Dashboard(QWidget):
         for p in draft_model.role_slots(allies,core.ROLES):left.box.addWidget(self.player(p,r,0,allies))
         roles=core.guess_enemy_roles(a.data,cs.get('enemies') or [])
         for p in draft_model.role_slots([{'c':c,'pos':role} for c,role in roles.items()],core.ROLES):right.box.addWidget(self.player(p,r,1,allies))
-        for choice in r.get('picks',[]):
-            p=Panel(padding=9,horizontal=True);p.box.addWidget(a.icons.label('champ',choice['c'],42));p.box.addWidget(Label(choice['name']+'\n'+choice['why'],11));middle.box.addWidget(p)
         self.builds(middle.box,cs,r['role'])
+        self.toolbar(cs,r['role'],middle.box)
+        advice = self.disclosure(middle.box,'Советы по пикам и банам','draft_advice') if cs.get('me') else middle.box
+        for choice in r.get('picks',[]):
+            p=row(a.icons.label('champ',choice['c'],42),Label(choice['name']+'\n'+choice['why'],11));advice.addWidget(p)
         comp=core.comp_advice(a.data,[p['c'] for p in allies if p.get('c') and not p.get('me')],r['role'],(a.player.pool.get(r['role']) if a.player else []) or [])
-        if comp:middle.box.addWidget(Label(comp[0]+(' · Из пула: '+', '.join(a.data.cn(c) for c in comp[1]) if comp[1] else ''),11,'warn'))
-        middle.box.addWidget(Label('Баны',15,'gold',serif=True))
-        for c,score,why in bans:middle.box.addWidget(row(a.icons.label('champ',c,28),Label(a.data.cn(c)+' · '+why,10)))
+        if comp:advice.addWidget(Label(comp[0]+(' · Из пула: '+', '.join(a.data.cn(c) for c in comp[1]) if comp[1] else ''),11,'warn'))
+        if bans:advice.addWidget(Label('Баны',15,'gold',serif=True))
+        for c,score,why in bans:advice.addWidget(row(a.icons.label('champ',c,28),Label(a.data.cn(c)+' · '+why,10)))
         for column in (left,middle,right):column.box.addStretch()
         if not self._manual_hidden:self.deiconify()
     def show_aram(self,cs):
-        self.clear('draft');self.head.setText('ARAM');self.sub.setText('Сборки ARAM и скамейка');self.toolbar(cs,'ARAM')
+        self.clear('draft');self.draft_title='ARAM';self.tick();self.sub.setText('Сборки ARAM и скамейка');self.builds(self.box,cs,'ARAM');self.toolbar(cs,'ARAM')
         for p in cs.get('allies',[]):self.box.addWidget(self.player(p))
-        self.builds(self.box,cs,'ARAM');self.box.addWidget(Label('Скамейка',16,'gold',serif=True));self.box.addWidget(row(*[row(self.app.icons.label('champ',c,36),Label(self.app.data.cn(c))) for c in cs.get('bench',[])]))
+        self.box.addWidget(Label('Скамейка',16,'gold',serif=True));self.box.addWidget(row(*[row(self.app.icons.label('champ',c,36),Label(self.app.data.cn(c))) for c in cs.get('bench',[])]))
         if not self._manual_hidden:self.deiconify()
     def show_arena(self,cs):
-        self.clear('draft');self.head.setText('Арена');self.sub.setText('Статистика чемпионов и твоих матчей Арены');a=self.app;c=cs.get('me');games=a.arena_games()
+        self.clear('draft');self.draft_title='Арена';self.tick();self.sub.setText('Статистика чемпионов и твоих матчей Арены');a=self.app;c=cs.get('me');games=a.arena_games()
         for p in cs.get('allies',[]):self.box.addWidget(self.player(p))
         if c:
             stats=core.arena_stats(games,c);external=a.lola_fetch('arena',c,'ARENA')
@@ -116,8 +162,16 @@ class Dashboard(QWidget):
         self.box.addWidget(columns)
         if not self._manual_hidden:self.deiconify()
     def show(self,g,scout,ranks,hists):
-        a=self.app;sig=tuple(p['riot'] for p in g.players)
-        if self.mode!='game' or getattr(self,'game_roster',None)!=sig:
+        a=self.app
+        if g.arena:
+            if self.mode != 'arena_game':
+                self.clear('arena_game')
+                self.head.setText('Арена')
+            self.sub.setText('Окно игры для Арены пока не сделано.')
+            if a.live_stale:self.mark_game_stale()
+            return
+        sig = frozenset((p['riot'], p['c'], p['team'], p['pos']) for p in g.players)
+        if self.mode!='game' or self.game_roster!=sig:
             self.clear('game');self.game_roster=sig;self.objectives=Label('',12,'gold');self.box.addWidget(self.objectives);columns=row()
             for side,team in enumerate((g.allies,g.enemies)):
                 column=Panel(kind=None,padding=0);column.box.addWidget(Label('Твоя команда' if side==0 else 'Противники',17,'blue' if side==0 else 'red',serif=True))
@@ -130,9 +184,20 @@ class Dashboard(QWidget):
         self.objectives.setText(' · '.join(f'{key}: {core.mmss(t-g.t) if t>g.t else "на карте"}' for key,t in g.objectives().items() if type(t) in (int,float)))
         for p in g.players:
             card=self.cards[p['riot']];card['name'].setText(a.data.cn(p['c'])+f" · {p['k']}/{p['d']}/{p['a']}"+(' · мёртв '+core.mmss(p['respawn']) if p['dead'] else ''))
-            card['line'].setText(f"{core.ROLE_RU.get(p['pos'],'')} · {p['lvl']} ур. · CS {p['cs']} · предметы {p['igold']:.0f}"+'\n'+rank_short(ranks.get(p['riot'])))
+            line = f"{core.ROLE_RU.get(p['pos'],'')} · {p['lvl']} ур. · CS {p['cs']} · предметы {p['igold']:.0f}"
+            rank = ranks.get(p['riot'])
+            if rank and a.s['show']['ranks']:
+                line += '\n' + rank_short(rank)
+            card['line'].setText(line)
             record={'items':p['items'] if a.s['show']['items'] else [],'spells':p['spells'] if a.s['show']['spells'] else [],'perk':p['keystone'] if a.s['show']['runes'] else None};new_sig=json.dumps(record)
             if new_sig!=card['sig']:clear_layout(card['items'].layout());card['items'].layout().addWidget(equipment(a,record,26));card['sig']=new_sig
-            summary,tags=hist_tags(hists.get(p['riot']));card['comments'].setText(summary+'\n'+' · '.join(t[0] for t in tags)+('\n'+scout_text(scout[p['riot']]) if p['riot'] in scout and a.s['show']['scout'] else ''))
+            summary,tags=hist_tags(hists.get(p['riot']))
+            scout_line = scout.get(p['riot']) if a.s['show']['scout'] else None
+            card['comments'].setText('\n'.join(filter(None, (summary, ' · '.join(t[0] for t in tags), scout_line))))
         self.log_label.setText('\n'.join(core.mmss(t)+' · '+text for t,text in self.log[-10:]))
+        if a.live_stale:self.mark_game_stale()
         if not self._manual_hidden:self.deiconify()
+
+    def mark_game_stale(self):
+        if self.mode in ('game', 'arena_game'):
+            self.sub.setText('Связь с игрой потеряна · последние данные в ' + core.mmss(self.app.last_game.t))

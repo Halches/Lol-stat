@@ -20,7 +20,10 @@ def surface(kind,w,h,theme):
     if kind=='shell':
         im=material_assets.shell(w,h)
         if im is not None and not C.get('dark',True):
-            alpha=im.getchannel('A');im=ImageOps.colorize(ImageOps.grayscale(im),'#c5b3cd','#fff9ff').convert('RGBA');im.putalpha(alpha)
+            alpha = im.getchannel('A') if 'A' in im.getbands() else None
+            im = ImageOps.colorize(ImageOps.grayscale(im), '#c5b3cd', '#fff9ff')
+            if alpha is not None:
+                im.putalpha(alpha)
         return pixmap(im) if im else QPixmap()
     regions={'panel':((26,279,2148,448),44,20),'button':((100,226,1915,566),120,12),'selected':((92,202,2084,554),128,12)}
     rect,cut,border=regions[kind]
@@ -187,7 +190,9 @@ class Chart(QWidget):
 
 class NavButton(Button):
     def __init__(self,text,icon,action):
-        super().__init__(text,action);self.nav_icon=icon;self.setMinimumHeight(30);self.setMaximumHeight(36)
+        super().__init__(text,action);self.nav_icon=icon;self.setFixedHeight(max(30,self.fontMetrics().height()+8))
+    def sizeHint(self):
+        return QSize(self.fontMetrics().horizontalAdvance(self.text())+52,self.height())
     def paintEvent(self,e):
         import render
         p=QPainter(self)

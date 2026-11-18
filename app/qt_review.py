@@ -1,11 +1,13 @@
 """Проверка настоящих Qt-окон в изолированном профиле, без игры и сети."""
-import json,os,sys,tempfile,time,traceback
+import io,json,os,sys,tempfile,time,traceback
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock,patch
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QCoreApplication,QEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
-import core,lolhelper
+from PySide6.QtWidgets import QApplication,QCheckBox,QDialog,QLabel,QPushButton
+import core,lcu,lolhelper
+from app_config import THEMES
 from qt_app import App
 
 
@@ -14,6 +16,182 @@ def live_fixture(data):
     snap={'activePlayer':{'riotId':'Halch#9200','currentGold':850},'gameData':{'gameTime':900,'gameMode':'CLASSIC','mapNumber':11},'events':{'Events':[]},'allPlayers':[]}
     for i,c in enumerate(champions):snap['allPlayers'].append({'riotId':'Halch#9200' if i==0 else f'Проверка{i}#1','rawChampionName':'game_character_displayname_'+c,'team':'ORDER' if i<5 else 'CHAOS','position':core.ROLES[i%5],'level':11,'isDead':False,'respawnTimer':0,'items':[{'itemID':1055,'count':1},{'itemID':3006,'count':1}],'scores':{'kills':i%4,'deaths':2,'assists':5,'creepScore':95+i*4,'wardScore':12},'summonerSpells':{'summonerSpellOne':{'rawDisplayName':'SummonerFlash'},'summonerSpellTwo':{'rawDisplayName':'SummonerSmite' if i%5==1 else 'SummonerTeleport'}}})
     return core.Game(snap,data)
+
+
+def verify_audit(app, check, cs, build):
+    app.s['dashboard'] = False
+    app.set_dashboard_enabled()
+    app.on_draft(dict(cs,locked=False))
+    app.on_loading([])
+    check('Выключенное второе окно остаётся скрытым', not app.dash.isVisible())
+    app.open_dash()
+    check('Второе окно открывается вручную', app.dash.isVisible() and app.dash.mode=='draft')
+
+    def flush():
+        QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+        QTest.qWait(30)
+    flush()
+    boxes = {control.text():control for control in app.dash.findChildren(QCheckBox)}
+    boxes['Руны'].click()
+    check('Состав импорта не меняет автоматику', not boxes['Автоимпорт после подтверждения'].isChecked()
+          and not app.s['auto_import'] and app.s['auto_parts']['runes'])
+    with patch.object(app,'do_import') as write:
+        app.on_draft(cs)
+        check('При выключенной автоматике подтверждение не вызывает импорт', not write.called)
+
+    opponent = app.draft_opponent(cs,'MIDDLE')
+    app.lola['matchup','Ahri','MIDDLE',opponent] = {'pick':dict(build,start=[1055],skills='WWW')}
+    app.phone_srv = SimpleNamespace(state={},url='fixture')
+    try:
+        app.set_draft_build('matchup','pick')
+        state = app.phone_srv.state
+        check('Телефон показывает выбранную сборку матчапа', state['skills']=='WWW'
+              and dict(state['build'])['Старт']==app.data.iname(1055)
+              and app.data.cn(opponent) in state['build_source'])
+        app.set_draft_build('matchup','win')
+        check('Телефон явно показывает недоступный вариант', 'build' not in app.phone_srv.state
+              and app.phone_srv.state.get('build_status'))
+    finally:
+        app.phone_srv = None
+        app.on_draft(None)
+
+    record = app.history_view.filtered[0]
+    previous = len(app.window.findChildren(QDialog))
+    for _ in range(3):
+        app.open_record(record)
+        app.dialogs[-1].close()
+        flush()
+    check('Закрытые диалоги удалены', len(app.window.findChildren(QDialog))==previous and not app.dialogs)
+
+    tasks = []
+    with patch.object(app,'background',side_effect=lambda work,done:tasks.append(done)):
+        app.history_view.load_client()
+        with patch.object(app.voice,'ready',return_value=False):
+            app.pages[6].pick_voice('edge_svetlana')
+    app.navigate(4)
+    app.pages[4].reset('windows')
+    flush()
+    tasks[0](None,RuntimeError('Ответ старой страницы'))
+    tasks[1](None,RuntimeError('Ответ панели голоса после смены оформления'))
+    check('Поздний ответ не меняет новую страницу истории', not app.history_view.message)
+    check('Поздняя загрузка голоса не меняет новую панель',not app.pages[6].voice_msg.text())
+    app.demo_btn.click()
+    check('Расстановка работает после сброса окон',app.demo_on)
+    app.stop_demo()
+
+    p = app.pool_view
+    p.mode_choice.setCurrentIndex(1)
+    p.filter_choices['classes'].setCurrentIndex(1)
+    p.search.setText('Сетт')
+    p.reset()
+    check('Сброс пула синхронизирует все фильтры',not p.filters and p.mode_choice.currentData()=='all'
+          and not p.search.text() and all(not c.currentData() for c in p.filter_choices.values()))
+
+    for theme in THEMES:
+        app.s['theme'] = theme
+        app.apply_settings()
+        flush()
+        check('Тема отрисовывается · '+theme,not app.window.grab().isNull())
+
+    app.s['scale'] = 170
+    app.apply_settings()
+    app.window.resize(1366,768)
+    app.navigate(10)
+    flush()
+    check('Навигация помещается при 170%',all(b.fontMetrics().horizontalAdvance(b.text())<=b.width()-44
+          for b in app.nav_buttons.values()))
+    p = app.pool_view
+    check('Имена чемпионов помещаются при 170%',all(
+          p.list.fontMetrics().horizontalAdvance('✓ '+r['name'])<=p.list.gridSize().width()-16 for r in p.rows))
+
+    key = ('counter','Ahri','MIDDLE')
+    app.lola_state[key] = 'fail'
+    app.cp_pick('Ahri','MIDDLE')
+    with patch.object(app,'retry_lola') as retry:
+        button = next(b for b in app.champion_view.findChildren(QPushButton) if b.text()=='Повторить')
+        button.click()
+        check('У сетевого сбоя есть кнопка повтора',retry.call_args.args==(key,'Ahri','MIDDLE'))
+
+
+def verify_live_audit(app, check, cs):
+    history = app.history_view
+    me = {'puuid':'review', 'riot':app.data.d['players'][app.who]['riot']}
+    with patch.object(app, 'background') as background:
+        app.on_me(me)
+        history.load_client()
+        app.on_me(dict(me))
+        background.call_args.args[1]((me, [], {}), None)
+    check('Обновление того же аккаунта сохраняет загрузку истории', history.client_owner == me['puuid']
+          and not history.busy and history.message == 'История обновлена')
+
+    app.navigate(2)
+    chooser = app.champion_view.select
+    for query, key in [('Sett', 'Sett'), ('Ahri', 'Ahri'), ('Сетт', 'Sett')]:
+        completer = chooser.completer()
+        completer.setCompletionPrefix(query)
+        check(f'Поиск чемпиона по запросу {query}', completer.completionCount() == 1
+              and completer.currentIndex().data(Qt.ItemDataRole.UserRole) == key)
+
+    app.s['dashboard'] = True
+    app.on_draft(dict(cs, phase='PLANNING', left=0, locked=False))
+    build_label = app.dash.import_lbl
+    app.on_draft(dict(cs, phase='BAN_PICK', left=30, locked=False))
+    check('Таймер меняет фазу без пересоздания драфта',
+          app.dash.head.text().endswith(' · 30 с') and app.dash.import_lbl is build_label)
+    aram = dict(cs, aram=True, bench=['Lux'], left=50, locked=False)
+    app.on_draft(aram)
+    app.on_draft(dict(aram, bench=['Viktor']))
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    labels = {label.text() for label in app.dash.body.findChildren(QLabel)}
+    check('Скамейка ARAM обновляется без смены пиков', app.data.cn('Viktor') in labels and app.data.cn('Lux') not in labels
+          and app.dash.head.text().startswith('ARAM · '))
+    app.on_draft(None)
+
+    game = live_fixture(app.data)
+    roster = {'games':[{'players':[{'c':p['c'], 'sc':{'r':[7,3]}} for p in game.players]}]}
+    with patch('urllib.request.urlopen', return_value=io.BytesIO(json.dumps(roster).encode())):
+        app.scout = app.fetch_scout(game)
+    app.s['show']['scout'] = True
+    app.s['show']['ranks'] = False
+    app.ranks = {game.my_riot:{'tier':'EMERALD', 'div':'I', 'lp':83, 'w':15, 'l':10}}
+    app.on_game(game, [], None)
+    check('Разведка отображается у десяти участников', len(app.dash.cards) == 10
+          and all('последние 10: 7–3' in card['comments'].text() for card in app.dash.cards.values()))
+    check('Выключенный ранг скрыт в игре', 'LP' not in app.dash.cards[game.my_riot]['line'].text())
+    app.dash.add_log(game.t, 'Подсказка до смены темы')
+    app.navigate(5)
+    next(b for b in app.pages[5].findChildren(QPushButton) if b.text()=='Применить оформление').click()
+    QTest.qWait(40)
+    check('Смена оформления сохраняет десять карточек и журнал',
+          len(app.dash.cards) == 10 and 'Подсказка до смены темы' in app.dash.log_label.text())
+
+    app.last_game = None
+    app.engine = None
+    app.s['postgame'] = True
+    app.s['hints']['postgame'] = 'text'
+    later = dict(game.raw, gameData=dict(game.raw['gameData'], gameTime=902))
+    snapshots = [game.raw, None, None, later, None, None]
+    states = []
+    def drain_sample(_):
+        app.drain()
+        states.append((app.last_game, app.status.text(), len(app.dash.cards)))
+    stopper = Mock()
+    stopper.is_set.side_effect = lambda: len(states) >= len(snapshots)
+    stopper.wait.side_effect = drain_sample
+    with (patch.object(lcu, 'live_data', side_effect=snapshots),
+          patch.object(app.client, 'live_match_id', return_value=102),
+          patch.object(app.client, 'phase', side_effect=[None, 'Reconnect', 'EndOfGame', 'EndOfGame']),
+          patch.object(app.client, 'me', return_value=None),
+          patch.object(app, 'stopping', stopper), patch.object(app.root, 'after'),
+          patch.object(app, 'fetch_scout', return_value={}), patch.object(app, 'fetch_people'),
+          patch.object(app, 'show_postgame') as postgame):
+        app.poll()
+    check('Обрыв связи и переподключение сохраняют снимок и карточки', states[0][0] is states[1][0] is states[2][0]
+          and 'последние данные в 15:00' in states[1][1] and states[1][2] == states[2][2] == 10
+          and states[3][0].t == 902 and 'Игра: 15:02' in states[3][1])
+    check('Подтверждённый конец матча показывает итог один раз',
+          states[4][0] is None and states[4][1] == 'Игра закончилась' and postgame.call_count == 1
+          and postgame.call_args.args[0].get('match_id') == 102)
 
 
 def verify(app,directory=None):
@@ -37,10 +215,11 @@ def verify(app,directory=None):
     app.lola[('Ahri','MIDDLE')]=dict(build,pick=build,win=dict(build,wr_runes=54.1));app.cp_pick('Ahri','MIDDLE');pump();check('Экран чемпиона',app.cp_sel==('Ahri','MIDDLE'));capture('champion-fixture')
     cs={'role':'MIDDLE','me':'Ahri','enemies':['Darius','LeeSin','Viktor','Caitlyn','Lux'],'unavailable':set(),'locked':True,'left':24,'allies':[{'c':c,'pos':r,'me':r=='MIDDLE','rank':None,'hist':None,'pu':None} for c,r in zip(['Sett','RekSai','Ahri','Jinx','Rakan'],core.ROLES)]}
     app.on_draft(cs);pump();check('Драфт Qt',app.dash is not None and app.dash.mode=='draft');check('Импорт виден',app.dash.import_lbl is not None)
-    from PySide6.QtWidgets import QLabel
-    build_title=next(w for w in app.dash.findChildren(QLabel) if w.text()=='Выбранный вариант')
+    build_title=next(w for w in app.dash.findChildren(QLabel) if w.text().endswith('Общая · популярная'))
     check('Сборка не сжата до нуля',build_title.height()>15)
-    check('Драфт прокручивается до сборки',app.dash.scroll.verticalScrollBar().maximum()>0)
+    build_step=next(w for w in app.dash.findChildren(QLabel) if w.text()=='18 E')
+    viewport=app.dash.scroll.viewport()
+    check('Прокачка видна без прокрутки',viewport.rect().contains(build_step.mapTo(viewport,build_step.rect().bottomLeft())))
     if directory:check('Снимок драфта',app.dash.grab().save(str(directory/'draft-fixture.png')))
     app.dash.show_aram(dict(cs,aram=True,bench=['Lux','Viktor']));pump();check('ARAM Qt',app.dash.mode=='draft')
     app.dash.show_arena(dict(cs,arena=True));pump();check('Арена Qt',app.dash.mode=='draft')
@@ -74,6 +253,8 @@ def verify(app,directory=None):
         if (width,height) in tested:continue
         tested.add((width,height))
         app.window.resize(width,height);pump(100);check(f'Размер окна {width}x{height}',app.window.width()==width and app.window.height()==height);capture(f'history-{width}x{height}')
+    verify_audit(app,check,cs,build)
+    verify_live_audit(app,check,cs)
     check('Нет ошибок обработчиков Qt',not app.errors)
     return checks
 

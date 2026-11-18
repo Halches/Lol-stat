@@ -1,6 +1,6 @@
 """Главная, архив матчей и пул чемпионов на Qt."""
 import time,threading
-from PySide6.QtCore import Qt,QSize,QTimer
+from PySide6.QtCore import Qt,QSize,QTimer,QSignalBlocker
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QDialog,QScrollArea,QLineEdit,QListWidget,
     QListWidgetItem,QListView,QAbstractItemView,QHeaderView)
 from .widgets import *
@@ -56,10 +56,14 @@ class HomePage(Page):
         hero=Panel(horizontal=True);identity=Panel(kind=None,padding=4)
         if account.get('icon') is not None:a.ensure_home_icon(account['icon']);hero.box.addWidget(a.icons.label('profile',account['icon'],76))
         identity.box.addWidget(Label(profile.get('riot') or account.get('riot') or 'Профиль не выбран',26,serif=True,bold=True))
-        identity.box.addWidget(Label('Клиент подключён' if account else 'Сохранённая статистика',10,'mute'));hero.box.addWidget(identity,2)
+        identity.box.addWidget(Label('Клиент LoL подключён' if a.account else 'Клиент LoL недоступен',10,'good' if a.account else 'mute'))
+        identity.box.addWidget(Label(f"Данные от {d.d.get('t','—')} · патч {d.d.get('patch','—')}",10,'mute'))
+        hero.box.addWidget(identity,2)
         for key,title in [('solo','СОЛО / ДУО'),('flex','ФЛЕКС'),('arena','АРЕНА'),('tft','TFT')]:
-            r=(account.get('ranks') or {}).get(key) or {};rank=Panel(padding=8,kind=None);rank.box.addWidget(Label(title,9,'mute'))
-            tier=r.get('tier');fallback=profile.get('rank','') if key=='solo' else ''
+            r=(account.get('ranks') or {}).get(key) or {}
+            tier=r.get('tier');fallback=profile.get('rank') or '' if key=='solo' else ''
+            if not r and not fallback:continue
+            rank=Panel(padding=6,kind=None);rank.box.addWidget(Label(title,9,'mute'))
             if not tier and fallback:tier=next((k for k,v in TIER_RU.items() if fallback.startswith(v)),None)
             name=(TIER_RU.get(tier,tier or '')+' '+r.get('div','')).strip() if r.get('state')=='ranked' else 'Без ранга' if r.get('state')=='unranked' else 'Калибровка' if r.get('state')=='provisional' else fallback or 'Нет данных'
             if key=='arena':name='Слава'
@@ -67,22 +71,26 @@ class HomePage(Page):
             rank.box.addWidget(Label(name,12,bold=True));rank.box.addWidget(Label(f"{r['lp']} LP" if r.get('lp') is not None else 'Рангов больше нет' if key=='arena' else '—',10,'gold'));hero.box.addWidget(rank,1)
         self.box.addWidget(hero)
         self.box.addWidget(row(Button('Окно драфта и игры',a.open_dash),Button('Мой пул',lambda:a.navigate(10)),Button('Сайт со статистикой',a.open_site)))
+        games=a.player.games if a.player else []
+        self.title('Последние матчи')
+        for record in history_model.saved(games,d,a.who)[:3]:self.box.addWidget(match_card(a,record))
+        if not games:self.note('Для выбранного профиля ещё нет загруженных матчей.')
+        self.box.addWidget(Button('Открыть всю историю матчей',lambda:a.navigate(1)))
         self.box.addWidget(row(Label('Статистика',19,'gold',serif=True),combo({'season':'Сезон','recent':'Последние 20'},a.s['home_period'],self.period)))
-        games=a.player.games if a.player else [];snap=home_model.snapshot(games,a.s['home_period']);st=snap['stats'];metrics=[]
+        snap=home_model.snapshot(games,a.s['home_period']);st=snap['stats'];metrics=[]
         for title,key,count in [('Винрейт','wr','results'),('KDA','kda','kda_n'),('Фарм / мин','csm','csm_n'),('Обзор / мин','vsm','vsm_n')]:
             p=Panel();p.box.addWidget(Label(title.upper(),10,'mute'));p.box.addWidget(Label(fmt(st[key],2 if key in ('kda','vsm') else 1)+('%' if key=='wr' and st[key] is not None else ''),30,bold=True,serif=True));p.box.addWidget(Label(f"По {st[count]} матчам",9,'mute'))
             vals=[]
-            for g in reversed(snap['selected'][:20]):
+            recent_games = list(reversed(snap['selected'][:20]))
+            for index,g in enumerate(recent_games):
                 v=g.get(key)
-                if key=='wr':v=100*g['w'] if g.get('w') in (0,1) else None
+                if key=='wr':
+                    results = [match['w'] for match in recent_games[max(0,index-4):index+1] if match.get('w') in (0,1)]
+                    v = 100*sum(results)/len(results) if results else None
                 if key=='kda':v=(g['k']+g['a'])/max(1,g['d']) if all(type(g.get(k)) in (int,float) for k in ('k','d','a')) else None
                 vals.append(v)
             p.box.addWidget(Chart(vals));metrics.append(p)
-        self.box.addWidget(AdaptiveGrid(metrics));self.note('Графики — последние 20 игр выбранного периода. Пропуски означают отсутствие данных.')
-        self.title('Последние матчи')
-        for record in history_model.saved(games,d,a.who)[:6]:self.box.addWidget(match_card(a,record))
-        if not games:self.note('Для выбранного профиля ещё нет загруженных матчей.')
-        self.box.addWidget(Button('Открыть всю историю матчей',lambda:a.navigate(1)))
+        self.box.addWidget(AdaptiveGrid(metrics));self.note('Последние 20 игр выбранного периода. Винрейт рассчитан по окну до 5 матчей.')
         self.title('Частые чемпионы')
         champions=row()
         for r in snap['frequent']:
@@ -97,15 +105,17 @@ class HomePage(Page):
                 count='results' if key=='wr' else key+'_n';v,baseline=recent[key],season[key]
                 if recent[count]>=5 and season[count]>recent[count] and v is not None and baseline and (baseline-v)/baseline>worst[1]:worst=key,(baseline-v)/baseline
         if worst[0]:self.box.addWidget(Label(a.TIPS[worst[0]],11,'warn'))
-        self.note(f"Данные от {d.d.get('t','—')} · патч {d.d.get('patch','—')}");self.note(RIOT_NOTE);self.box.addStretch()
+        self.note(RIOT_NOTE);self.box.addStretch()
     def choose(self,who):self.app.s['who']=who;self.app.s.save();self.app.set_who(who);self.refresh()
     def period(self,key):self.app.s['home_period']=key;self.app.s.save();self.refresh()
 
 class HistoryPage(Page):
     def __init__(self,app):
         super().__init__(app);self.source='saved';self.client_rows=[];self.client_owner=None;self.client_name='';self.generation=0;self.busy=False;self.query='';self.role='';self.queue='';self.result='all';self.limit=30;self.message=''
+        self.account_puuid = (app.account or {}).get('puuid')
         self.title('Матчи и разбор');self.source_choice=combo({'saved':'Сохранённые матчи','client':'Из клиента LoL'},'saved',self.use_source)
-        self.box.addWidget(row(self.source_choice,Button('Обновить из клиента',self.load_client),Button('Сайт со статистикой',app.open_site)))
+        self.refresh_button=Button('Обновить из клиента',self.load_client)
+        self.box.addWidget(row(self.source_choice,self.refresh_button,Button('Сайт со статистикой',app.open_site)))
         self.search=QLineEdit();self.search.setPlaceholderText('Поиск чемпиона или оппонента');self.search.textChanged.connect(self.search_changed)
         self.role_choice=combo({**core.ROLE_RU,'':'Все роли'},'',lambda v:self.set_filter('role',v))
         queues=sorted({r.get('q') for r in (app.player.games if app.player else []) if type(r.get('q')) is int})
@@ -127,8 +137,21 @@ class HistoryPage(Page):
     def show_more(self):self.limit+=30;self.refresh()
     def profile_changed(self):self.refresh()
     def account_changed(self,me):
-        self.generation+=1;self.busy=False
-        if self.client_owner!=(me or {}).get('puuid'):self.client_rows=[];self.client_owner=None
+        puuid = (me or {}).get('puuid')
+        if puuid == self.account_puuid:
+            return
+        previous = self.account_puuid
+        self.account_puuid = puuid
+        # Запрос до первого ответа о профиле сам проверит владельца при получении истории.
+        if self.busy and previous is None and self.client_owner is None:
+            return
+        self.generation += 1
+        self.busy = False
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setText('Обновить из клиента')
+        if self.client_owner != puuid:
+            self.client_rows, self.client_owner, self.client_name = [], None, ''
+        self.message = ''
         self.refresh()
     def rows(self):return self.client_rows if self.source=='client' else history_model.saved(self.app.player.games if self.app.player else [],self.app.data,self.app.who)
     def use_source(self,key):
@@ -149,7 +172,9 @@ class HistoryPage(Page):
         if self.busy:return
         if not background:
             self.source='client';self.source_choice.blockSignals(True);self.source_choice.setCurrentIndex(1);self.source_choice.blockSignals(False)
-        self.busy=True;self.generation+=1;token=self.generation;self.message='Загружаю историю…';self.refresh()
+        self.busy=True;self.generation+=1;token=self.generation;self.message='Загружаю историю…'
+        self.refresh_button.setEnabled(False)
+        self.refresh()
         def work():
             me=self.app.client.me() or {};pu=me.get('puuid')
             if not pu:raise RuntimeError('Клиент LoL недоступен. Предыдущая история сохранена.')
@@ -158,8 +183,10 @@ class HistoryPage(Page):
             lp=core.lp_changes(games,self.app.lp_snaps(self.app.client.rank(pu),puuid=pu))
             return me,games,lp
         def done(value,error):
-            if token!=self.generation:return
+            if self.app.history_view is not self or token!=self.generation:return
             self.busy=False
+            self.refresh_button.setEnabled(True)
+            self.refresh_button.setText('Повторить загрузку' if error else 'Обновить из клиента')
             if error:self.message=str(error)
             else:
                 me,games,lp=value;current=(self.app.account or {}).get('puuid')
@@ -181,7 +208,7 @@ class MatchDialog(QDialog):
                 if not g or str(g.get('gameId'))!=str(record['gid']):raise RuntimeError('Клиент не отдал подробности этой игры.')
                 return history_model.details(g,record.get('owner'),app.data)
             def done(value,error):
-                if self.closed:return
+                if self.closed or self not in app.dialogs:return
                 self.review=value;self.error=str(error) if error else '';self.loading=False;self.refresh()
             app.background(work,done)
         self.refresh()
@@ -207,23 +234,37 @@ class PoolPage(Page):
     def __init__(self,app):
         super().__init__(app);self.rows,self.source=champion_pool.load_catalog(app.data);self.role='TOP';self.mode='all';self.query='';self.filters={};self.sort='name'
         self.title('Мой пул чемпионов');self.search=QLineEdit();self.search.setPlaceholderText('Найти чемпиона');self.search.textChanged.connect(lambda s:self.change('query',s))
-        self.box.addWidget(row(combo(core.ROLE_RU,self.role,lambda v:self.change('role',v)),self.search,combo({'all':'Все чемпионы','role':'На выбранной роли','pool':'Мой пул'},self.mode,lambda v:self.change('mode',v)),combo({'name':'По имени','selected':'Выбранные сначала','year':'По году'},self.sort,lambda v:self.change('sort',v))))
+        self.mode_choice=combo({'all':'Все чемпионы','role':'На выбранной роли','pool':'Мой пул'},self.mode,lambda v:self.change('mode',v))
+        self.box.addWidget(row(combo(core.ROLE_RU,self.role,lambda v:self.change('role',v)),self.search,self.mode_choice,combo({'name':'По имени','selected':'Выбранные сначала','year':'По году'},self.sort,lambda v:self.change('sort',v))))
         self.advanced=Panel();grid=QGridLayout();self.advanced.box.addLayout(grid)
+        self.filter_choices = {}
         for i,(key,title) in enumerate([('classes','Класс'),*champion_pool.FIELDS]):
             opts={'':'Все: '+title}
             for option in champion_pool.options(self.rows,key):
                 opts[option]=champion_pool.LABELS.get(str(option),str(option))
             c=combo(opts,'',lambda v,k=key:self.filter(k,v));grid.addWidget(c,i//4,i%4)
+            self.filter_choices[key] = c
         self.advanced.hide();self.box.addWidget(row(Button('Дополнительные фильтры',lambda:self.advanced.setVisible(not self.advanced.isVisible())),Button('Сбросить фильтры',self.reset)));self.box.addWidget(self.advanced)
         self.msg=Label('',10,'mute');self.box.addWidget(self.msg)
-        self.list=QListWidget();self.list.setViewMode(QListView.ViewMode.IconMode);self.list.setResizeMode(QListView.ResizeMode.Adjust);self.list.setMovement(QListView.Movement.Static);self.list.setIconSize(QSize(70,70));self.list.setGridSize(QSize(120,110));self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection);self.list.itemClicked.connect(self.toggle);self.list.setMinimumHeight(420);self.box.addWidget(self.list,1);self.refresh()
+        self.list=QListWidget();self.list.setViewMode(QListView.ViewMode.IconMode);self.list.setResizeMode(QListView.ResizeMode.Adjust);self.list.setMovement(QListView.Movement.Static);self.list.setIconSize(QSize(70,70));self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection);self.list.itemClicked.connect(self.toggle);self.list.setMinimumHeight(420)
+        metrics = self.list.fontMetrics()
+        width = max((metrics.horizontalAdvance('✓ '+r['name']) + 20 for r in self.rows), default=120)
+        self.list.setGridSize(QSize(max(120,width),max(110,84+metrics.height())))
+        self.box.addWidget(self.list,1);self.refresh()
     def change(self,key,v):setattr(self,key,v);self.refresh()
     def filter(self,key,v):self.filters[key]=v;self.refresh()
-    def reset(self):self.filters={};self.query='';self.search.clear();self.mode='all';self.refresh()
+    def reset(self):
+        self.filters, self.query, self.mode = {}, '', 'all'
+        with QSignalBlocker(self.search):
+            self.search.clear()
+        for control in (self.mode_choice, *self.filter_choices.values()):
+            with QSignalBlocker(control):
+                control.setCurrentIndex(0)
+        self.refresh()
     def refresh(self):
         selected=self.app.current_pool();shown=champion_pool.filtered(self.rows,selected,self.role,self.query,self.mode,self.filters,self.sort);self.list.clear()
         for r in shown:
-            chosen=r['id'] in selected[self.role];item=QListWidgetItem(self.app.icons.icon('champ',r['id'],70),('✓ ' if chosen else '')+r['name']);item.setData(Qt.ItemDataRole.UserRole,r['id']);item.setToolTip(r['name']+' · '+', '.join(core.ROLE_RU.get(x,x) for x in r['roles']));item.setSizeHint(QSize(116,106))
+            chosen=r['id'] in selected[self.role];item=QListWidgetItem(self.app.icons.icon('champ',r['id'],70),('✓ ' if chosen else '')+r['name']);item.setData(Qt.ItemDataRole.UserRole,r['id']);item.setToolTip(r['name']+' · '+', '.join(core.ROLE_RU.get(x,x) for x in r['roles']));item.setSizeHint(self.list.gridSize()-QSize(4,4))
             if chosen:item.setBackground(QColor(C['raise']));item.setForeground(QColor(C['gold']))
             self.list.addItem(item)
         self.msg.setText(f'{len(shown)} чемпионов · в пуле роли {len(selected[self.role])} · нажатие добавляет или убирает')
