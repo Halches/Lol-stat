@@ -74,6 +74,7 @@ class App(ApplicationServices):
         ''')
         surface.cache_clear()
     def build_window(self):
+        previous_history = getattr(self, 'history_view', None)
         old=self.window.centralWidget()
         if old:old.deleteLater()
         self.shell=Shell();self.window.setCentralWidget(self.shell);rail=Panel(kind=None,padding=8)
@@ -92,12 +93,14 @@ class App(ApplicationServices):
         self.banner=Panel(horizontal=True,padding=7);self.banner_label=Label('');self.banner.box.addWidget(self.banner_label,1);self.banner_button=Button('Обновить');self.banner.box.addWidget(self.banner_button);self.banner.hide();b.addWidget(self.banner)
         self.stack=QStackedWidget();b.addWidget(self.stack,1);self.pages={};self.scrolls={}
         # Construct each page once. Navigation preserves filters and scroll positions.
-        kinds={0:lambda:HomePage(self),1:lambda:HistoryPage(self),2:lambda:ChampionPage(self),3:lambda:HintsPage(self),10:lambda:PoolPage(self)}
+        kinds={0:lambda:HomePage(self),1:lambda:HistoryPage(self, previous_history),2:lambda:ChampionPage(self),3:lambda:HintsPage(self),10:lambda:PoolPage(self)}
         for i in range(11):
             page=kinds[i]() if i in kinds else SettingsPage(self,{4:'windows',5:'look',6:'voice',7:'keys',8:'timers',9:'updates'}[i]);self.pages[i]=page
             scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(page);self.scrolls[i]=scroll;self.stack.addWidget(scroll)
         self.home_view=self.pages[0];self.history_view=self.pages[1];self.champion_view=self.pages[2];self.hints_view=self.pages[3];self.pool_view=self.pages[10]
         self.home_view.refresh();self.navigate(self.active_page)
+        if previous_history and previous_history.busy:
+            self.history_view.load_client(background=True)
         if getattr(self,'upd',None):self.update_state(*self.upd)
     def navigate(self,index):
         self.active_page=index;self.stack.setCurrentIndex(index);self.page_title.setText(self.NAV[index][0].upper())

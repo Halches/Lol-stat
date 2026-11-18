@@ -83,6 +83,48 @@ class QtServiceImportTests(unittest.TestCase):
         self.assertEqual([c[0] for c in app.calls], ['runes', 'items', 'items'])
         self.assertEqual(app.imported, 'Ahri')
 
+    def test_auto_waits_for_requested_build_without_importing_personal_runes(self):
+        app, callbacks, _, _ = self.app()
+        app.s.update(auto_import=True, auto_parts={'runes': True})
+        app.draft['locked'] = True
+        fetch = app.lola_build
+        app.lola_build = lambda *args: None
+        app.auto_import_locked(app.draft)
+        self.assertEqual(app.calls, [])
+        self.assertIn('ждёт', app.messages[-1])
+        app.lola_build = fetch
+        app.auto_import_locked(app.draft)
+        callbacks.get(timeout=2)()
+        app.auto_import_locked(app.draft)
+        self.assertEqual(len(app.calls), 1)
+        self.assertEqual(app.applied_runes[2], [8214])
+
+    def test_missing_win_build_preserves_only_popular_variant(self):
+        from core import parse_lola_full, lola_item_sets, restore_lola_styles
+        pick = {'runes': {'set': {'pri': [8437, 8446, 8444, 8451], 'sec': [8410, 8345]}},
+                'items': {'start': {'set': [1056]}, 'core': {'set': [3118]}}}
+        build = parse_lola_full({'summary': {'pick': pick}})
+        self.assertIsNone(build['win'])
+        app, _, _, _ = self.app()
+        app.lola_build = lambda *args: build
+        app.do_import(('items',))
+        self.assertFalse(app.calls)
+        self.assertIn('недоступен', app.messages[-1])
+        self.assertEqual(len(lola_item_sets(build, 'Ари')), 1)
+        self.assertIsNone(app.draft_build_variant(build['pick'], 'ARAM'))
+        old = dict(pick=build['pick'], win=dict(build['pick']))
+        self.assertIsNone(restore_lola_styles(old)['win'])
+        confirmed = parse_lola_full({'summary': {'pick': pick, 'win': pick}})
+        self.assertIsNotNone(restore_lola_styles(confirmed)['win'])
+
+    def test_aram_import_uses_current_map_or_all_maps(self):
+        for map_id in (12, None):
+            app, callbacks, _, _ = self.app()
+            app.draft.update(aram=True, map_id=map_id)
+            app.do_import(('items',))
+            callbacks.get(timeout=2)()
+            self.assertEqual(app.calls[0][1][-1], map_id)
+
     def test_variant_or_role_change_cancels_remaining_operations(self):
         for change in ('variant', 'role'):
             with self.subTest(change=change):

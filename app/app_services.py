@@ -7,7 +7,6 @@ import core,lcu,phone,tab_detect,player_comments,player_traits,player_evidence,c
 from app_config import *
 
 def show_postgame(app,res,result): app.show_postgame(res,result)
-def show_arena_post(app,res): app.show_arena_post(res)
 
 AFTER_GAME_PHASES = {
     'WaitingForStats', 'PreEndOfGame', 'EndOfGame', 'Lobby',
@@ -63,7 +62,9 @@ class ApplicationServices:
         """Сборка по Европе из памяти или с диска (любой давности): в игре важнее быстро, чем свежо."""
         b = self.lola.get((champ, role))
         if b: return b
-        try: return json.load(open(os.path.join(self.home, 'lola', f'full_{champ}_{role}.json'), encoding='utf-8'))
+        try:
+            with open(os.path.join(self.home, 'lola', f'full_{champ}_{role}.json'), encoding='utf-8') as source:
+                return core.restore_lola_styles(json.load(source))
         except Exception: return None
 
     def prep_engine(self, g):
@@ -75,7 +76,7 @@ class ApplicationServices:
         b=chosen[3] if chosen and chosen[:3]==(g.me['c'],g.role,context) else None
         if not b and not external:b=self.cached_build(g.me['c'],g.role)
         if not b and g.role and not external: self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); self.engine.prepped = False
-        v = (b or {}).get(self.s['rune_pick']) or b or {}
+        v = self.draft_build_variant(b, g.role) or {}
         self.engine.skills, self.engine.skill_prio = v.get('skills', ''), v.get('skill_prio', '')
         self.engine.situ = (b or {}).get('situ') or []
         lo = self.data.lola.get(f"{g.me['c']}|{g.role}")
@@ -184,7 +185,9 @@ class ApplicationServices:
                                 cs = core.parse_champ_select(sess, self.data)
                                 cs['observed_at'] = observed_at
                                 cs['allies'] = self.draft_allies(sess)
-                                cs['arena'] = self.client.queue() == 1700
+                                queue_id, map_id = self.client.queue_and_map()
+                                cs['arena'] = queue_id == 1700
+                                cs['map_id'] = map_id or cs.get('map_id')
                                 self.q.put(('draft', cs, None, None))
                         elif ph is not None:
                             if self.draft is not None: self.q.put(('draft', None, None, None))
@@ -369,6 +372,7 @@ class ApplicationServices:
 
     def on_game(self, g, hints, result):
         first = self.last_game is None
+        self._arena_result_id = None
         self.last_game, self.result = g, result or self.result
         self.live_stale = False
         if self.draft is not None:
@@ -415,19 +419,36 @@ class ApplicationServices:
     def arena_games(self):
         return (self.data.d.get('arena') or {}).get(self.who or '', [])
 
-    def arena_post(self):
-        """Итог Арены: место, урон и счёт из истории клиента рядом с твоими средними по Арене."""
-        pu = (self.account or {}).get('puuid')
-        def job():
-            hist = self.client.history(pu, 3) if pu else None
-            h = next((x for x in hist or [] if x.get('q') == 1700), None)
-            res = core.arena_result(self.client.game(h['gid']), pu) if h else None
-            if res: self.root.after(0, lambda: show_arena_post(self, res))
-        threading.Thread(target=job, daemon=True).start()
+    def arena_post(self, gid, puuid, attempt=0):
+        def relevant():
+            return (not self.stopping.is_set() and not self.last_game and not self.draft
+                    and (self.account or {}).get('puuid') == puuid
+                    and self._arena_result_id == gid)
+
+        if not relevant():
+            return
+        def work():
+            game = self.client.game(gid)
+            if not game or game.get('gameId') != gid or game.get('queueId') != 1700:
+                return None
+            result = core.arena_result(game, puuid)
+            return result if result and result.get('place') else None
+        def done(result, error):
+            if not relevant():
+                return
+            if result:
+                self.show_arena_post(result)
+            elif attempt < 6:
+                self.root.after(20000, lambda: self.arena_post(gid, puuid, attempt + 1))
+        self.background(work, done)
 
     def on_end(self):
         g = self.last_game
-        if g and g.arena and self.s['postgame'] and self.hint_mode('postgame') != 'off': self.root.after(20000, self.arena_post)
+        gid = self._arena_result_id = getattr(g, 'match_id', None)
+        if g and g.arena and gid and self.s['postgame'] and self.hint_mode('postgame') != 'off':
+            puuid = (self.account or {}).get('puuid')
+            if puuid:
+                self.root.after(20000, lambda: self.arena_post(gid, puuid))
         if g and g.me and getattr(g,'sr',not g.arena) and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
             res = core.postgame(self.engine, g, self.player)
             if res:
@@ -460,6 +481,8 @@ class ApplicationServices:
             self._import_generation = getattr(self, '_import_generation', 0) + 1
             self._import_pending = None
             self._auto_key = None
+            self.applied_runes = None
+            self.import_text = ''
             self.imported = None; return
         dash = self.dashboard_for_events(new_draft=new_draft)
         sig = json.dumps([cs['role'], self.role_override, self.s.get('draft_scope'), cs.get('locked'), cs['me'], cs['enemies'], sorted(cs['unavailable']), cs.get('arena'), cs.get('aram'), cs.get('bench'), len(self.lola), [(a['c'], bool(a['rank']), a.get('hist')) for a in cs.get('allies', [])]], default=str)
@@ -561,7 +584,7 @@ class ApplicationServices:
         context = self.s.get('draft_build_context','general') if role in core.ROLES else 'general'
         if context == 'matchup' or 'pick' in full or 'win' in full:
             return full.get(self.s['rune_pick'])
-        return full
+        return full if self.s['rune_pick'] == 'pick' else None
 
     def set_draft_build(self, context, variant):
         if context not in ('general','matchup','offmeta') and not (context.startswith('player:') and context[7:].isdigit()):return
@@ -827,6 +850,9 @@ class ApplicationServices:
             self._auto_after = 0
         pending = tuple(k for k in parts if k not in self._auto_done)
         if pending and not getattr(self, '_import_pending', None) and time.monotonic() >= self._auto_after:
+            if not self.selected_draft_build(cs):
+                self.set_import_msg('Автоимпорт ждёт выбранную сборку')
+                return
             self._auto_attempts += 1
             self._auto_after = time.monotonic() + min(20, (self._auto_attempts - 1) * 3)
             self.do_import(pending, auto_key=key)
@@ -846,7 +872,7 @@ class ApplicationServices:
         context = self.s.get('draft_build_context', 'general') if role in core.ROLES else 'general'
         opponent = self.draft_opponent(cs, role) if context == 'matchup' else None
         full = self.selected_draft_build(cs)
-        if context!='general' and not full:
+        if not full and (context != 'general' or auto_key is not None):
             self.set_import_msg('Выбранная сборка ещё не подтверждена или не загружена. Экспорт не выполнен.');return
         variant = self.draft_build_variant(full, role)
         if full and not variant:
@@ -861,6 +887,9 @@ class ApplicationServices:
         account = dict(self.account or {})
         cid = next((key for key, value in self.data.ids.items() if value == me), None)
         chosen = self.s['rune_pick']
+        map_id = cs.get('map_id')
+        if type(map_id) is not int or map_id <= 0:
+            map_id = None if role == 'ARAM' else 11
         # Copy data before starting a worker; no Tk/settings calls in the worker.
         variant = json.loads(json.dumps(variant)) if variant else None
         personal_runes = player.best_runes(me) if not variant else None
@@ -873,7 +902,12 @@ class ApplicationServices:
         sets = json.loads(json.dumps(sets))
         log_path = os.path.join(self.home, 'import.log') if getattr(self, 'home', None) else None
         source = ((('Против ' + self.data.cn(opponent) + ', все регионы') if opponent else 'Европа') + ', ' + ('лучший винрейт' if chosen == 'win' else 'популярная')) if full else 'из твоих игр'
-        if full and full.get('external'):source=full['external']+' · патч '+str(full.get('patch') or '—')
+        if full and role == 'ARAM':
+            source = 'ARAM · ' + ('по винрейту' if chosen == 'win' else 'популярная')
+        if full and full.get('external'):
+            source = ' · '.join((full['external'], full.get('external_name') or 'выбранный вариант',
+                                 'патч ' + str(full.get('patch') or '—')))
+        runes = variant or personal_runes
         self.set_import_msg('Экспортирую выбранные данные…')
 
         def current():
@@ -894,12 +928,11 @@ class ApplicationServices:
                     client.last_error = ''
                     try:
                         if part == 'runes':
-                            runes = variant or personal_runes
                             ok = bool(runes) and client.set_runes(name, runes['prim'], runes['sec'], runes['perks'],
                                         runes.get('shards', []) if variant else None)
                         elif part == 'items':
                             acc = account or client.me() or {}
-                            ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(acc.get('id'), cid, sets, None)
+                            ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(acc.get('id'), cid, sets, None, map_id)
                         else:
                             spells = (variant or {}).get('spells') or []
                             ids = [core.SPELL_ID.get(spell) for spell in spells[:2]]
@@ -922,6 +955,14 @@ class ApplicationServices:
                 success = len(results) == len(parts) and all(ok for ok, _ in results)
                 if auto_key is not None and auto_key == getattr(self, '_auto_key', None):
                     self._auto_done.update(part for part, (ok, _) in zip(parts, results) if ok)
+                for part, (ok, _) in zip(parts, results):
+                    if part == 'runes':
+                        self.applied_runes = None
+                        if ok:
+                            shards = runes.get('shards', []) if variant else [5008, 5008, 5011]
+                            self.applied_runes = (name, source, list(runes['perks']), list(shards))
+                        if getattr(self, 'dash', None):
+                            self.redraw_draft()
                 self.imported = me if success else None
                 message = source + ' · ' + ' · '.join(text for _, text in results)
                 self.set_import_msg(message)

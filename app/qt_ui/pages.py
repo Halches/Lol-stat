@@ -110,18 +110,30 @@ class HomePage(Page):
     def period(self,key):self.app.s['home_period']=key;self.app.s.save();self.refresh()
 
 class HistoryPage(Page):
-    def __init__(self,app):
-        super().__init__(app);self.source='saved';self.client_rows=[];self.client_owner=None;self.client_name='';self.generation=0;self.busy=False;self.query='';self.role='';self.queue='';self.result='all';self.limit=30;self.message=''
+    def __init__(self,app,previous=None):
+        super().__init__(app)
+        self.source = previous.source if previous else 'saved'
+        self.client_rows = previous.client_rows if previous else []
+        self.client_owner = previous.client_owner if previous else None
+        self.client_name = previous.client_name if previous else ''
+        self.query = previous.query if previous else ''
+        self.role = previous.role if previous else ''
+        self.queue = previous.queue if previous else ''
+        self.result = previous.result if previous else 'all'
+        self.limit = previous.limit if previous else 30
+        self.message = previous.message if previous and not previous.busy else ''
+        self.generation = 0
+        self.busy = False
         self.account_puuid = (app.account or {}).get('puuid')
-        self.title('Матчи и разбор');self.source_choice=combo({'saved':'Сохранённые матчи','client':'Из клиента LoL'},'saved',self.use_source)
+        self.title('Матчи и разбор');self.source_choice=combo({'saved':'Сохранённые матчи','client':'Из клиента LoL'},self.source,self.use_source)
         self.refresh_button=Button('Обновить из клиента',self.load_client)
         self.box.addWidget(row(self.source_choice,self.refresh_button,Button('Сайт со статистикой',app.open_site)))
-        self.search=QLineEdit();self.search.setPlaceholderText('Поиск чемпиона или оппонента');self.search.textChanged.connect(self.search_changed)
-        self.role_choice=combo({**core.ROLE_RU,'':'Все роли'},'',lambda v:self.set_filter('role',v))
+        self.search=QLineEdit();self.search.setPlaceholderText('Поиск чемпиона или оппонента');self.search.setText(self.query);self.search.textChanged.connect(self.search_changed)
+        self.role_choice=combo({**core.ROLE_RU,'':'Все роли'},self.role,lambda v:self.set_filter('role',v))
         queues=sorted({r.get('q') for r in (app.player.games if app.player else []) if type(r.get('q')) is int})
-        self.queue_choice=combo({'':'Все режимы',**{k:core.QUEUE_RU.get(k,str(k)) for k in queues}},'',lambda v:self.set_filter('queue',v))
+        self.queue_choice=combo({'':'Все режимы',**{k:core.QUEUE_RU.get(k,str(k)) for k in queues}},self.queue,lambda v:self.set_filter('queue',v))
         self.role_choice.setMinimumWidth(135);self.queue_choice.setMinimumWidth(165);self.box.addWidget(row(self.search,self.role_choice,self.queue_choice))
-        self.result_choice=combo({'all':'Все результаты','win':'Победы','loss':'Поражения'},'all',lambda v:self.set_filter('result',v))
+        self.result_choice=combo({'all':'Все результаты','win':'Победы','loss':'Поражения'},self.result,lambda v:self.set_filter('result',v))
         self.box.addWidget(row(self.result_choice,Button('Сбросить',self.reset)))
         self.summary=Panel(horizontal=True);self.box.addWidget(self.summary);self.msg=Label('',10,'mute');self.box.addWidget(self.msg)
         self.matches=QWidget();self.matches_box=QVBoxLayout(self.matches);self.matches_box.setContentsMargins(0,0,0,0);self.matches_box.setSpacing(6);self.box.addWidget(self.matches)

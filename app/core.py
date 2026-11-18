@@ -266,7 +266,7 @@ def parse_champ_select(sess, data):
                  for grp in sess.get('actions') or [] for a in grp)
     aram = bool(sess.get('benchEnabled'))   # скамейка чемпионов есть только в ARAM-режимах
     if aram: locked = bool(mine.get('championId'))
-    return {'role': LCU_ROLE.get((mine.get('assignedPosition') or '').lower(), ''), 'aram': aram,
+    return {'role': LCU_ROLE.get((mine.get('assignedPosition') or '').lower(), ''), 'aram': aram, 'map_id': sess.get('mapId'),
             'bench': [c for c in (cid(b.get('championId') if isinstance(b, dict) else b) for b in sess.get('benchChampions') or []) if c],
             'me': cid(mine.get('championId')) or cid(mine.get('championPickIntent')),
             'enemies': [c for c in (cid(p.get('championId')) for p in sess.get('theirTeam') or []) if c],
@@ -1011,6 +1011,9 @@ def rune_tree(perk):
 
 def restore_lola_styles(build):
     """Обновляем ранее закэшированные сборки, где ветки выводились из цифр ID."""
+    # В старом кэше одинаковые варианты могли возникнуть при подстановке популярной сборки.
+    if 'win_from_source' not in build and build.get('pick') and build.get('win') == build['pick']:
+        build['win'] = None
     for variant in (build, build.get('pick'), build.get('win')):
         if isinstance(variant, dict):
             perks = variant.get('perks')
@@ -1347,7 +1350,7 @@ def parse_lola_full(j, data=None):
     pick, win = _lola_variant(s.get('pick') or {}), _lola_variant(s.get('win') or {})
     if not pick: return None
     out = dict(pick)
-    out['pick'], out['win'] = pick, win or pick
+    out.update(pick=pick, win=win, win_from_source=win is not None)
     out['games'] = ((j.get('header') or {}).get('n')) or j.get('n')
     out['wr'] = (j.get('header') or {}).get('wr')
     dm = (j.get('header') or {}).get('damage') or {}
@@ -1369,7 +1372,9 @@ def lola_item_sets(b, name):
     tail = [(f'Ситуативно: {k}', v) for k, v in situ.items()] + [('Тотемы', [2055, 3340, 3364])]
     sets = []
     for key, title in (('pick', 'популярная'), ('win', 'лучший винрейт')):
-        v = b.get(key) or b
+        v = b.get(key) if 'pick' in b or key == 'win' else b
+        if not v:
+            continue
         n = f" ({v['n_core']} игр, {v['wr_core']:.0f}%)" if v.get('n_core') and v.get('wr_core') else ''
         blocks = [('Старт', v['start']), ('Основа' + n, v['core']), ('Предмет 4', v['i4']), ('Предмет 5', v['i5']), ('Предмет 6', v['i6'])] + tail
         sets.append((f'{name}: {title}', blocks))

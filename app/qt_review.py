@@ -68,12 +68,16 @@ def verify_audit(app, check, cs, build):
         app.history_view.load_client()
         with patch.object(app.voice,'ready',return_value=False):
             app.pages[6].pick_voice('edge_svetlana')
-    app.navigate(4)
-    app.pages[4].reset('windows')
+        app.navigate(4)
+        app.pages[4].reset('windows')
     flush()
     tasks[0](None,RuntimeError('Ответ старой страницы'))
     tasks[1](None,RuntimeError('Ответ панели голоса после смены оформления'))
-    check('Поздний ответ не меняет новую страницу истории', not app.history_view.message)
+    check('Поздний ответ не меняет новую страницу истории',
+          app.history_view.busy and app.history_view.message == 'Загружаю историю…')
+    tasks[2](None, RuntimeError('Новый запрос завершился'))
+    check('Запрос новой страницы завершает загрузку', not app.history_view.busy and
+          app.history_view.message == 'Новый запрос завершился')
     check('Поздняя загрузка голоса не меняет новую панель',not app.pages[6].voice_msg.text())
     app.demo_btn.click()
     check('Расстановка работает после сброса окон',app.demo_on)
@@ -123,6 +127,26 @@ def verify_live_audit(app, check, cs):
         background.call_args.args[1]((me, [], {}), None)
     check('Обновление того же аккаунта сохраняет загрузку истории', history.client_owner == me['puuid']
           and not history.busy and history.message == 'История обновлена')
+
+    game = {'gid': 102, 'champ': 103, 'q': 420, 'win': True, 'dur': 1200, 't': 120000}
+    with patch.object(app, 'background') as background:
+        history.load_client()
+        background.call_args.args[1]((me, [game], {}), None)
+    history.search.setText('Ahri')
+    app.apply_settings()
+    history = app.history_view
+    check('Оформление сохраняет историю клиента и поисковый запрос', history.source == 'client'
+          and history.search.text() == 'Ahri' and [r['gid'] for r in history.filtered] == [102])
+    with (patch.object(app.client, 'me', return_value=me), patch.object(app.client, 'find', return_value=True),
+          patch('lcu._req', side_effect=TimeoutError), patch.object(app, 'background') as background):
+        history.refresh_button.click()
+        work, done = background.call_args.args
+        try:
+            work()
+        except RuntimeError as error:
+            done(None, error)
+    check('Таймаут сохраняет матчи и предлагает повторить', [r['gid'] for r in history.filtered] == [102]
+          and history.refresh_button.text() == 'Повторить загрузку' and 'сохранена' in history.message)
 
     app.navigate(2)
     chooser = app.champion_view.select

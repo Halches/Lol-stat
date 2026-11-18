@@ -136,8 +136,12 @@ class LCU:
             r = self.call(f'/lol-match-history/v1/products/lol/{puuid}/matches?begIndex=0&endIndex={n - 1}')
         except Exception:
             return None
+        page = r.get('games') if isinstance(r, dict) else None
+        games = page.get('games') if isinstance(page, dict) else None
+        if not isinstance(games, list):
+            return None
         out = []
-        for g in (((r or {}).get('games') or {}).get('games') or []):
+        for g in games:
             pid = next((x.get('participantId') for x in g.get('participantIdentities') or []
                         if (x.get('player') or {}).get('puuid') == puuid), None)
             p = next((x for x in g.get('participants') or [] if x.get('participantId') == pid), None)
@@ -172,10 +176,18 @@ class LCU:
                             'pos': (p.get('selectedPosition') or '').lower(), 'name': (p['gameName']+'#'+p['tagLine']) if p.get('gameName') and p.get('tagLine') else (p.get('gameName') or p.get('summonerName') or '')})
         return out or None
 
+    def queue_and_map(self):
+        try:
+            session = self.call('/lol-gameflow/v1/session') or {}
+            game = session.get('gameData') or {}
+            queue = game.get('queue') or {}
+            map_id = queue.get('mapId') or (session.get('map') or {}).get('id') or game.get('mapId')
+            return queue.get('id'), map_id if type(map_id) is int and map_id > 0 else None
+        except Exception:
+            return None, None
+
     def queue(self):
-        """Очередь текущей игры или лобби (1700 — Арена) или None."""
-        try: return ((((self.call('/lol-gameflow/v1/session') or {}).get('gameData') or {}).get('queue') or {}).get('id'))
-        except Exception: return None
+        return self.queue_and_map()[0]
 
     def live_match_id(self):
         try:
@@ -277,7 +289,7 @@ class LCU:
             return True
         return False
 
-    def set_items(self, summoner_id, champ_id, title, blocks):
+    def set_items(self, summoner_id, champ_id, title, blocks, map_id=11):
         """Наборы предметов в магазине для чемпиона. blocks: [(название, [id предметов])]; несколько наборов — title=[(название, blocks)]."""
         if not summoner_id:
             s = self.call('/lol-summoner/v1/current-summoner') or {}
@@ -297,14 +309,12 @@ class LCU:
 
         # Одинаковые ранги встречаются у старых страниц. При равенстве сохраняем порядок клиента.
         ordered = sorted(pages, key=lambda p: p['sortrank'] if type(p.get('sortrank')) is int else 0)
-        helper_pages, personal_pages = [], []
-        for page in ordered:
-            if str(page.get('title', '')).startswith('LoL Helper: '):
-                helper_pages.append(page)
-            else:
-                personal_pages.append(page)
-
-        incoming = [(title, blocks)] if isinstance(title, str) else title
+        incoming = [(title, blocks)] if isinstance(title, str) else list(title)
+        # Два постоянных слота. Старые и личные наборы с произвольными UUID сохраняем.
+        slot_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, f'LoLHelper/item-sets/{summoner_id}/{i}'))
+                    for i in range(max(2, len(incoming)))]
+        owned = {page['uid']: page for page in ordered if page.get('uid') in slot_ids}
+        personal_pages = [page for page in ordered if page.get('uid') not in owned]
         imported = []
         for slot, (name, groups) in enumerate(incoming):
             item_blocks = [{'type': label, 'items': [{'id': str(i), 'count': 1} for i in items]}
@@ -312,11 +322,11 @@ class LCU:
             if not item_blocks:
                 self.last_error = 'в наборе нет предметов'
                 return False
-            previous = helper_pages[slot] if slot < len(helper_pages) else {}
+            previous = owned.get(slot_ids[slot], {})
             # UID принадлежит позиции помощника, чтобы следующий импорт обновлял ту же страницу.
-            imported.append({**previous, 'uid': previous.get('uid') or str(uuid.uuid4()),
+            imported.append({**previous, 'uid': slot_ids[slot],
                              'title': f'LoL Helper: {name}'[:75], 'associatedChampions': [int(champ_id)],
-                             'associatedMaps': [11], 'type': 'custom', 'map': 'any', 'mode': 'any',
+                             'associatedMaps': [map_id] if map_id else [], 'type': 'custom', 'map': 'any', 'mode': 'any',
                              'sortrank': slot, 'startedFrom': 'blank', 'blocks': item_blocks})
         if not imported:
             self.last_error = 'нет наборов для импорта'
@@ -347,4 +357,10 @@ class LCU:
             if actual_blocks != [(b['type'], b['items']) for b in expected['blocks']]:
                 self.last_error = 'предметы на сохранённой странице отличаются от выбранной сборки'
                 return False
+        saved_personal = saved_pages[len(imported):]
+        if (len(saved_personal) != len(personal) or
+                any(not isinstance(actual, dict) or any(actual.get(k) != v for k, v in original.items())
+                    for original, actual in zip(personal, saved_personal))):
+            self.last_error = 'клиент не подтвердил сохранение личных наборов'
+            return False
         return True
