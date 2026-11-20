@@ -1,0 +1,158 @@
+name: Riot and GRID API preflight
+on:
+  push:
+    branches: [codex/api-preflight-2026-11-21]
+    paths: [.github/workflows/api-preflight.yml]
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Riot Match-V5 and GRID drafts
+        env:
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+          GRID_API_KEY: ${{ secrets.GRID_API_KEY }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timedelta, timezone
+          
+          class RequestFailure(Exception):
+              pass
+          
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+          
+          opener = urllib.request.build_opener(NoRedirect())
+          
+          def request(url, headers, data=None):
+              if data is not None:
+                  headers = dict(headers, **{"Content-Type": "application/json"})
+                  data = json.dumps(data).encode()
+              try:
+                  with opener.open(urllib.request.Request(url, headers=headers, data=data), timeout=10) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  if error.code == 403 and error.headers.get_content_type() == "text/html":
+                      raise RequestFailure("http_403_html_gateway") from None
+                  raise RequestFailure(f"http_{error.code}") from None
+              except (OSError, ValueError):
+                  raise RequestFailure("network_or_invalid_json") from None
+          
+          def riot(key):
+              base = "https://europe.api.riotgames.com"
+              headers = {"X-Riot-Token": key}
+              stage = "account"
+              try:
+                  account = request(base + "/riot/account/v1/accounts/by-riot-id/Halch/9200", headers)
+                  puuid = account["puuid"]
+                  print("Riot account: ok")
+                  stage = "history"
+                  matches = request(base + "/lol/match/v5/matches/by-puuid/"
+                                    + urllib.parse.quote(puuid, safe="") + "/ids?queue=420&count=20", headers)
+                  match_id = next((value for value in matches if re.fullmatch(r"EUW1_[0-9]{1,20}", value)), None)
+                  if not match_id:
+                      return "no_euw_solo_matches"
+                  print("Riot Solo/Duo history: ok")
+                  path = base + "/lol/match/v5/matches/" + match_id
+                  stage = "details"
+                  match = request(path, headers)
+                  if match["metadata"]["matchId"] != match_id or match["info"]["queueId"] != 420 or not any(
+                      player.get("puuid") == puuid for player in match["info"]["participants"]
+                  ):
+                      return "details_invalid"
+                  print("Riot match detail: ok")
+                  stage = "timeline"
+                  timeline = request(path + "/timeline", headers)
+                  if timeline["metadata"]["matchId"] != match_id or not timeline["info"]["frames"]:
+                      return "timeline_invalid"
+                  print("Riot timeline: ok")
+                  return "ready"
+              except RequestFailure as error:
+                  return f"{stage}_{error}"
+              except (TypeError, KeyError, AttributeError):
+                  return f"{stage}_invalid_response"
+          
+          def gql(host, path, key, query, variables):
+              answer = request(host + path, {"x-api-key": key}, {"query": query, "variables": variables})
+              if answer.get("errors"):
+                  for error in answer["errors"]:
+                      kind = (error.get("extensions") or {}).get("errorType")
+                      if kind == "UNAUTHENTICATED":
+                          raise RequestFailure("unauthenticated")
+                      if kind == "PERMISSION_DENIED" or "forbidden" in str(error.get("message", "")).lower():
+                          raise RequestFailure("permission_denied")
+                  raise RequestFailure("graphql_query_rejected")
+              return answer["data"]
+          
+          def grid(host, key):
+              recent = """query Recent($from: DateTime!, $until: DateTime!) {
+                allSeries(first: 12, orderBy: StartTimeScheduled, orderDirection: DESC,
+                  filter: {titleId: "3", startTimeScheduled: {gte: $from, lte: $until}}) {
+                  edges { node { id } }
+                }
+              }"""
+              series = """query Draft($id: ID!) {
+                seriesState(id: $id) {
+                  finished
+                  games { finished draftActions { type draftable { name } } }
+                }
+              }"""
+              now = datetime.now(timezone.utc).replace(microsecond=0)
+              bounds = {"from": (now - timedelta(days=60)).isoformat(), "until": now.isoformat()}
+              stage = "central"
+              try:
+                  metadata = gql(host, "/central-data/graphql", key, recent, bounds)
+                  edges = metadata["allSeries"]["edges"]
+                  if not edges:
+                      return "no_lol_series"
+                  print("GRID Central Data LoL: ok")
+                  stage = "series_state"
+                  completed = False
+                  for edge in edges[:10]:
+                      state = gql(host, "/live-data-feed/series-state/graphql",
+                                  key, series, {"id": edge["node"]["id"]}).get("seriesState")
+                      if not state or state.get("finished") is not True:
+                          continue
+                      completed = True
+                      for game in state.get("games") or []:
+                          if game.get("finished") is not True:
+                              continue
+                          kinds = {str(action.get("type", "")).lower() for action in game.get("draftActions") or []
+                                   if (action.get("draftable") or {}).get("name")}
+                          if {"pick", "ban"} <= kinds:
+                              print("GRID completed series with picks and bans: ok")
+                              return "ready"
+                  return "no_draft_in_completed_series" if completed else "no_completed_series"
+              except RequestFailure as error:
+                  return f"{stage}_{error}"
+              except (TypeError, KeyError, AttributeError):
+                  return f"{stage}_invalid_response"
+          
+          riot_key = os.getenv("RIOT_API_KEY", "").strip()
+          grid_key = os.getenv("GRID_API_KEY", "").strip()
+          results = {"Riot": riot(riot_key) if riot_key else "github_secret_missing"}
+          grid_ok = False
+          for label, host in (("GRID Open Access", "https://api-op.grid.gg"), ("GRID Portal", "https://api.grid.gg")):
+              status = grid(host, grid_key) if grid_key else "github_secret_missing"
+              results[label] = status
+              if status == "ready":
+                  grid_ok = True
+                  break
+              if not grid_key:
+                  break
+          for label, status in results.items():
+              print(f"RESULT {label}: {status}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              for label, status in results.items():
+                  print(f"- {label}: {status}", file=summary)
+          raise SystemExit(0 if results["Riot"] == "ready" and grid_ok else 1)
+          PY
