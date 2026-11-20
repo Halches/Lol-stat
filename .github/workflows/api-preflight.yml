@@ -204,3 +204,4 @@ jobs:
                   print(f"- {label}: {status}", file=summary)
           raise SystemExit(0 if results["Riot"] == "ready" and grid_ok else 1)
           PY
+# Fresh diagnostic run after RIOT_API_KEY rotation.
