@@ -111,6 +111,19 @@ jobs:
               except (TypeError, KeyError, AttributeError):
                   return f"{stage}_invalid_response"
           
+          def riot_timeline_direct(key):
+              match_id = "EUW1_8051208426"
+              url = "https://europe.api.riotgames.com/lol/match/v5/matches/" + match_id + "/timeline"
+              try:
+                  result = request(url, {"X-Riot-Token": key})
+                  if result["metadata"]["matchId"] == match_id and result["info"]["frames"]:
+                      return "ready"
+                  return "invalid_response"
+              except RequestFailure as error:
+                  return str(error)
+              except (TypeError, KeyError, AttributeError):
+                  return "invalid_response"
+
           def gql(host, path, key, query, variables):
               answer = request(host + path, {"x-api-key": key}, {"query": query, "variables": variables})
               if answer.get("errors"):
@@ -188,6 +201,8 @@ jobs:
           results = {"Riot": riot(riot_key) if riot_key else "github_secret_missing"}
           if riot_key and results["Riot"] != "ready":
               results["Riot direct Match-V5"] = riot_direct(riot_key)
+              if results["Riot direct Match-V5"] != "ready":
+                  results["Riot direct timeline"] = riot_timeline_direct(riot_key)
           grid_ok = False
           for label, host in (("GRID Open Access", "https://api-op.grid.gg"), ("GRID Portal", "https://api.grid.gg")):
               status = grid(host, grid_key) if grid_key else "github_secret_missing"
