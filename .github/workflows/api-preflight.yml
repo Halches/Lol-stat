@@ -62,7 +62,7 @@ jobs:
           
           def riot(key):
               base = "https://europe.api.riotgames.com"
-              headers = {"X-Riot-Token": key}
+              headers = {"X-Riot-Token": key, "User-Agent": "LoLHelper/0.1"}
               stage = "account"
               try:
                   account = request(base + "/riot/account/v1/accounts/by-riot-id/Halch/9200", headers)
@@ -98,11 +98,11 @@ jobs:
               path = "https://europe.api.riotgames.com/lol/match/v5/matches/EUW1_8051208426"
               stage = "details"
               try:
-                  detail = request(path, {"X-Riot-Token": key})
+                  detail = request(path, {"X-Riot-Token": key, "User-Agent": "LoLHelper/0.1"})
                   if detail["metadata"]["matchId"] != "EUW1_8051208426" or detail["info"]["queueId"] != 420:
                       return "details_invalid"
                   stage = "timeline"
-                  timeline = request(path + "/timeline", {"X-Riot-Token": key})
+                  timeline = request(path + "/timeline", {"X-Riot-Token": key, "User-Agent": "LoLHelper/0.1"})
                   if timeline["metadata"]["matchId"] != "EUW1_8051208426" or not timeline["info"]["frames"]:
                       return "timeline_invalid"
                   return "ready"
@@ -115,7 +115,7 @@ jobs:
               match_id = "EUW1_8051208426"
               url = "https://europe.api.riotgames.com/lol/match/v5/matches/" + match_id + "/timeline"
               try:
-                  result = request(url, {"X-Riot-Token": key})
+                  result = request(url, {"X-Riot-Token": key, "User-Agent": "LoLHelper/0.1"})
                   if result["metadata"]["matchId"] == match_id and result["info"]["frames"]:
                       return "ready"
                   return "invalid_response"
