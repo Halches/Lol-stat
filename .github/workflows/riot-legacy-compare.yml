@@ -108,3 +108,55 @@ jobs:
                lambda payload: isinstance(payload, dict) and bool(payload.get("id")))
           sys.exit(0 if {account_status, history_status, detail_status, timeline_status} == {"ok"} else 1)
           PY
+      - name: Install the HTTPX version used by the beta
+        run: python -m pip --disable-pip-version-check install --quiet 'httpx==0.28.1'
+      - name: Compare the beta HTTPX request headers
+        env:
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          
+          import httpx
+          
+          raw = os.environ["RIOT_API_KEY"]
+          key = raw.strip().strip('"')
+          print("RESULT httpx_secret_needs_trim=" + ("no" if raw == key else "yes"))
+          base = "https://europe.api.riotgames.com"
+          match_api = "/lol/match/v5/matches"
+          
+          def request(client, path, validator, **kwargs):
+              try:
+                  response = client.get(base + path, **kwargs)
+                  if response.status_code != 200:
+                      return f"http_{response.status_code}", None
+                  payload = response.json()
+                  return ("ok", payload) if validator(payload) else ("invalid_response", None)
+              except (httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError):
+                  return "network_or_invalid_response", None
+          
+          with httpx.Client(timeout=8, follow_redirects=False, headers={"X-Riot-Token": key}) as client:
+              account_path = "/riot/account/v1/accounts/by-riot-id/Halch/9200"
+              account_is_valid = lambda body: isinstance(body, dict) and bool(body.get("puuid"))
+              default, _ = request(client, account_path, account_is_valid)
+              print("RESULT httpx_default_account=" + default)
+              client.headers["User-Agent"] = "LoLHelper/0.1"
+              account, profile = request(client, account_path, account_is_valid)
+              print("RESULT httpx_app_account=" + account)
+              if not profile:
+                  sys.exit(1)
+              history, matches = request(client, match_api + "/by-puuid/" + profile["puuid"] + "/ids",
+                                         lambda body: isinstance(body, list), params={"queue": 420, "count": 20})
+              print("RESULT httpx_app_history=" + history)
+              match_id = next((mid for mid in matches or [] if isinstance(mid, str) and mid.startswith("EUW1_")), None)
+              if not match_id:
+                  print("RESULT httpx_app_solo_match=no_euw_match")
+                  sys.exit(1)
+              path = match_api + "/" + match_id
+              detail, _ = request(client, path, lambda body: body["metadata"]["matchId"] == match_id and body["info"]["queueId"] == 420)
+              timeline, _ = request(client, path + "/timeline", lambda body: body["metadata"]["matchId"] == match_id and bool(body["info"]["frames"]))
+              print("RESULT httpx_app_match=" + detail)
+              print("RESULT httpx_app_timeline=" + timeline)
+              sys.exit(0 if {account, history, detail, timeline} == {"ok"} else 1)
+          PY
