@@ -143,52 +143,73 @@ jobs:
                   raise RequestFailure("graphql_query_rejected")
               return answer["data"]
           
-          def grid(host, key):
-              recent = """query Recent($from: String!, $until: String!) {
-                allSeries(first: 12, orderBy: StartTimeScheduled, orderDirection: DESC,
-                  filter: {titleId: "3", startTimeScheduled: {gte: $from, lte: $until}}) {
-                  edges { node { id } }
-                }
-              }"""
-              series = """query Draft($id: ID!) {
-                seriesState(id: $id) {
-                  finished
-                  games { finished draftActions { type draftable { name } } }
-                }
-              }"""
-              now = datetime.now(timezone.utc).replace(microsecond=0)
-              bounds = {"from": (now - timedelta(days=60)).isoformat(), "until": now.isoformat()}
-              stage = "central_minimal"
-              try:
-                  gql(host, "/central-data/graphql", key, "{ allSeries(first: 1) { edges { node { id } } } }", {})
-                  print("GRID Central Data minimal query: ok")
-                  stage = "central_lol"
-                  metadata = gql(host, "/central-data/graphql", key, recent, bounds)
-                  edges = metadata["allSeries"]["edges"]
-                  if not edges:
-                      return "no_lol_series"
-                  print("GRID Central Data LoL: ok")
-                  stage = "series_state"
-                  completed = False
-                  for edge in edges[:10]:
-                      state = gql(host, "/live-data-feed/series-state/graphql",
-                                  key, series, {"id": edge["node"]["id"]}).get("seriesState")
-                      if not state or state.get("finished") is not True:
+          UTC = timezone.utc
+          CENTRAL = "\nquery Recent($from: String!, $until: String!) {\n  allSeries(first: 15, orderBy: StartTimeScheduled, orderDirection: DESC,\n    filter: {titleId: \"3\", startTimeScheduled: {gte: $from, lte: $until}}) {\n    edges { node { id startTimeScheduled tournament { name } teams { baseInfo { id name } } } }\n  }\n}\n"
+          DRAFT = "\nquery Draft($id: ID!) {\n  seriesState(id: $id) {\n    finished\n    games {\n      sequenceNumber finished\n      draftActions { type sequenceNumber draftable { type name } }\n    }\n  }\n}\n"
+          
+          class SourceError(Exception):
+              def __init__(self, kind):
+                  self.kind = kind
+          
+          def recent(self):
+              now = datetime.now(UTC).replace(microsecond=0)
+              metadata = self.query("/central-data/graphql", CENTRAL,
+                                    {"from": (now - timedelta(days=30)).isoformat(), "until": now.isoformat()})
+              series = []
+              for edge in metadata["allSeries"]["edges"][:8]:
+                  node = edge["node"]
+                  try:
+                      value = self.query("/live-data-feed/series-state/graphql", DRAFT, {"id": node["id"]})
+                  except SourceError as error:
+                      if error.kind == "pending":
                           continue
-                      completed = True
-                      for game in state.get("games") or []:
-                          if game.get("finished") is not True:
-                              continue
-                          kinds = {str(action.get("type", "")).lower() for action in game.get("draftActions") or []
-                                   if (action.get("draftable") or {}).get("name")}
-                          if {"pick", "ban"} <= kinds:
-                              print("GRID completed series with picks and bans: ok")
+                      raise
+                  state = value.get("seriesState") or {}
+                  if not state.get("finished"):
+                      continue
+                  games = []
+                  for game in state.get("games") or []:
+                      if not game.get("finished"):
+                          continue
+                      actions = []
+                      for action in game.get("draftActions") or []:
+                          draftable = action.get("draftable") or {}
+                          kind = str(action.get("type", "")).lower()
+                          if kind in ("pick", "ban") and draftable.get("name"):
+                              actions.append({"kind": kind, "champion": draftable["name"],
+                                              "order": int(action["sequenceNumber"])})
+                      if actions:
+                          games.append({"number": game["sequenceNumber"],
+                                        "actions": sorted(actions, key=lambda action: action["order"])})
+                  series.append({"id": node["id"], "startsAt": node["startTimeScheduled"],
+                                 "teams": [team["baseInfo"]["name"] for team in node["teams"]],
+                                 "tournament": (node.get("tournament") or {}).get("name"), "games": games})
+              return series
+          
+          def grid(host, key):
+              from types import SimpleNamespace
+          
+              def query(path, document, variables):
+                  try:
+                      return gql(host, path, key, document, variables)
+                  except RequestFailure as error:
+                      raise SourceError("pending" if str(error) == "http_404" else str(error)) from None
+          
+              try:
+                  records = recent(SimpleNamespace(query=query))
+                  print(f"GRID beta adapter completed series: {len(records)}")
+                  for record in records:
+                      if not record["teams"] or not record["startsAt"]:
+                          return "invalid_series_metadata"
+                      for game in record["games"]:
+                          if {"pick", "ban"} <= {action["kind"] for action in game["actions"]}:
+                              print("GRID beta adapter picks and bans: ok")
                               return "ready"
-                  return "no_draft_in_completed_series" if completed else "no_completed_series"
-              except RequestFailure as error:
-                  return f"{stage}_{error}"
-              except (TypeError, KeyError, AttributeError):
-                  return f"{stage}_invalid_response"
+                  return "no_complete_draft"
+              except SourceError as error:
+                  return error.kind
+              except (ValueError, AttributeError, TypeError, KeyError):
+                  return "invalid_response"
           
           def secret(name):
               value = os.getenv(name, "").strip()
