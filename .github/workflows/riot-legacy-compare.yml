@@ -1,0 +1,110 @@
+name: Compare Riot with the legacy updater
+on:
+  push:
+    branches: [codex/api-preflight-2026-11-21]
+    paths: [.github/workflows/riot-legacy-compare.yml]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b28a496a29c4c2631fc1d713623e66d10094d62d
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Read-only checks using the legacy Riot client
+        env:
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          
+          sys.path.insert(0, "tools")
+          import fetch
+          import players
+          
+          key = os.environ.get("RIOT_API_KEY", "").strip().strip('"')
+          if not key:
+              print("RESULT secret=missing")
+              sys.exit(1)
+          key_shape = bool(re.fullmatch(r"RGAPI-[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", key))
+          print("RESULT secret_shape=" + ("expected" if key_shape else "unexpected"))
+          
+          def probe(call, valid):
+              try:
+                  payload = call()
+                  return ("ok", payload) if valid(payload) else ("invalid_or_missing_data", None)
+              except urllib.error.HTTPError as error:
+                  description = "html" if error.headers.get_content_type() == "text/html" else "other"
+                  try:
+                      payload = json.load(error)
+                  except (ValueError, OSError):
+                      payload = None
+                  if isinstance(payload, dict) and isinstance(payload.get("status"), dict):
+                      code = str(payload["status"].get("message", "")).lower()
+                      description = "riot_json"
+                      if "expired" in code:
+                          description = "expired_key"
+                      elif "invalid" in code and "key" in code:
+                          description = "invalid_key"
+                  return (f"http_{error.code}_{description}", None)
+              except (OSError, ValueError, TypeError, KeyError):
+                  return ("network_or_invalid_response", None)
+          
+          def show(label, call, valid):
+              status, payload = probe(call, valid)
+              print(f"RESULT {label}={status}")
+              return status, payload
+          
+          def account_valid(payload):
+              return isinstance(payload, dict) and bool(payload.get("puuid"))
+          
+          def request(url, agent=None):
+              headers = {"X-Riot-Token": key}
+              if agent:
+                  headers["User-Agent"] = agent
+              with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as response:
+                  return json.load(response)
+          
+          game_name, tag = players.IDS["halch"]
+          account = ("https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/"
+                     + urllib.parse.quote(game_name, safe="") + "/" + urllib.parse.quote(tag, safe=""))
+          show("standard_account", lambda: request(account), account_valid)
+          show("app_agent_account", lambda: request(account, "LoLHelper/0.1"), account_valid)
+          players.IDS = {"halch": players.IDS["halch"]}
+          account_status, profiles = show("legacy_account", lambda: players.puuids(key),
+                                          lambda payload: isinstance(payload, dict) and bool(payload.get("halch")))
+          
+          match = "EUW1_8051208426"
+          history_status = "blocked_at_account"
+          if profiles:
+              path = fetch.MATCH_API + "by-puuid/" + urllib.parse.quote(profiles["halch"], safe="")
+              path += "/ids?type=ranked&startTime=1767830400&start=0&count=20"
+              history_status, history = show("legacy_history", lambda: fetch.get(path, key),
+                                             lambda payload: isinstance(payload, list))
+              euw = next((value for value in history or [] if isinstance(value, str) and value.startswith("EUW1_")), None)
+              if euw:
+                  match = euw
+          else:
+              print("RESULT legacy_history=blocked_at_account")
+          
+          detail_status, _ = show("legacy_match", lambda: fetch.get(fetch.MATCH_API + match, key),
+                                  lambda payload: isinstance(payload, dict) and payload.get("metadata", {}).get("matchId") == match)
+          timeline_status, _ = show("legacy_timeline", lambda: fetch.get(fetch.MATCH_API + match + "/timeline", key),
+                                    lambda payload: isinstance(payload, dict) and bool(payload.get("info", {}).get("frames")))
+          show("legacy_euw_platform_status",
+               lambda: fetch.get("https://euw1.api.riotgames.com/lol/status/v4/platform-data", key),
+               lambda payload: isinstance(payload, dict) and bool(payload.get("id")))
+          sys.exit(0 if {account_status, history_status, detail_status, timeline_status} == {"ok"} else 1)
+          PY
