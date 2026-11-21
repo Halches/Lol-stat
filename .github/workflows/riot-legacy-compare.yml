@@ -147,7 +147,7 @@ jobs:
               if not profile:
                   sys.exit(1)
               history, matches = request(client, match_api + "/by-puuid/" + profile["puuid"] + "/ids",
-                                         lambda body: isinstance(body, list), params={"queue": 420, "count": 20})
+                                         lambda body: isinstance(body, list), params={"queue": 420, "count": 30})
               print("RESULT httpx_app_history=" + history)
               match_id = next((mid for mid in matches or [] if isinstance(mid, str) and mid.startswith("EUW1_")), None)
               if not match_id:
