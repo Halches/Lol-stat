@@ -1397,18 +1397,30 @@ SITU = {
 
 def _lola_variant(v):
     """summary.pick / summary.win -> руны, заклинания, старт и основа."""
+    try:
+        return _parse_lola_variant(v)
+    except (AttributeError, KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
+def _parse_lola_variant(v):
     ru, it = v.get('runes') or {}, v.get('items') or {}
     st = ru.get('set') or {}
     prim, sec = st.get('pri') or [], st.get('sec') or []
-    if len(prim) < 4 or len(sec) < 2: return None
+    if not isinstance(prim, list) or not isinstance(sec, list) or len(prim) < 4 or len(sec) < 2: return None
     core_ = it.get('core') or {}
-    ids = lambda xs: [x['id'] for x in xs or []]
+    core_items = list(core_.get('set') or []) or [it[k]['id'] for k in ('item1','item2','item3') if isinstance(it.get(k), dict) and it[k].get('id')]
+    if any(type(item) is not int for item in core_items): return None
+    ids = lambda xs: [x['id'] for x in xs if isinstance(x, dict) and type(x.get('id')) is int] if isinstance(xs, list) else []
+    start_items = (it.get('start') or {}).get('set') or []
+    count, rate = core_.get('n'), core_.get('wr')
     return {'spells': [SPELL_KEY.get(s, s) for s in ((v.get('sums') or {}).get('ids') or [])][:2],
             'prim': rune_tree(prim[0]), 'sec': rune_tree(sec[0]), 'perks': prim[:4] + sec[:2], 'shards': (st.get('mod') or [])[:3],
             'n_runes': ru.get('n'), 'wr_runes': ru.get('wr'),
-            'start': list((it.get('start') or {}).get('set') or []),
-            'core': list(core_.get('set') or []) or [it[k]['id'] for k in ('item1','item2','item3') if isinstance(it.get(k), dict) and it[k].get('id')],
-            'n_core': core_.get('n'), 'wr_core': core_.get('wr'),
+            'start': [item for item in start_items if type(item) is int] if isinstance(start_items, list) else [],
+            'core': core_items,
+            'n_core': count if type(count) is int and count >= 0 else None,
+            'wr_core': rate if type(rate) in (float, int) and 0 <= rate <= 100 else None,
             'i4': ids(it.get('item4')), 'i5': ids(it.get('item5')), 'i6': ids(it.get('item6')),
             'skills': ''.join('QWER'[int(ch) - 1] for ch in str((v.get('skillorder') or {}).get('id') or '') if ch in '1234'),
             'skill_prio': str((v.get('skillpriority') or {}).get('id') or '')}
@@ -1417,19 +1429,24 @@ def _lola_variant(v):
 def parse_lola_full(j, data=None):
     """Ответ ep=build-full -> популярная сборка (верхний уровень и 'pick'), сборка с лучшим винрейтом ('win')
     и ситуативные предметы ('situ': [(id, коротко, когда)]), которые часто покупают, но вне основы."""
-    s = (j or {}).get('summary') or {}
+    if not isinstance(j, dict) or not isinstance(s := j.get('summary'), dict): return None
     pick, win = _lola_variant(s.get('pick') or {}), _lola_variant(s.get('win') or {})
     if not pick: return None
     out = dict(pick)
     out.update(pick=pick, win=win, win_from_source=win is not None)
-    out['games'] = ((j.get('header') or {}).get('n')) or j.get('n')
-    out['wr'] = (j.get('header') or {}).get('wr')
-    dm = (j.get('header') or {}).get('damage') or {}
-    if dm: out['dmg'] = {'ad': dm.get('physical', 0), 'ap': dm.get('magic', 0), 'true': dm.get('true', 0)}
+    header = j['header'] if isinstance(j.get('header'), dict) else {}
+    out['games'] = header.get('n') or j.get('n')
+    out['wr'] = header.get('wr')
+    dm = header.get('damage')
+    if isinstance(dm, dict) and dm: out['dmg'] = {'ad': dm.get('physical', 0), 'ap': dm.get('magic', 0), 'true': dm.get('true', 0)}
     used = set(pick['core']) | set((win or pick)['core'])
     situ = []
-    for row in (j.get('boots') or [])[:3] + (j.get('popularItem') or []):
-        iid, wr, pr = row[0], row[1], row[2]
+    boots = j['boots'][:3] if isinstance(j.get('boots'), list) else []
+    popular = j['popularItem'] if isinstance(j.get('popularItem'), list) else []
+    for row in boots + popular:
+        if not isinstance(row, (list, tuple)) or len(row) < 3: continue
+        iid, _, pr = row[:3]
+        if type(iid) is not int or type(pr) not in (int, float): continue
         if iid in used or iid in (x[0] for x in situ) or pr < .5: continue
         if iid in SITU: situ.append((iid, *SITU[iid]))
     out['situ'] = situ[:8]

@@ -12,3 +12,11 @@ app/assets.json
 app/history-details.json
 
 app/augment_data/tessdata/
+
+/beta/.venv/
+/beta/.state/
+/beta/.env
+/beta/node_modules/
+/beta/dist/
+/beta/out/
+/beta/worker.exe

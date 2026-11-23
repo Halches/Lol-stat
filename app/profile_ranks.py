@@ -22,6 +22,8 @@ def parse(raw,now=None):
             tier=entry.get('tier')
             if tier=='NONE':
                 rank={'state':'provisional' if entry.get('isProvisional') is True else 'unranked'}
+                if nonnegative_int(entry.get('wins')) and nonnegative_int(entry.get('losses')):
+                    rank.update(w=entry['wins'],l=entry['losses'])
             elif isinstance(tier,str) and tier in TIERS and nonnegative_int(entry.get('leaguePoints')):
                 division=entry.get('division','')
                 if tier in APEX or division in ('I','II','III','IV'):

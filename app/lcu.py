@@ -132,8 +132,13 @@ class LCU:
     def history(self, puuid, n=20):
         """Последние игры игрока из клиента (как во вкладке «История» профиля):
         [{'win', 'champ' (id), 'k', 'd', 'a', 'q', 'lane'}], новые первыми."""
+        page = self.history_page(puuid, n=n)
+        return page[0] if page is not None else None
+
+    def history_page(self, puuid, *, n=20, offset=0):
+        """Return parsed games and whether the raw page reached the requested size."""
         try:
-            r = self.call(f'/lol-match-history/v1/products/lol/{puuid}/matches?begIndex=0&endIndex={n - 1}')
+            r = self.call(f'/lol-match-history/v1/products/lol/{puuid}/matches?begIndex={offset}&endIndex={offset + n - 1}')
         except Exception:
             return None
         page = r.get('games') if isinstance(r, dict) else None
@@ -156,7 +161,7 @@ class LCU:
                         'items': [st.get(f'item{i}', 0) for i in range(7)], 'spells': [p.get('spell1Id'), p.get('spell2Id')],
                         'lvl': st.get('champLevel', 0), 'perk': st.get('perk0')})
         out.sort(key=lambda x: -x['t'])
-        return out
+        return out, len(games) >= n
 
     def game(self, gid):
         """Подробности одной игры: все десять участников."""
@@ -220,16 +225,39 @@ class LCU:
     def champ_select(self):
         return self.call('/lol-champ-select/v1/session')
 
-    def set_spells(self, a, b):
+    def set_spells(self, a, b, *, expected_pick=None, draft_session=None):
         """Заклинания призывателя в драфте. Скачок остаётся на той клавише, где он у тебя сейчас."""
-        sess = self.call('/lol-champ-select/v1/session') or {}
-        me = next((p for p in sess.get('myTeam') or [] if p.get('cellId') == sess.get('localPlayerCellId')), {})
+        def local_selection():
+            session = draft_session() if draft_session is not None else self.champ_select()
+            if not isinstance(session, dict) or not isinstance(session.get('myTeam'), list):
+                return None
+            cell = session.get('localPlayerCellId')
+            me = next((p for p in session['myTeam'] if isinstance(p, dict) and p.get('cellId') == cell), None)
+            if not me or type(cell) is not int:
+                return None
+            if expected_pick is not None:
+                game_id, champion_id = expected_pick
+                groups = session.get('actions')
+                if (type(game_id) is not int or game_id <= 0 or session.get('gameId') != game_id
+                        or me.get('championId') != champion_id or not isinstance(groups, list)
+                        or not any(action.get('actorCellId') == cell and action.get('type') == 'pick'
+                                   and action.get('completed') is True for group in groups if isinstance(group, list)
+                                   for action in group if isinstance(action, dict))):
+                    return None
+            return me
+
+        me = local_selection()
+        if not me:
+            return False
         if 4 in (a, b) and me.get('spell2Id') == 4 and a == 4: a, b = b, a
         if 4 in (a, b) and me.get('spell1Id') == 4 and b == 4: a, b = b, a
         self.call('/lol-champ-select/v1/session/my-selection', 'PATCH', {'spell1Id': a, 'spell2Id': b})
-        return True
+        if expected_pick is None and draft_session is None:
+            return True
+        readback = local_selection() or {}
+        return (readback.get('spell1Id'), readback.get('spell2Id')) == (a, b)
 
-    def set_runes(self, name, prim, sec, perks, shards=None):
+    def set_runes(self, name, prim, sec, perks, shards=None, *, draft_session=None):
         """Изменяем только страницу помощника и проверяем активный набор после записи."""
         self.last_error = ''
         perks = list(perks or [])
@@ -242,7 +270,13 @@ class LCU:
         current = '/lol-perks/v1/currentpage'
         selected = perks + shards
         body = {'name': f'LoL Helper: {name}'[:25], 'primaryStyleId': prim,
-                'subStyleId': sec, 'selectedPerkIds': selected, 'current': True}
+                'subStyleId': sec, 'selectedPerkIds': selected, 'current': draft_session is None}
+
+        def can_write():
+            if draft_session is None or draft_session():
+                return True
+            self.last_error = 'драфт изменился во время импорта'
+            return False
 
         def matches(page):
             ids = page.get('selectedPerkIds')
@@ -260,8 +294,12 @@ class LCU:
             if mine:
                 pid = mine['id']
                 if mine.get('name') != body['name'] or not matches(mine):
+                    if not can_write():
+                        return False
                     self.call(f'{path}/{pid}', 'PUT', dict(body, id=pid))
             else:
+                if not can_write():
+                    return False
                 saved = self.call(path, 'POST', body) or {}
                 pid = saved.get('id')
                 if not pid:
@@ -276,6 +314,8 @@ class LCU:
             self.last_error = self.last_error or str(error)
             return False
         try:
+            if not can_write():
+                return False
             self.call(current, 'PUT', pid)
         except Exception:
             pass  # Клиент мог применить запись до обрыва связи. Проверяем фактический выбор.
@@ -317,7 +357,7 @@ class LCU:
             label in ('Предмет 4', 'Предмет 5', 'Предмет 6') or label.startswith('Ситуативно: ')
             for label in labels[1:]))
 
-    def set_items(self, summoner_id, champ_id, title, blocks, map_id=11):
+    def set_items(self, summoner_id, champ_id, title, blocks, map_id=11, *, draft_session=None):
         """Наборы предметов в магазине для чемпиона. blocks: [(название, [id предметов])]; несколько наборов — title=[(название, blocks)]."""
         if not summoner_id:
             s = self.call('/lol-summoner/v1/current-summoner') or {}
@@ -376,9 +416,12 @@ class LCU:
 
         personal = [dict(page, sortrank=i) for i, page in enumerate(personal_pages, start=len(imported))]
         updated = imported + personal
-        if pages == updated:
-            return True
         try:
+            if draft_session is not None and not draft_session():
+                self.last_error = 'драфт изменился во время импорта'
+                return False
+            if pages == updated:
+                return True
             self.call(path, 'PUT', dict(collection, itemSets=updated))
             saved = self.call(path)
         except Exception as error:
