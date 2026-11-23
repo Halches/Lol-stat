@@ -136,7 +136,7 @@ class AutomationServer(QObject):
             "homePage": self.window.home_page if self.window.is_home() else None,
             "draftTab": self.window.draft_screen.tab if self.window.draft_active else None,
             "importInProgress": self.window.export_job is not None,
-            "overlayVisible": self.window.overlay.isVisible(),
+            "overlayVisible": self.window.overlays.visible(),
             "controls": controls,
         }
 

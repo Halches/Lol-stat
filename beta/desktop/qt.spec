@@ -7,7 +7,9 @@ a = Analysis(
     pathex=[str(beta.parent / "app"), str(beta)],
     datas=[(str(beta / ".state/catalog.json"), "."), (str(beta / "web/loadout.json"), "."),
            (str(desktop / "assets/lolhelper-logo.png"), "."),
-           (str(desktop / "assets/roles"), "roles"), (str(desktop / "assets/ranks"), "ranks")],
+           (str(desktop / "assets/roles"), "roles"), (str(desktop / "assets/ranks"), "ranks"),
+           (str(desktop / "assets/overlay-preview"), "overlay-preview"),
+           (str(desktop / "assets/overlay-themes"), "overlay-themes")],
 )
 # Qt links to Windows ICU. A third-party ICU on the build machine's PATH
 # can otherwise be collected and shadow the system DLL.

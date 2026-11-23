@@ -49,6 +49,20 @@ class Artwork(QNetworkAccessManager):
             self.pending[url] = self.get(request)
         return QPixmap()
 
+    def set_icon(self, widget, title, url):
+        widget.setAccessibleName(title)
+        widget.setToolTip(title)
+        pixmap = self.image(url)
+        if pixmap.isNull():
+            widget.setText(title[:2].upper())
+            return
+        scale = widget.devicePixelRatioF()
+        size = round((widget.width() - 2) * scale)
+        icon = pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                             Qt.TransformationMode.SmoothTransformation)
+        icon.setDevicePixelRatio(scale)
+        widget.setPixmap(icon)
+
     def store(self, reply):
         key = reply.request().url().toString()
         self.pending.pop(key, None)

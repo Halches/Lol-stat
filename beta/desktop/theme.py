@@ -197,4 +197,9 @@ QCheckBox::indicator {
 }
 QCheckBox::indicator:checked { background: #a78bd9; border: 1px solid #ddc5fa; }
 QFrame[role="overlay"] { background: #171321; border: 1px solid #625182; border-radius: 12px; }
+QWidget#overlayRows { background: #171321; }
+QLabel[role="overlayRune"] {
+    background: #252032; border: 1px solid #4c3e63; border-radius: 8px;
+    color: #ded0ef; font-size: 8px; font-weight: 600;
+}
 """

@@ -29,7 +29,7 @@ class Layout:
     source: str = 'portraits'
 
 
-def find_frames(rgb):
+def find_frames(rgb, *, include_header=False):
     """Find the standard gold scoreboard frame, including an almost empty one.
 
     Two long sides, bottom, header separator and centre divider are all required.
@@ -73,7 +73,7 @@ def find_frames(rgb):
         clear = (phase<.16) | (phase>.84)
         if not clear.any() or divider[clear].mean() < .65: continue
         if (gray[body_top+3:bottom-3, x0+3:x1-3] < 100).mean() < .75: continue
-        frame = (x0, body_top, x1, bottom)
+        frame = (x0, body_top, x1, bottom, top) if include_header else (x0, body_top, x1, bottom)
         if not any(max(abs(v-q) for v, q in zip(frame, f)) < 5 for f in frames): frames.append(frame)
     return frames
 

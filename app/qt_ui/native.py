@@ -1,6 +1,6 @@
 """Граница физических координат Win32 и логических координат Qt."""
 import os
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QCursor
 IS_WIN=os.name=='nt'
 if IS_WIN:
@@ -19,6 +19,8 @@ if IS_WIN:
     user.MonitorFromRect.argtypes = (ctypes.POINTER(wintypes.RECT), wintypes.DWORD)
     user.MonitorFromRect.restype = wintypes.HMONITOR
     user.GetMonitorInfoW.argtypes = (wintypes.HMONITOR, ctypes.POINTER(MonitorInfo))
+    user.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+    user.GetAsyncKeyState.restype = ctypes.c_short
 
 def styles(window,through):
     if not IS_WIN:return
@@ -39,18 +41,21 @@ def move(window,x,y,width=None,height=None):
         window.move(round(x),round(y))
         if width is not None:window.resize(round(width),round(height))
 
-def place_overlay(window, bounds, logical_size):
-    left, top = bounds["x"], bounds["y"]
-    right, bottom = left + bounds["width"], top + bounds["height"]
+def overlay_area(bounds):
+    area = QRect(bounds["x"], bounds["y"], bounds["width"], bounds["height"])
     if IS_WIN:
-        rect = wintypes.RECT(left, top, right, bottom)
+        rect = wintypes.RECT(area.x(), area.y(), area.right() + 1, area.bottom() + 1)
         monitor = user.MonitorFromRect(ctypes.byref(rect), 0)
         info = MonitorInfo(ctypes.sizeof(MonitorInfo))
         if not monitor or not user.GetMonitorInfoW(monitor, ctypes.byref(info)):
-            return False
-        left, top = max(left, info.monitor.left), max(top, info.monitor.top)
-        right, bottom = min(right, info.monitor.right), min(bottom, info.monitor.bottom)
+            return QRect()
+        display = info.monitor
+        area = area.intersected(QRect(display.left, display.top,
+                                     display.right - display.left, display.bottom - display.top))
+    return area
 
+
+def place_overlay(window, area, logical_size, position=None):
     try:
         # Moving to another screen can change the physical window size and DPI.
         for _ in range(2):
@@ -58,16 +63,37 @@ def place_overlay(window, bounds, logical_size):
             scale = window.devicePixelRatioF() if IS_WIN else 1
             width = round(logical_size.width() * scale)
             height = round(logical_size.height() * scale)
-            target_x = max(left, right - width - round(14 * scale))
-            target_y = max(top, min(top + round(16 * scale), bottom - height))
-            target = target_x, target_y, width, height
+            travel_x = max(0, area.width() - width)
+            travel_y = max(0, area.height() - height)
+            if position is None:
+                offset_x = max(0, travel_x - round(14 * scale))
+                offset_y = min(travel_y, round(16 * scale))
+            else:
+                offset_x = round(travel_x * position[0])
+                offset_y = round(travel_y * position[1])
+            target = area.x() + offset_x, area.y() + offset_y, width, height
             if current == target:
                 break
             move(window, *target)
     except OSError:
         return False
     x, y, width, height = geometry(window)
-    return left <= x and x + width <= right and top <= y and y + height <= bottom
+    return area.contains(QRect(x, y, width, height))
+
+
+def overlay_edit_key():
+    return IS_WIN and user.GetAsyncKeyState(0x12) < 0 and user.GetAsyncKeyState(0x09) >= 0  # Alt, Tab
+
+
+def scoreboard_key():
+    return IS_WIN and user.GetAsyncKeyState(0x09) < 0 and user.GetAsyncKeyState(0x12) >= 0
+
+
+def primary_mouse_down():
+    if not IS_WIN:
+        return False
+    primary_button = 0x02 if user.GetSystemMetrics(23) else 0x01  # SM_SWAPBUTTON
+    return user.GetAsyncKeyState(primary_button) < 0
 
 def cursor():
     if IS_WIN:

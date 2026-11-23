@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QMargins, QRect, QSettings, QSignalBlocker, QStringListModel, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QCheckBox, QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout,
+    QApplication, QBoxLayout, QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout,
     QLayout, QLineEdit, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -17,8 +17,8 @@ from draft import DraftScreen
 from home import Dashboard, MatchList, logo_path, set_portrait
 from theme import STYLE
 from widgets import button, icon_label, label, panel
-from worker import Companion, DDRAGON, DRAFT_PHASES, HOME_PHASES, ROLES, SOURCE_ERRORS, foreground_game
-from qt_ui import native
+from worker import Companion, DDRAGON, DRAFT_PHASES, HOME_PHASES, PLAYING, ROLES, SOURCE_ERRORS
+from overlays import OverlayControls
 
 
 PHASES = {
@@ -89,29 +89,13 @@ class Window(QWidget):
         self.auto_review_attempted = None
         self.probe = "--probe" in sys.argv
         self.auto_open_review = not self.probe and "--smoke" not in sys.argv
-        self.last_probe = None
         self.shown_build = None
         self.loadout_catalog = loadout_catalog()
         self.artwork = Artwork(self)
         self.artwork.changed.connect(self.render_art)
         if self.probe:
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.overlay = QWidget(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
-                               | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus
-                               | Qt.WindowType.WindowTransparentForInput)
-        self.overlay.setWindowTitle("LoL Helper · Оверлей")
-        self.overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.overlay.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.overlay_heading = label("", "section")
-        self.overlay_label = label("", "muted", wrap=True)
-        overlay_panel, overlay_contents = panel("overlay")
-        overlay_contents.setSpacing(4)
-        overlay_contents.addWidget(self.overlay_heading)
-        overlay_contents.addWidget(self.overlay_label)
-        overlay_layout = QVBoxLayout(self.overlay)
-        overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.addWidget(overlay_panel)
-        self.overlay.setFixedWidth(300)
+        self.overlays = OverlayControls(self, self.settings, self.artwork, self.loadout_catalog, probe=self.probe)
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -291,9 +275,6 @@ class Window(QWidget):
         if not self.probe:
             self.timer.timeout.connect(self.poll)
             self.timer.start(225)
-        self.overlay_timer = QTimer(self)
-        self.overlay_timer.setInterval(100)
-        self.overlay_timer.timeout.connect(self.sync_overlay_window)
         self.automation = AutomationServer(self)
         for page, control in self.nav_buttons.items():
             self.automation.add(f"menu_{page}", control.text(), control, "button")
@@ -317,7 +298,8 @@ class Window(QWidget):
                                     card.role_icon, "choice")
                 self.automation.add(f"draft_details_{side}_{index}", f"Детали статистики · {title} {index}",
                                     card.insight_button, "button")
-        self.automation.add("overlay", self.toggle.text(), self.toggle, "checkbox")
+        for key, toggle in self.overlays.desktop.items():
+            self.automation.add("overlay" if key == "build" else f"overlay_{key}", toggle.text(), toggle, "checkbox")
         self.automation.add("site", "Адрес закрытого сайта", self.site, "text")
         self.automation.add("champion_search", "Чемпион", self.champion_input, "text")
         self.automation.add("preview_role", "Роль", self.role_input, "choice")
@@ -432,7 +414,9 @@ class Window(QWidget):
             self.show_home_page(self.home_page)
             controls = [*self.nav_buttons.values(), self.scroll, self.dashboard.queue, self.dashboard.matches.latest,
                         self.dashboard.matches.history, self.champion_input, self.role_input, self.preview_button,
-                        *self.choice_widgets, self.build_source_button, self.toggle, self.site, self.save_button, self.site_button]
+                        *self.choice_widgets, self.build_source_button, self.site, self.save_button, self.site_button,
+                        self.overlays.desktop_theme, self.overlays.desktop_scale, self.overlays.desktop_preview,
+                        *self.overlays.desktop.values()]
             for before, after in zip(controls, controls[1:]):
                 QWidget.setTabOrder(before, after)
         else:
@@ -574,10 +558,6 @@ class Window(QWidget):
         contents.setContentsMargins(17, 15, 17, 16)
         contents.setSpacing(12)
         contents.addWidget(label("Настройки", "homeSection"))
-        self.toggle = QCheckBox("Показывать сборку поверх игры")
-        self.toggle.setChecked(self.settings.value("overlay", True, type=bool))
-        self.toggle.toggled.connect(self.paint_overlay)
-        contents.addWidget(self.toggle)
 
         site_group = QVBoxLayout()
         site_group.setSpacing(6)
@@ -597,6 +577,7 @@ class Window(QWidget):
         site_actions.addWidget(self.save_button)
         site_actions.addWidget(self.site_button)
         contents.addLayout(site_actions)
+        contents.addWidget(self.overlays.preferences)
         return settings_panel
 
     def update_champion_index(self):
@@ -683,7 +664,6 @@ class Window(QWidget):
         try:
             site = self.validated_site() if self.site.text().strip() else ""
             self.settings.setValue("site", site)
-            self.settings.setValue("overlay", self.toggle.isChecked())
             self.set_notice("Настройки сохранены.")
             self.open_pending_review()
         except ValueError as error:
@@ -955,7 +935,7 @@ class Window(QWidget):
         self.paint_build_controls(build, options, choice, home=home, phase=phase)
         self.review_button.setVisible(bool(self.snapshot.get("matchId")) and not home)
         self.open_pending_review()
-        self.paint_overlay()
+        self.overlays.update_match(phase == "game" or phase in PLAYING, {"build": self.match_build})
 
     def paint_build_controls(self, build, options, choice, *, home, phase):
         can_choose = home or phase == "draft"
@@ -1004,33 +984,6 @@ class Window(QWidget):
             self.auto_review_attempted = match_id
             self.open_site(saved=True)
 
-    def paint_overlay(self):
-        build = self.match_build
-        if self.toggle.isChecked() and (self.probe or build):
-            self.overlay_heading.setText("LoL Helper" if self.probe else build["champion"])
-            self.overlay_label.setText("Проверка оверлея" if self.probe else " · ".join(item["name"] for item in build["items"]))
-            self.overlay.adjustSize()
-            self.overlay_size = self.overlay.size()
-            if not self.overlay_timer.isActive():
-                self.overlay_timer.start()
-        else:
-            self.overlay_timer.stop()
-        self.sync_overlay_window()
-
-    def sync_overlay_window(self):
-        bounds = foreground_game() if self.overlay_timer.isActive() else None
-        if bounds and native.place_overlay(self.overlay, bounds, self.overlay_size):
-            if not self.overlay.isVisible():
-                native.styles(self.overlay, True)
-                self.overlay.show()
-        else:
-            self.overlay.hide()
-        if self.probe and sys.stdout:
-            probe = {"foregroundGame": bounds, "overlayVisible": self.overlay.isVisible()}
-            if probe != self.last_probe:
-                print(probe, flush=True)
-                self.last_probe = probe
-
     def render_art(self):
         build = self.shown_build or {}
         champion = build.get("championKey")
@@ -1049,19 +1002,8 @@ class Window(QWidget):
             tile.setToolTip(item["name"])
             tile.show()
             url = f"{DDRAGON}/cdn/{version}/img/item/{item['id']}.png" if version else None
-            self.set_icon(icon, item["name"], url)
+            self.artwork.set_icon(icon, item["name"], url)
         self.render_loadout(build, version or self.loadout_catalog["version"])
-
-    def set_icon(self, icon, title, url):
-        icon.setAccessibleName(title)
-        icon.setToolTip(title)
-        pixmap = self.artwork.image(url)
-        if pixmap.isNull():
-            icon.setText(title[:2].upper())
-            return
-        size = icon.width() - 2
-        icon.setPixmap(pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
-                                    Qt.TransformationMode.SmoothTransformation))
 
     def render_loadout(self, build, version):
         runes = build.get("runes", [])
@@ -1077,7 +1019,7 @@ class Window(QWidget):
                     rune = rune_catalog.get(str(ids[index]))
                     title = rune["name"] if rune else f"Руна {ids[index]}"
                     url = f"{DDRAGON}/cdn/img/{rune['image']}" if rune else None
-                    self.set_icon(icon, title, url)
+                    self.artwork.set_icon(icon, title, url)
         for index, (cell, icon, name) in enumerate(self.spell_icons):
             cell.setVisible(index < len(spell_names))
             if index < len(spell_names):
@@ -1085,16 +1027,15 @@ class Window(QWidget):
                 title = spell["name"] if spell else spell_names[index]
                 name.setText(title)
                 url = f"{DDRAGON}/cdn/{version}/img/spell/{spell['image']}" if spell else None
-                self.set_icon(icon, title, url)
+                self.artwork.set_icon(icon, title, url)
         self.runes.setVisible(bool(runes or shards))
         self.spells.setVisible(bool(spell_names))
         self.loadout_panel.setVisible(bool(runes or shards or spell_names))
 
     def closeEvent(self, event):
         self.timer.stop()
-        self.overlay_timer.stop()
         self.automation.close()
-        self.overlay.close()
+        self.overlays.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.preview_executor.shutdown(wait=False, cancel_futures=True)
         self.companion.close()
