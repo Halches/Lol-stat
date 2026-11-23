@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from types import SimpleNamespace
-from unittest.mock import ANY, Mock, mock_open, patch
+from unittest.mock import ANY, Mock, call, mock_open, patch
 from urllib.error import HTTPError
 
 from desktop.worker import Companion, allied_role_slots, draft_roster, load_build, unavailable_draft_champions
@@ -25,7 +25,7 @@ def gameflow(phase, game_id=None, queue=None):
 
 
 class GameflowTests(unittest.TestCase):
-    def snapshots(self, *events):
+    def snapshots(self, *events, home=False):
         client = Mock(port=1234)
         client.region.side_effect = ["EUW", None]
         responses = iter(events)
@@ -49,7 +49,7 @@ class GameflowTests(unittest.TestCase):
             companion.build_locked = True
             companion.build = {"pick": {"champion": "Viktor"}}
             try:
-                return [companion.snapshot() for _ in events]
+                return [companion.snapshot(home=home) for _ in events]
             finally:
                 companion.close()
 
@@ -75,6 +75,19 @@ class GameflowTests(unittest.TestCase):
         self.assertEqual(unavailable_stats, waiting)
         self.assertEqual(scoreboard["matchId"], "EUW1_204")
         self.assertTrue(scoreboard["postGameReady"])
+
+    def test_client_loss_keeps_background_game_until_game_process_exits(self):
+        with patch("desktop.worker.game_process_running", side_effect=[True, False]):
+            playing, brief, interrupted, background, closed = self.snapshots(
+                gameflow("InProgress", 205, 420), None, None, None, None, home=True,
+            )
+        self.assertFalse(playing["home"])
+        self.assertEqual((brief, interrupted, background), (playing, playing, playing))
+        self.assertTrue(closed["home"])
+        self.assertEqual(closed["phase"], "offline")
+        self.assertIsNone(closed["build"])
+        self.assertIsNone(closed["matchId"])
+        self.assertEqual(closed["flowGeneration"], playing["flowGeneration"] + 1)
 
     def test_late_build_reaches_only_the_game_from_its_draft(self):
         client = Mock(port=1234)
@@ -342,6 +355,75 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(snapshot["weekly"]["solo"], {"wins": 1, "games": 1, "complete": False})
         self.assertTrue(snapshot["month"]["available"])
         self.assertFalse(snapshot["month"]["complete"])
+
+    def test_home_loads_requested_history_beyond_analytics_window(self):
+        now = datetime(2026, 11, 23, 12).astimezone()
+        self.client.me.return_value = {"puuid": "account"}
+        self.client.ranked_overview.return_value = {}
+        games = [{"gid": 1000 - index, "q": 420, "win": True,
+                  "t": int((now - timedelta(days=31 + index)).timestamp() * 1000)} for index in range(45)]
+        self.client.history_page.side_effect = lambda puuid, n, offset: (games[offset:offset + n], offset + n < len(games))
+        history = Mock(record=Mock(return_value={}))
+        initial = read_home(self.client, self.catalog, history, now)
+        self.assertEqual(len(initial["matches"]), 20)
+        self.assertTrue(initial["historyHasMore"])
+        self.assertFalse(initial["historyInterrupted"])
+        self.client.history_page.assert_called_once_with("account", n=20, offset=0)
+        self.client.history_page.reset_mock()
+
+        expanded = read_home(self.client, self.catalog, history, now, history_limit=48)
+        self.assertEqual([row["id"] for row in expanded["matches"]], [f"EUW1_{row['gid']}" for row in games])
+        self.assertFalse(expanded["historyHasMore"])
+        self.assertEqual(expanded["weekly"], initial["weekly"])
+        self.assertEqual(expanded["month"], initial["month"])
+        self.assertEqual(self.client.history_page.call_args_list,
+                         [call("account", n=20, offset=offset) for offset in (0, 20, 40)])
+
+    def test_interrupted_history_keeps_only_the_same_accounts_confirmed_matches(self):
+        now = datetime(2026, 11, 23, 12).astimezone()
+        self.client.me.return_value = {"puuid": "account-a", "level": 100}
+        self.client.ranked_overview.return_value = {}
+        games = [{"gid": gid, "q": 420, "win": True, "t": int(now.timestamp() * 1000) + gid}
+                 for gid in (2, 1)]
+        history = Mock(record=Mock(return_value={}))
+        self.client.history_page.return_value = (games, False)
+        original = read_home(self.client, self.catalog, history, now)
+        self.companion.apply_home_profile(original)
+
+        self.client.me.return_value = {"puuid": "account-a", "level": 101}
+        self.client.history_page.return_value = None
+        unavailable = read_home(self.client, self.catalog, history, now)
+        self.companion.apply_home_profile(unavailable)
+        self.assertEqual(self.companion.home_profile["profile"]["level"], 101)
+        self.assertEqual(self.companion.home_profile["matches"], original["matches"])
+        self.assertEqual(self.companion.latest_match["id"], "EUW1_2")
+
+        new_game = dict(games[0], gid=3, t=games[0]["t"] + 1)
+        self.client.history_page.side_effect = [([new_game, dict(games[0], win=False)], True), None]
+        partial = read_home(self.client, self.catalog, history, now, history_limit=48)
+        self.assertTrue(partial["historyInterrupted"])
+        self.companion.apply_home_profile(partial)
+        self.assertEqual([(row["id"], row["win"]) for row in self.companion.home_profile["matches"]],
+                         [("EUW1_3", True), ("EUW1_2", False), ("EUW1_1", True)])
+        self.assertEqual(self.companion.latest_match["id"], "EUW1_3")
+
+        self.client.history_page.side_effect = None
+        self.client.history_page.return_value = ([], False)
+        empty = read_home(self.client, self.catalog, history, now)
+        self.companion.apply_home_profile(empty)
+        self.assertTrue(self.companion.home_profile["historyAvailable"])
+        self.assertEqual(self.companion.home_profile["matches"], [])
+        self.assertIsNone(self.companion.latest_match)
+
+        self.companion.apply_home_profile(original)
+        self.client.me.return_value = {"puuid": "account-b", "level": 50}
+        self.client.history_page.return_value = None
+        other = read_home(self.client, self.catalog, history, now)
+        self.companion.apply_home_profile(other)
+        self.assertEqual(self.companion.home_profile["profile"]["level"], 50)
+        self.assertFalse(self.companion.home_profile["historyAvailable"])
+        self.assertEqual(self.companion.home_profile["matches"], [])
+        self.assertIsNone(self.companion.latest_match)
 
     def test_preview_distinguishes_provider_timeout_from_missing_build(self):
         with (patch("desktop.worker.load_specials", return_value=([], None, {})),

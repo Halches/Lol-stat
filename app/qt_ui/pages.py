@@ -130,8 +130,8 @@ class HistoryPage(Page):
         self.box.addWidget(row(self.source_choice,self.refresh_button,Button('Сайт со статистикой',app.open_site)))
         self.search=QLineEdit();self.search.setPlaceholderText('Поиск чемпиона или оппонента');self.search.setText(self.query);self.search.textChanged.connect(self.search_changed)
         self.role_choice=combo({**core.ROLE_RU,'':'Все роли'},self.role,lambda v:self.set_filter('role',v))
-        queues=sorted({r.get('q') for r in (app.player.games if app.player else []) if type(r.get('q')) is int})
-        self.queue_choice=combo({'':'Все режимы',**{k:core.QUEUE_RU.get(k,str(k)) for k in queues}},self.queue,lambda v:self.set_filter('queue',v))
+        self.queue_options = None
+        self.queue_choice=combo({'':'Все режимы'},'',lambda v:self.set_filter('queue',v))
         self.role_choice.setMinimumWidth(135);self.queue_choice.setMinimumWidth(165);self.box.addWidget(row(self.search,self.role_choice,self.queue_choice))
         self.result_choice=combo({'all':'Все результаты','win':'Победы','loss':'Поражения'},self.result,lambda v:self.set_filter('result',v))
         self.box.addWidget(row(self.result_choice,Button('Сбросить',self.reset)))
@@ -170,8 +170,22 @@ class HistoryPage(Page):
         self.source=key;self.limit=30
         if key=='client' and not self.client_rows:self.load_client()
         else:self.refresh()
+    def update_queue_choices(self, rows):
+        queues = tuple(sorted({row['queue'] for row in rows if type(row.get('queue')) is int}))
+        if queues == self.queue_options:
+            return
+        self.queue_options = queues
+        if self.queue not in queues:
+            self.queue = ''
+        with QSignalBlocker(self.queue_choice):
+            self.queue_choice.clear()
+            self.queue_choice.addItem('Все режимы', '')
+            for queue in queues:
+                self.queue_choice.addItem(core.QUEUE_RU.get(queue, str(queue)), queue)
+            self.queue_choice.setCurrentIndex(self.queue_choice.findData(self.queue))
     def refresh(self):
-        rows=self.rows();self.filtered=history_model.filtered(rows,self.app.data,self.query,self.role,self.queue,self.result);stats=history_model.stats(self.filtered)
+        rows=self.rows();self.update_queue_choices(rows)
+        self.filtered=history_model.filtered(rows,self.app.data,self.query,self.role,self.queue,self.result);stats=history_model.stats(self.filtered)
         clear_layout(self.summary.box)
         for title,value in [('МАТЧИ',str(stats['n'])),('ПОБЕДЫ',fmt(stats['wr'])+'%'),('KDA',fmt(stats['kda'],2)),('ФАРМ / МИН',fmt(stats['csm']))]:
             p=Panel(kind=None,padding=4);p.box.addWidget(Label(title,10,'mute'));p.box.addWidget(Label(value,30,bold=True,serif=True));self.summary.box.addWidget(p)

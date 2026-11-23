@@ -1,6 +1,7 @@
 """Windows shell for the beta companion."""
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QMargins, QRect, QSettings, QSignalBlocker, QStringListModel, Qt, QTimer, QUrl
@@ -42,6 +43,7 @@ HOME_PAGES = {
     "builds": "Сборки",
     "settings": "Настройки",
 }
+REVIEW_RETRY_SECONDS = 30
 
 
 def draft_window_bounds(area, frame):
@@ -86,7 +88,8 @@ class Window(QWidget):
         self.latest_match = None
         self.draft_active = False
         self.normal_geometry = None
-        self.auto_review_attempted = None
+        self.auto_review_opened = None
+        self.auto_review_retry = None
         self.probe = "--probe" in sys.argv
         self.auto_open_review = not self.probe and "--smoke" not in sys.argv
         self.shown_build = None
@@ -252,7 +255,7 @@ class Window(QWidget):
         self.draft_screen.hide()
         layout.addWidget(self.draft_screen, 1)
 
-        self.review_button = button("Открыть разбор матча", self.open_site, "primary")
+        self.review_button = button("Открыть разбор матча", lambda: self.open_site(saved=True), "primary")
         layout.addWidget(self.review_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.notice = label("", "notice", wrap=True)
         self.notice.hide()
@@ -653,11 +656,17 @@ class Window(QWidget):
 
     def validated_site(self, address=None):
         site = (self.site.text() if address is None else address).strip().rstrip("/")
-        url = urlsplit(site)
-        local = url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1")
+        message = "Введите адрес закрытого сайта без пути."
+        try:
+            url = urlsplit(site)
+            port = url.port
+        except ValueError:
+            raise ValueError(message) from None
+        local = url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1", "::1")
         if ((url.scheme != "https" and not local) or not url.hostname
-                or url.username or url.password or url.path or url.query or url.fragment):
-            raise ValueError("Введите адрес закрытого сайта без пути.")
+                or url.username is not None or url.path or url.query or url.fragment
+                or port == 0 or url.netloc.endswith(":") or not QUrl(site, QUrl.ParsingMode.StrictMode).isValid()):
+            raise ValueError(message)
         return site
 
     def save(self):
@@ -677,18 +686,20 @@ class Window(QWidget):
             self.set_notice(str(error))
             if self.home_active:
                 self.scroll.ensureWidgetVisible(self.notice)
-            return
+            return False
         match_id = self.snapshot.get("matchId")
         destination = path or (f"/matches/{match_id}" if match_id else "/")
         if not QDesktopServices.openUrl(QUrl(site + destination)):
             self.set_notice("Не удалось открыть браузер.")
+            return False
+        return True
 
     def open_latest_review(self):
         match_id = self.snapshot.get("matchId") or (self.latest_match or {}).get("id")
         self.open_match_review(match_id or "latest")
 
     def open_match_review(self, match_id):
-        self.open_site(path=f"/matches/{match_id}")
+        self.open_site(saved=True, path=f"/matches/{match_id}")
 
     def is_home(self):
         return self.snapshot.get("home", self.snapshot.get("phase", "offline") in HOME_PHASES)
@@ -853,7 +864,8 @@ class Window(QWidget):
                 self.paint_draft_action_result()
             elif self.snapshot != previous or self.champion_catalog is not self.companion.catalog:
                 self.paint_snapshot()
-        self.job = self.executor.submit(self.companion.snapshot, home=True)
+        self.open_pending_review()
+        self.job = self.executor.submit(self.companion.snapshot, home=True, history_limit=self.match_history.limit)
 
     def paint_snapshot(self):
         phase = self.snapshot.get("phase")
@@ -881,7 +893,8 @@ class Window(QWidget):
             self.latest_match = self.snapshot.get("latestMatch")
             profile = self.snapshot.get("homeProfile") or {}
             self.dashboard.populate(profile)
-            self.match_history.populate(profile.get("matches", []), profile.get("historyAvailable", False))
+            self.match_history.populate(profile.get("matches", []), profile.get("historyAvailable", False),
+                                        profile.get("historyHasMore", False))
         options = self.preview_options if home else self.snapshot.get("buildOptions", {})
         draft_key = self.snapshot.get("draftKey")
         generation = self.snapshot.get("flowGeneration")
@@ -979,10 +992,21 @@ class Window(QWidget):
 
     def open_pending_review(self):
         match_id = self.snapshot.get("matchId")
-        if (self.auto_open_review and match_id and self.snapshot.get("postGameReady")
-                and match_id != self.auto_review_attempted and self.settings.value("site", "", type=str).strip()):
-            self.auto_review_attempted = match_id
-            self.open_site(saved=True)
+        if (not self.auto_open_review or not match_id or not self.snapshot.get("postGameReady")
+                or match_id == self.auto_review_opened):
+            return
+        address = self.settings.value("site", "", type=str).strip()
+        if not address:
+            return
+        now = monotonic()
+        key = match_id, address
+        if self.auto_review_retry and self.auto_review_retry[0] == key and now < self.auto_review_retry[1]:
+            return
+        if self.open_site(saved=True):
+            self.auto_review_opened = match_id
+            self.auto_review_retry = None
+        else:
+            self.auto_review_retry = key, now + REVIEW_RETRY_SECONDS
 
     def render_art(self):
         build = self.shown_build or {}

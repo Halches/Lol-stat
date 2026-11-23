@@ -130,25 +130,39 @@ class ApplicationServices:
     def poll(self):
         last_lcu, last_me, last_scout, in_game = 0, 0, 0, False
         game_ended = live_missing = False
+        match_id = queue_id = retired_match_id = None
+        last_game_time = next_id_check = 0
         while not self.stopping.is_set():
             try:
                 raw = lcu.live_data()
                 now = time.time()
                 if raw and (raw.get('gameData') or {}).get('gameTime', 0) > 0:
-                    if not in_game:
+                    g = core.Game(raw, self.data)
+                    clock_restarted = in_game and g.t + 10 < last_game_time
+                    gid = qid = None
+                    if (not in_game or live_missing or clock_restarted
+                            or ((match_id is None or queue_id is None) and now >= next_id_check)):
+                        gid, qid = self.client.live_match_context()
+                        next_id_check = now + 10
+                        if gid is not None and gid == retired_match_id:
+                            gid = qid = None
+                    match_changed = in_game and gid is not None and match_id is not None and gid != match_id
+                    g.replaced_previous_match = match_changed or (clock_restarted and (gid is None or gid != match_id))
+                    if g.replaced_previous_match:
+                        retired_match_id = match_id
+                        self.engine = None
+                        self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}
+                    if not in_game or g.replaced_previous_match:
                         self.ranks, self.hists, self.scout = {}, {}, {}
                         last_scout, game_ended = 0, False
-                        match_id, queue_id, next_id_check = None, None, 0
+                        match_id = queue_id = None
                     in_game = True
                     live_missing = False
-                    g = core.Game(raw, self.data)
-                    if (match_id is None or queue_id is None) and now >= next_id_check:
-                        gid, qid = self.client.live_match_context()
-                        if gid and gid != match_id:
-                            match_id, queue_id = gid, qid
-                        elif qid is not None:
-                            queue_id = qid
-                        next_id_check = now + 10
+                    last_game_time = g.t
+                    if gid is not None and gid != match_id:
+                        match_id, queue_id = gid, qid
+                    elif qid is not None:
+                        queue_id = qid
                     g.match_id = match_id
                     g.queue_id = queue_id
                     if self.engine is None: self.new_engine()
@@ -166,6 +180,7 @@ class ApplicationServices:
                     self.q.put(('game', g, hints, res))
                 elif in_game:
                     if game_ended or self.client.phase() in AFTER_GAME_PHASES:
+                        retired_match_id = match_id
                         in_game = False
                         self.q.put(('end', None, None, None))
                     elif not live_missing:
@@ -377,6 +392,9 @@ class ApplicationServices:
         self.panel_sync()
 
     def on_game(self, g, hints, result):
+        if getattr(g, 'replaced_previous_match', False):
+            self.last_game = self.result = None
+            self._arena_buy = 0
         first = self.last_game is None
         self._arena_result_id = None
         self.last_game, self.result = g, result or self.result

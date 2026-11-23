@@ -145,6 +145,9 @@ class MatchCard(QWidget):
     def __init__(self, artwork, item, open_review):
         super().__init__()
         self.artwork = artwork
+        self.item = item
+        self.match_id = item["id"]
+        self.review = None
         self.setMinimumHeight(104)
         self.splash = QPixmap()
         self.portrait = QPixmap()
@@ -185,10 +188,10 @@ class MatchCard(QWidget):
         for stat in (self.kda, self.cs, self.damage):
             row.addWidget(stat, 1, Qt.AlignmentFlag.AlignVCenter)
         if queue == 420:
-            action = button("Разбор ↗", lambda: open_review(item["id"]), "dashboardReview")
-            action.setAccessibleName(f"Разбор матча · {champion} · {date}")
-            action.setFixedWidth(85)
-            row.addWidget(action)
+            self.review = button("Разбор ↗", lambda: open_review(self.match_id), "dashboardReview")
+            self.review.setAccessibleName(f"Разбор матча · {champion} · {date}")
+            self.review.setFixedWidth(85)
+            row.addWidget(self.review)
         else:
             row.addSpacing(85 + row.spacing())
         artwork.changed.connect(self.paint_art)
@@ -251,7 +254,8 @@ class MatchList(QWidget):
         super().__init__()
         self.artwork, self.open_review, self.overview = artwork, open_review, overview
         self.limit = OVERVIEW_MATCHES if overview else HISTORY_PAGE
-        self.matches = None
+        self.matches = []
+        self.has_more = False
         self.rows = []
         self.compact_width = 1000
         layout = QVBoxLayout(self)
@@ -274,30 +278,72 @@ class MatchList(QWidget):
         self.more = button("Показать ещё", self.show_more, "dashboardReview")
         layout.addWidget(self.more, alignment=Qt.AlignmentFlag.AlignLeft)
 
-    def populate(self, matches, available):
-        if matches != self.matches:
-            self.matches = matches
-            while self.rows:
-                row = self.rows.pop()
-                self.cards.removeWidget(row)
-                row.hide()
-                row.deleteLater()
-            self.add_rows()
+    def populate(self, matches, available, has_more=False):
+        if matches[:len(self.rows)] != self.matches[:len(self.rows)]:
+            self.replace_rows(matches[:self.limit])
+        self.matches, self.has_more = matches, has_more
+        self.add_rows()
         self.empty.setText("В истории пока нет матчей." if available else "История появится после подключения к клиенту.")
         self.empty.setVisible(not matches)
-        self.more.setVisible(not self.overview and len(matches) > self.limit)
+        self.update_more()
 
     def show_more(self):
-        self.limit += HISTORY_PAGE
+        if self.limit <= len(self.matches):
+            self.limit += HISTORY_PAGE
         self.add_rows()
-        self.more.setVisible(len(self.matches) > self.limit)
+        self.update_more()
+
+    def update_more(self):
+        self.more.setVisible(not self.overview and (self.has_more or len(self.matches) > self.limit))
+        self.update_focus_order()
+
+    def update_focus_order(self):
+        controls = [row.review for row in self.rows if row.review is not None]
+        controls.append(self.more)
+        # Keep the list at its existing place in the window's focus chain.
+        anchor = self.history if self.overview else self.more.previousInFocusChain()
+        while not self.overview and anchor is not self.more and (self.isAncestorOf(anchor)
+                                                                or not anchor.focusPolicy() & Qt.FocusPolicy.TabFocus):
+            anchor = anchor.previousInFocusChain()
+        if anchor is not self.more:
+            controls.insert(0, anchor)
+        for before, after in zip(controls, controls[1:]):
+            QWidget.setTabOrder(before, after)
+
+    def replace_rows(self, matches):
+        existing = {row.match_id: row for row in self.rows}
+        focused = next((row for row in self.rows if row.review and row.review.hasFocus()), None)
+        replacement = None
+        for row in self.rows:
+            self.cards.removeWidget(row)
+        self.rows.clear()
+        for item in matches:
+            row = existing.get(item["id"])
+            if row is not None and row.item == item:
+                existing.pop(row.match_id)
+                self.cards.addWidget(row)
+                self.rows.append(row)
+            else:
+                added = self.add_row(item)
+                if row is focused and focused is not None:
+                    replacement = added
+        for row in existing.values():
+            row.hide()
+            row.deleteLater()
+        if replacement and replacement.review and self.isVisible():
+            replacement.show()
+            replacement.review.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def add_rows(self):
         for item in self.matches[len(self.rows):self.limit]:
-            row = MatchCard(self.artwork, item, self.open_review)
-            row.set_compact(self.compact_width)
-            self.cards.addWidget(row)
-            self.rows.append(row)
+            self.add_row(item)
+
+    def add_row(self, item):
+        row = MatchCard(self.artwork, item, self.open_review)
+        row.set_compact(self.compact_width)
+        self.cards.addWidget(row)
+        self.rows.append(row)
+        return row
 
     def reflow(self, width):
         self.compact_width = width

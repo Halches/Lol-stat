@@ -27,12 +27,12 @@ if __package__:
     from .draft_analysis import DraftProfiles, team_capabilities
     from .draft_stats import DraftStats, SUGGESTION_LIMIT
     from .extra_builds import SOURCE_ERRORS, lane_opponent, load_specials, situational_items, special_options, uncommon_build
-    from .home_data import RankHistory, read_home
+    from .home_data import PAGE_SIZE, RankHistory, read_home
 else:
     from draft_analysis import DraftProfiles, team_capabilities
     from draft_stats import DraftStats, SUGGESTION_LIMIT
     from extra_builds import SOURCE_ERRORS, lane_opponent, load_specials, situational_items, special_options, uncommon_build
-    from home_data import RankHistory, read_home
+    from home_data import PAGE_SIZE, RankHistory, read_home
 
 
 DDRAGON = "https://ddragon.leagueoflegends.com"
@@ -40,6 +40,8 @@ PLAYING = {"GameStart", "InProgress", "Reconnect"}
 ENDED = {"WaitingForStats", "PreEndOfGame", "EndOfGame"}
 HOME_PHASES = {"None", "Lobby", "Matchmaking", "ReadyCheck", "idle", "offline"}
 DRAFT_PHASES = {"pick", "loading", "no_build", "draft"}
+FLOW_DISCONNECT_GRACE = 30
+GAME_EXECUTABLE = "league of legends.exe"
 ROLES = {"TOP": "Верх", "JUNGLE": "Лес", "MIDDLE": "Центр", "BOTTOM": "Низ", "UTILITY": "Поддержка"}
 
 
@@ -218,7 +220,40 @@ def is_game_process(pid):
         length = wintypes.DWORD(32768)
         name = ctypes.create_unicode_buffer(length.value)
         return bool(kernel.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(length))
-                    and Path(name.value).name.casefold() == "league of legends.exe")
+                    and Path(name.value).name.casefold() == GAME_EXECUTABLE)
+    finally:
+        kernel.CloseHandle(handle)
+
+
+class ProcessEntry(ctypes.Structure):
+    _fields_ = [("size", wintypes.DWORD), ("usage", wintypes.DWORD), ("pid", wintypes.DWORD),
+                ("heap_id", ctypes.c_size_t), ("module_id", wintypes.DWORD), ("threads", wintypes.DWORD),
+                ("parent_pid", wintypes.DWORD), ("priority", wintypes.LONG), ("flags", wintypes.DWORD),
+                ("name", wintypes.WCHAR * 260)]
+
+
+def game_process_running():
+    if os.name != "nt":
+        return False
+    kernel = ctypes.windll.kernel32
+    snapshot = kernel.CreateToolhelp32Snapshot
+    snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    snapshot.restype = wintypes.HANDLE
+    for read_process in (kernel.Process32FirstW, kernel.Process32NextW):
+        read_process.argtypes = (wintypes.HANDLE, ctypes.POINTER(ProcessEntry))
+        read_process.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if handle == ctypes.c_void_p(-1).value:
+        return False
+    try:
+        entry = ProcessEntry(size=ctypes.sizeof(ProcessEntry))
+        found = kernel.Process32FirstW(handle, ctypes.byref(entry))
+        while found:
+            if entry.name.casefold() == GAME_EXECUTABLE:
+                return True
+            found = kernel.Process32NextW(handle, ctypes.byref(entry))
+        return False
     finally:
         kernel.CloseHandle(handle)
 
@@ -250,6 +285,7 @@ class Companion:
         self.last_read = 0
         self.game = None
         self.flow_connection = None
+        self.flow_missing_since = None
         self.flow_generation = 0
         self.finished = None
         self.euw = False
@@ -257,6 +293,7 @@ class Companion:
         self.latest_match = None
         self.home_profile = None
         self.rank_history = RankHistory()
+        self.history_limit = PAGE_SIZE
         self.history_after = 0
         self.history_connection = None
         self.history_job = None
@@ -338,7 +375,7 @@ class Companion:
             return None
         return (draft["me"], role, cid, game_id), draft["locked"]
 
-    def snapshot(self, *, home=False, role_change=None):
+    def snapshot(self, *, home=False, role_change=None, history_limit=None):
         now = time.monotonic()
         if role_change is not None or now >= max(self.next_discovery, self.last_read + 0.9):
             self.last_read = now
@@ -346,9 +383,15 @@ class Companion:
         snapshot = dict(self.status, flowGeneration=self.flow_generation)
         if home:
             is_home = self.client_phase in HOME_PHASES
+            if history_limit is not None and history_limit > self.history_limit:
+                self.history_limit = history_limit
+                self.history_after = 0
             self.update_latest_match(now, is_home)
+            profile = self.home_profile if is_home else None
+            if profile is not None:
+                profile = {key: value for key, value in profile.items() if key != "_accountKey"}
             snapshot.update(home=is_home, latestMatch=self.latest_match if is_home else None,
-                            homeProfile=self.home_profile if is_home else None)
+                            homeProfile=profile)
         else:
             snapshot["bounds"] = foreground_game()
         return snapshot
@@ -364,12 +407,25 @@ class Companion:
             requested, job = self.history_job
             self.history_job = None
             if requested == connection:
-                self.home_profile = job.result()
-                matches = (self.home_profile or {}).get("matches", [])
-                self.latest_match = next((row for row in matches if row["queue"] == 420), None)
+                profile = job.result()
+                if profile is not None:
+                    self.apply_home_profile(profile)
         if connection and is_home and self.history_job is None and now >= self.history_after:
             self.history_after = now + 30
-            self.history_job = connection, self.context_executor.submit(self.read_home_profile, copy(self.lcu))
+            self.history_job = connection, self.context_executor.submit(self.read_home_profile, copy(self.lcu),
+                                                                        self.history_limit)
+
+    def apply_home_profile(self, profile):
+        previous = self.home_profile
+        if profile["historyInterrupted"] and previous and previous["_accountKey"] == profile["_accountKey"]:
+            matches = {row["id"]: row for row in profile["matches"]}
+            for row in previous["matches"]:
+                matches.setdefault(row["id"], row)
+            profile = dict(profile, matches=sorted(matches.values(), key=lambda row: row["playedAt"], reverse=True),
+                           historyAvailable=profile["historyAvailable"] or previous["historyAvailable"],
+                           historyHasMore=profile["historyHasMore"] or previous["historyHasMore"])
+        self.home_profile = profile
+        self.latest_match = next((row for row in profile["matches"] if row["queue"] == 420), None)
 
     def preview_build(self, champion_id, role, *, include_specials=False):
         catalog = self.catalog
@@ -390,9 +446,9 @@ class Companion:
             return public_builds(options)
         return {}
 
-    def read_home_profile(self, client):
+    def read_home_profile(self, client, history_limit):
         try:
-            return read_home(client, self.catalog, self.rank_history)
+            return read_home(client, self.catalog, self.rank_history, history_limit=history_limit)
         except SOURCE_ERRORS:
             return None
 
@@ -522,12 +578,21 @@ class Companion:
             self.status = {"phase": "offline", "build": None, "matchId": None}
         if session and self.lcu.port:
             self.flow_connection = connection
+        phase = session.get("phase") or ("idle" if self.lcu.port else "offline")
+        if session.get("phase"):
+            self.flow_missing_since = None
         if not session.get("phase"):
             if self.game is not None:
-                return self.status
+                if self.flow_missing_since is None:
+                    self.flow_missing_since = now
+                if now - self.flow_missing_since < FLOW_DISCONNECT_GRACE or game_process_running():
+                    return self.status
+                phase = "offline"
+                self.finished = self.flow_connection = self.flow_missing_since = None
+                self.euw = False
+                self.flow_generation += 1
             if paused := self.paused_draft(now):
                 return paused
-        phase = session.get("phase") or ("idle" if self.lcu.port else "offline")
         self.client_phase = phase
         game = session.get("gameData") or {}
         queue = (game.get("queue") or {}).get("id")

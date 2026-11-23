@@ -205,8 +205,8 @@ class OverlaySurface(QWidget):
 
 
 class OverlayCard(OverlaySurface):
-    def __init__(self, spec, settings, artwork, catalog, *, probe=False):
-        self.card = spec.card(artwork, catalog, demo=probe)
+    def __init__(self, spec, settings, artwork, catalog):
+        self.card = spec.card(artwork, catalog)
         super().__init__(spec.title, self.card)
         self.settings = settings
         self.default_position = spec.default_position
@@ -401,7 +401,7 @@ class OverlayControls(QObject):
 
         for spec in OVERLAYS:
             if not spec.attached:
-                self.cards[spec.key] = OverlayCard(spec, settings, artwork, catalog, probe=probe or spec.preview_only)
+                self.cards[spec.key] = OverlayCard(spec, settings, artwork, catalog)
             desktop_toggle = QCheckBox(spec.title)
             game_toggle = QCheckBox(spec.title)
             game_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -528,7 +528,10 @@ class OverlayControls(QObject):
         self.match_active, self.match_contents = active, contents
         for spec in OVERLAYS:
             if not spec.attached:
-                content = spec.sample if self.previewing or (self.probe and not spec.preview_only) else contents.get(spec.key)
+                if self.previewing:
+                    content = spec.sample
+                else:
+                    content = None if spec.preview_only else contents.get(spec.key)
                 self.cards[spec.key].set_content(content)
         if active or self.probe or self.previewing:
             if not self.timer.isActive():

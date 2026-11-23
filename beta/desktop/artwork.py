@@ -3,12 +3,17 @@
 import json
 import sys
 from collections import OrderedDict
+from math import ceil
 from pathlib import Path
+from time import monotonic
 
 from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QWidget
+
+
+IMAGE_RETRY_SECONDS = 15
 
 
 def asset_path(name):
@@ -32,10 +37,14 @@ class Artwork(QNetworkAccessManager):
         super().__init__(parent)
         self.images = OrderedDict()
         self.pending = {}
+        self.failed_until = {}
         self.finished.connect(self.store)
         self.refresh = QTimer(self)
         self.refresh.setSingleShot(True)
         self.refresh.timeout.connect(self.changed.emit)
+        self.retry = QTimer(self)
+        self.retry.setSingleShot(True)
+        self.retry.timeout.connect(self.retry_failed)
 
     def image(self, url):
         if not url:
@@ -43,7 +52,8 @@ class Artwork(QNetworkAccessManager):
         if url in self.images:
             self.images.move_to_end(url)
             return self.images[url]
-        if url not in self.pending:
+        if url not in self.pending and self.failed_until.get(url, 0) <= monotonic():
+            self.failed_until.pop(url, None)
             request = QNetworkRequest(QUrl(url))
             request.setTransferTimeout(6000)
             self.pending[url] = self.get(request)
@@ -72,11 +82,26 @@ class Artwork(QNetworkAccessManager):
             if image.width() > 720:
                 image = image.scaledToWidth(720, Qt.TransformationMode.SmoothTransformation)
         reply.deleteLater()
+        if image.isNull():
+            self.failed_until[key] = monotonic() + IMAGE_RETRY_SECONDS
+            if not self.retry.isActive():
+                self.retry.start(ceil(IMAGE_RETRY_SECONDS * 1000))
+            return
         self.images[key] = image
         # A full draft can use 60 portraits before the build icons are loaded.
         if len(self.images) > 128:
             self.images.popitem(last=False)
-        if not image.isNull() and not self.refresh.isActive():
+        if not self.refresh.isActive():
+            self.refresh.start(0)
+
+    def retry_failed(self):
+        now = monotonic()
+        waiting = {url: deadline for url, deadline in self.failed_until.items() if deadline > now}
+        expired = len(waiting) != len(self.failed_until)
+        self.failed_until = waiting
+        if waiting:
+            self.retry.start(ceil((min(waiting.values()) - now) * 1000))
+        if expired and not self.refresh.isActive():
             self.refresh.start(0)
 
 

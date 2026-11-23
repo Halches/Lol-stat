@@ -28,34 +28,41 @@ def rank_season_start(now):
     return datetime(now.year, 1, 1).astimezone()
 
 
-def read_history(client, puuid, cutoff):
+def read_history(client, puuid, cutoff, history_limit):
     games = {}
     settled = False
     available = False
-    for offset in range(0, PAGE_SIZE * MAX_PAGES, PAGE_SIZE):
+    analytics_covered = False
+    history_has_more = False
+    interrupted = False
+    page_budget = MAX_PAGES + history_limit // PAGE_SIZE
+    for page_index in range(page_budget):
         try:
-            page = client.history_page(puuid, n=PAGE_SIZE, offset=offset)
+            page = client.history_page(puuid, n=PAGE_SIZE, offset=page_index * PAGE_SIZE)
         except SOURCE_ERRORS:
-            break
+            page = None
         if page is None:
+            interrupted = True
             break
         available = True
-        rows, more = page
+        rows, history_has_more = page
         previous_size = len(games)
         for row in rows:
             game_id = row.get("gid")
             if type(game_id) is int and game_id > 0:
                 games.setdefault(game_id, row)
-        if not more:
+        if not history_has_more:
             settled = True
             break
         if rows and len(games) == previous_size:
+            history_has_more = False
             break
-        if any(0 < started_at(row) < cutoff for row in rows):
+        analytics_covered |= any(0 < started_at(row) < cutoff for row in rows)
+        if len(games) >= history_limit and (analytics_covered or page_index + 1 >= MAX_PAGES):
             break
     ordered = sorted(games.values(), key=started_at, reverse=True)
     oldest = min((started_at(row) for row in ordered if started_at(row)), default=None)
-    return ordered, available, settled, oldest
+    return ordered, available, settled, oldest, history_has_more, interrupted
 
 
 def read_points(path):
@@ -115,7 +122,7 @@ class RankHistory:
                     pass
 
 
-def read_home(client, catalog, rank_history, now=None):
+def read_home(client, catalog, rank_history, now=None, *, history_limit=PAGE_SIZE):
     now = now or datetime.now().astimezone()
     account = client.me()
     if not isinstance(account, dict) or not isinstance(account.get("puuid"), str) or not account["puuid"]:
@@ -127,7 +134,8 @@ def read_home(client, catalog, rank_history, now=None):
     week = int((now - timedelta(days=7)).timestamp() * 1000)
     first_day = now.date().replace(day=1)
     month = int(datetime.combine(first_day, datetime.min.time()).astimezone().timestamp() * 1000)
-    games, available, settled, oldest = read_history(client, account["puuid"], min(week, month))
+    puuid = account["puuid"]
+    games, available, settled, oldest, more, interrupted = read_history(client, puuid, min(week, month), history_limit)
     timestamp = int(now.timestamp() * 1000)
     weekly = {}
     for key, queue in QUEUES.items():
@@ -155,8 +163,10 @@ def read_home(client, catalog, rank_history, now=None):
     start = rank_season_start(now)
     month_complete = available and (settled or oldest is not None and oldest < month)
     first_known_day = 1 if month_complete else datetime.fromtimestamp(oldest / 1000).day if oldest else now.day + 1
-    return {"profile": profile, "ranks": ranks, "weekly": weekly, "matches": matches, "historyAvailable": available,
-            "trend": rank_history.record(account["puuid"], ranks, now, start),
+    return {"profile": profile, "ranks": ranks, "weekly": weekly, "matches": matches,
+            "historyAvailable": available, "historyHasMore": more, "historyInterrupted": interrupted,
+            "_accountKey": hashlib.sha256(puuid.encode()).hexdigest(),
+            "trend": rank_history.record(puuid, ranks, now, start),
             "range": (int(start.timestamp() * 1000), timestamp),
             "assetVersion": catalog["patch"],
             "month": {"year": first_day.year, "month": first_day.month, "today": now.day, "days": activity,
