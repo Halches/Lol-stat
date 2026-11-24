@@ -334,8 +334,22 @@ class OverlayControls(QObject):
         desktop_layout.addLayout(desktop_slider)
         self.desktop_preview = QCheckBox("Предпросмотр в игре")
         self.desktop_preview.setToolTip("Показывает примерные данные поверх матча или тренировки.")
-        desktop_layout.addWidget(self.desktop_preview)
         desktop_layout.addWidget(label("Действующие в матче", "captionStrong"))
+        self.laboratory = QWidget()
+        laboratory_layout = QVBoxLayout(self.laboratory)
+        laboratory_layout.setContentsMargins(0, 0, 0, 0)
+        laboratory_layout.addWidget(label(
+            "Примеры оформления с демонстрационными данными. Они не анализируют текущий матч. "
+            "Включите предпросмотр, чтобы показать примеры поверх игры или тренировки.", "caption", wrap=True))
+        laboratory_layout.addWidget(self.desktop_preview)
+        self.laboratory.hide()
+        self.laboratory_toggle = QPushButton("Лаборатория · демо оверлеев +")
+        self.laboratory_toggle.setProperty("role", "tab")
+        self.laboratory_toggle.setCheckable(True)
+        self.laboratory_toggle.setAccessibleName("Открыть лабораторию демонстрационных оверлеев")
+        self.laboratory_toggle.toggled.connect(self.laboratory.setVisible)
+        self.laboratory_toggle.toggled.connect(lambda expanded: self.laboratory_toggle.setText(
+            "Лаборатория · демо оверлеев −" if expanded else "Лаборатория · демо оверлеев +"))
 
         drawer_panel = self.drawer_skin = ThemePanel()
         drawer_layout = QVBoxLayout(drawer_panel)
@@ -405,10 +419,8 @@ class OverlayControls(QObject):
         for spec in OVERLAYS:
             if spec.preview_only and not demo_heading_shown:
                 demo_heading_shown = True
-                desktop_layout.addWidget(label("Демонстрационные оверлеи", "section"))
-                desktop_layout.addWidget(label(
-                    "Эти примеры пока не получают данные матча. Переключатели доступны только в предпросмотре.",
-                    "caption", wrap=True))
+                desktop_layout.addWidget(self.laboratory_toggle)
+                desktop_layout.addWidget(self.laboratory)
                 drawer_checkboxes.addWidget(label("Только демонстрация", "captionStrong"))
             if not spec.attached:
                 self.cards[spec.key] = OverlayCard(spec, settings, artwork, catalog)
@@ -433,7 +445,7 @@ class OverlayControls(QObject):
                 setting_layout.addWidget(label("Только демонстрация · нет игровых данных", "caption", wrap=True))
             setting_layout.addWidget(label(spec.description, "caption", wrap=True))
             setting_layout.addWidget(preview, alignment=Qt.AlignmentFlag.AlignLeft)
-            desktop_layout.addWidget(setting_panel)
+            (laboratory_layout if spec.preview_only else desktop_layout).addWidget(setting_panel)
             drawer_checkboxes.addWidget(game_toggle)
             for toggle in (desktop_toggle, game_toggle):
                 toggle.setChecked(enabled and (self.previewing or not spec.preview_only))

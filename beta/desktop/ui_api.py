@@ -135,6 +135,8 @@ class UIRegistry:
                   "stableId": not key.startswith("auto_")}
         if isinstance(widget, QAbstractButton):
             result["text"] = widget.text()
+            if widget.property("role") == "dashboardNav":
+                result["current"] = bool(widget.property("current"))
             result["checkable"] = widget.isCheckable()
             if widget.isCheckable():
                 result["checked"] = widget.isChecked()

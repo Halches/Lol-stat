@@ -291,6 +291,8 @@ class Companion:
         self.flow_generation = 0
         self.finished = None
         self.euw = False
+        self.platform = None
+        self.region_after = 0
         self.client_phase = "offline"
         self.latest_match = None
         self.home_profile = None
@@ -299,6 +301,7 @@ class Companion:
         self.history_after = 0
         self.history_connection = None
         self.history_job = None
+        self.history_failed = False
         self.catalog_after = 0
         self.catalog_job = self.executor.submit(self.update_catalog, self.catalog)
         self.status = {"phase": "offline", "build": None, "matchId": None}
@@ -377,8 +380,11 @@ class Companion:
             return None
         return (draft["me"], role, cid, game_id), draft["locked"]
 
-    def snapshot(self, *, home=False, role_change=None, history_limit=None):
+    def snapshot(self, *, home=False, role_change=None, history_limit=None, refresh_connection=False):
         now = time.monotonic()
+        if refresh_connection:
+            self.lcu.find()
+            self.last_read = self.next_discovery = self.region_after = self.history_after = 0
         if role_change is not None or now >= max(self.next_discovery, self.last_read + 0.9):
             self.last_read = now
             self.status = self.read_status(now, role_change)
@@ -400,7 +406,7 @@ class Companion:
             if profile is not None:
                 profile = {key: value for key, value in profile.items() if key != "_accountKey"}
             snapshot.update(home=is_home, latestMatch=self.latest_match if is_home else None,
-                            homeProfile=profile)
+                            homeProfile=profile, connection=self.connection_state())
         else:
             snapshot["bounds"] = foreground_game()
         return snapshot
@@ -412,17 +418,42 @@ class Companion:
             self.latest_match = None
             self.home_profile = None
             self.history_after = 0
+            self.history_failed = False
         if self.history_job and self.history_job[1].done():
             requested, job = self.history_job
             self.history_job = None
             if requested == connection:
                 profile = job.result()
+                self.history_failed = profile is None
                 if profile is not None:
                     self.apply_home_profile(profile)
         if connection and is_home and self.history_job is None and now >= self.history_after:
             self.history_after = now + 30
             self.history_job = connection, self.context_executor.submit(self.read_home_profile, copy(self.lcu),
                                                                         self.history_limit)
+
+    def connection_state(self):
+        has_profile = bool(self.home_profile and self.home_profile.get("profile"))
+        loading = self.history_job is not None
+        if not self.lcu.port:
+            state = "offline"
+        elif not self.euw:
+            state = "unsupported_region" if self.platform else "connecting"
+        elif has_profile:
+            state = "ready"
+        elif loading:
+            state = "loading_profile"
+        elif self.history_failed:
+            state = "profile_error"
+        elif self.client_phase not in HOME_PHASES:
+            state = "in_match"
+        else:
+            state = "connecting"
+        history = ("cached" if self.home_profile and self.home_profile.get("historyInterrupted")
+                   and self.home_profile.get("matches") else "available" if self.home_profile
+                   and self.home_profile.get("historyAvailable") else "loading" if loading else "unavailable")
+        return {"state": state, "clientDetected": bool(self.lcu.port), "region": self.platform if self.lcu.port else None,
+                "profileAvailable": has_profile, "refreshing": loading, "history": history}
 
     def apply_home_profile(self, profile):
         previous = self.home_profile
@@ -584,9 +615,11 @@ class Companion:
             self.role_overrides.clear()
             self.draft_profiles.clear()
             self.euw = False
+            self.platform = None
+            self.region_after = 0
             self.flow_generation += 1
             self.status = {"phase": "offline", "build": None, "matchId": None}
-        if session and self.lcu.port:
+        if self.lcu.port and self.lcu.token:
             self.flow_connection = connection
         phase = session.get("phase") or ("idle" if self.lcu.port else "offline")
         if session.get("phase"):
@@ -606,8 +639,11 @@ class Companion:
         self.client_phase = phase
         game = session.get("gameData") or {}
         queue = (game.get("queue") or {}).get("id")
-        if session and not self.euw:
-            self.euw = str(self.lcu.region()).upper() in {"EUW", "EUW1"}
+        if self.lcu.port and not self.euw and now >= self.region_after:
+            region = self.lcu.region()
+            self.platform = region.upper() if isinstance(region, str) and re.fullmatch(r"[A-Za-z0-9]{2,10}", region) else None
+            self.euw = self.platform in {"EUW", "EUW1"}
+            self.region_after = now + 5
         if phase == "ChampSelect" and queue == 420 and self.euw:
             return self.read_draft(now, game.get("gameId"), role_change)
         self.draft_profiles.clear()

@@ -82,7 +82,9 @@ class GameflowTests(unittest.TestCase):
                 gameflow("InProgress", 205, 420), None, None, None, None, home=True,
             )
         self.assertFalse(playing["home"])
-        self.assertEqual((brief, interrupted, background), (playing, playing, playing))
+        game_state = lambda snapshot: {key: value for key, value in snapshot.items() if key != "connection"}
+        self.assertEqual(tuple(map(game_state, (brief, interrupted, background))), (game_state(playing),) * 3)
+        self.assertFalse(brief["connection"]["clientDetected"])
         self.assertTrue(closed["home"])
         self.assertEqual(closed["phase"], "offline")
         self.assertIsNone(closed["build"])
@@ -276,6 +278,25 @@ class GameflowTests(unittest.TestCase):
 
 
 class HomeTests(unittest.TestCase):
+    def test_profile_loads_without_gameflow_session_and_new_connection_advances_generation(self):
+        self.client.call.return_value = None  # Expected 404 outside a lobby.
+        self.client.region.return_value = "EUW"
+        self.client.me.return_value = {"puuid": "local-test-account", "riot": "Player#EUW", "level": 50}
+        self.client.history_page.return_value = ([], False)
+        self.companion.rank_history = Mock(record=Mock(return_value={}))
+        with patch("desktop.worker.foreground_game", return_value=None):
+            first = self.companion.snapshot(home=True)
+            self.assertTrue(first["home"])
+            self.assertTrue(self.companion.euw)
+            self.assertIsNotNone(self.companion.history_job)
+            self.companion.history_job[1].result(timeout=2)
+            ready = self.companion.snapshot(home=True)
+            self.assertEqual(ready["homeProfile"]["profile"]["riot"], "Player#EUW")
+            self.client.token = "new-test-connection"
+            self.companion.last_read = 0
+            changed = self.companion.snapshot(home=True)
+            self.assertEqual(changed["flowGeneration"], first["flowGeneration"] + 1)
+
     def setUp(self):
         self.catalog = {"ids": {"112": "Viktor"}, "names": {"Viktor": "Виктор"}, "patch": "16.23.1"}
         self.client = Mock(port=1234, token="test")

@@ -19,7 +19,7 @@ QLabel[role="headline"] { font-size: 34px; font-weight: 700; }
 QLabel[role="section"] { font-size: 19px; font-weight: 700; }
 QLabel[role="muted"], QLabel[role="itemName"] { color: #b7afc7; }
 QLabel[role="itemName"] { font-size: 12px; }
-QLabel[role="caption"] { color: #9e95b1; font-size: 12px; }
+QLabel[role="caption"] { color: #b2a9c1; font-size: 13px; }
 QLabel[role="captionStrong"] { color: #dbd2ec; font-size: 12px; font-weight: 600; }
 QLabel[role="chip"] {
     background: #261f37; border: 1px solid #4c3c67; border-radius: 7px;
@@ -136,7 +136,7 @@ QPushButton[role="dashboardNav"] {
     background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 10px 8px;
 }
 QPushButton[role="dashboardNav"]:hover { background: #211d2b; border-color: #3e344c; }
-QPushButton[role="dashboardNav"]:checked {
+QPushButton[role="dashboardNav"][current="true"] {
     color: #f1e9fc; background: #31273f; border: 1px solid #4c3d61; border-left: 3px solid #b09aca;
 }
 QPushButton[role="dashboardNav"]:focus, QPushButton[role="dashboardReview"]:focus,

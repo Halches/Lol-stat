@@ -8,6 +8,7 @@ from artwork import asset_path
 from dashboard_charts import MONTHS, RANK_NAMES, MonthChart, RankChart, rank_emblem
 from widgets import button, icon_label, label, panel
 from worker import DDRAGON
+from connection import connection_view
 
 
 QUEUE_NAMES = {420: "Solo/Duo", 440: "Flex", 400: "Обычная", 430: "Обычная", 450: "ARAM",
@@ -127,10 +128,10 @@ class RankCard(QWidget):
             self.lp.setText(f"{data['lp']} LP")
         wins, losses = data.get("w"), data.get("l")
         total = wins + losses if type(wins) is int and type(losses) is int else None
-        self.metric(0, wins, total, total is not None)
-        self.metric(1, week.get("wins"), week.get("games"), week.get("complete", False))
+        self.set_metric(0, wins, total, total is not None)
+        self.set_metric(1, week.get("wins"), week.get("games"), week.get("complete", False))
 
-    def metric(self, index, wins, total, complete):
+    def set_metric(self, index, wins, total, complete):
         percent, note = self.metrics[index]
         if total:
             rate = f"{100 * wins / total:.1f}".replace(".", ",")
@@ -363,15 +364,34 @@ class Dashboard(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
-        self.top = QGridLayout()
+        self.connection_panel, connection = card()
+        self.connection_title = label("", "dashboardSection", wrap=True)
+        self.connection_message = label("", "captionStrong", wrap=True)
+        self.connection_hint = label("", "caption", wrap=True)
+        for item in (self.connection_title, self.connection_message, self.connection_hint):
+            connection.addWidget(item)
+        self.connection_actions = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.retry = button("Повторить подключение", lambda: None, "tab")
+        self.builds = button("Посмотреть сборки", lambda: None, "primary")
+        self.voice = button("Проверить голос", lambda: None, "tab")
+        for item in (self.retry, self.builds, self.voice):
+            self.connection_actions.addWidget(item)
+        connection.addLayout(self.connection_actions)
+        layout.addWidget(self.connection_panel)
+        self.profile_area = QWidget()
+        self.top = QGridLayout(self.profile_area)
+        self.top.setContentsMargins(0, 0, 0, 0)
         self.top.setSpacing(14)
         self.profile = ProfileCard(artwork)
         self.ranks = {"solo": RankCard("Solo/Duo"), "flex": RankCard("Flex")}
-        layout.addLayout(self.top)
+        layout.addWidget(self.profile_area)
 
-        self.charts = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.charts_area = QWidget()
+        self.charts = QBoxLayout(QBoxLayout.Direction.LeftToRight, self.charts_area)
+        self.charts.setContentsMargins(0, 0, 0, 0)
         self.charts.setSpacing(14)
         trend_panel, trend = card()
+        self.trend_panel = trend_panel
         trend_header = QHBoxLayout()
         trend_header.addWidget(label("Изменение ранга", "dashboardSection", wrap=True), 1)
         self.queue = QComboBox()
@@ -388,20 +408,43 @@ class Dashboard(QWidget):
         self.charts.addWidget(trend_panel, 3)
 
         activity_panel, activity = card()
+        self.activity_panel = activity_panel
         activity.addWidget(label("Активность за месяц", "dashboardSection"))
         self.month = label("", "dashboardMuted", wrap=True)
         activity.addWidget(self.month)
         self.activity = MonthChart()
         activity.addWidget(self.activity)
         self.charts.addWidget(activity_panel, 2)
-        layout.addLayout(self.charts)
+        layout.addWidget(self.charts_area)
         self.matches = MatchList(artwork, open_review, overview=True, open_history=open_history, open_latest=open_latest)
         layout.addWidget(self.matches)
         self.columns = None
+        self.card_keys = None
         self.reflow(1000)
 
-    def populate(self, data):
+    def populate(self, data, connection=None):
         self.data = data
+        info = connection or connection_view({"homeProfile": data, "phase": "offline"})
+        self.connection_title.setText(info["title"])
+        self.connection_message.setText(info["message"])
+        self.connection_hint.setText(info["hint"])
+        self.connection_hint.setVisible(bool(info["hint"]))
+        ready = info.get("state") == "ready"
+        self.connection_title.setVisible(not ready)
+        for item in (self.builds, self.voice):
+            item.setVisible(not ready)
+        self.connection_panel.setVisible(not ready or info.get("history") in {"cached", "unavailable"})
+        self.retry.setEnabled(not info.get("refreshing", False))
+        self.retry.setVisible(info.get("state") != "ready")
+        has_profile = bool(data.get("profile"))
+        self.profile_area.setVisible(has_profile)
+        for key, widget in self.ranks.items():
+            widget.setVisible(has_profile and bool(data.get("ranks", {}).get(key)))
+        self.reflow(getattr(self, "content_width", 1000))
+        self.trend_panel.setVisible(any(data.get("trend", {}).values()))
+        self.activity_panel.setVisible(bool(data.get("month", {}).get("available")))
+        self.charts_area.setVisible(not self.trend_panel.isHidden() or not self.activity_panel.isHidden())
+        self.matches.setVisible(bool(data.get("matches")) or bool(data.get("historyAvailable")))
         self.profile.populate(data.get("profile", {}), data.get("assetVersion"))
         for key, widget in self.ranks.items():
             widget.populate(data.get("ranks", {}).get(key, {}), data.get("weekly", {}).get(key, {}))
@@ -430,15 +473,19 @@ class Dashboard(QWidget):
         self.trend.set_data(points, period, self.data.get("ranks", {}).get(queue, {}))
 
     def reflow(self, width):
+        self.content_width = width
+        self.connection_actions.setDirection(QBoxLayout.Direction.TopToBottom if width < 660 else QBoxLayout.Direction.LeftToRight)
         columns = 3 if width >= 890 else 2 if width >= 590 else 1
         self.matches.reflow(width)
-        if columns == self.columns:
+        card_keys = tuple(key for key in self.ranks if self.data.get("ranks", {}).get(key))
+        if columns == self.columns and card_keys == self.card_keys:
             return
         self.columns = columns
-        cards = [self.profile, *self.ranks.values()]
-        for widget in cards:
+        self.card_keys = card_keys
+        for widget in (self.profile, *self.ranks.values()):
             self.top.removeWidget(widget)
-        if columns == 2:
+        cards = [self.profile, *(self.ranks[key] for key in card_keys)]
+        if columns == 2 and len(cards) == 3:
             self.top.addWidget(self.profile, 0, 0, 1, 2)
             self.top.addWidget(cards[1], 1, 0)
             self.top.addWidget(cards[2], 1, 1)
@@ -446,6 +493,6 @@ class Dashboard(QWidget):
             for index, widget in enumerate(cards):
                 self.top.addWidget(widget, index // columns, index % columns)
         for index in range(3):
-            self.top.setColumnStretch(index, int(index < columns))
+            self.top.setColumnStretch(index, int(index < min(columns, len(cards))))
         direction = QBoxLayout.Direction.LeftToRight if columns == 3 else QBoxLayout.Direction.TopToBottom
         self.charts.setDirection(direction)

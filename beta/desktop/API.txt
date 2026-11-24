@@ -15,6 +15,32 @@ LoL Helper — локальный API интерфейса, протокол 1
 проверяется API итогового EXE. До этого новая функция не считается готовой.
 Полное правило для всех разработчиков: корневой AGENTS.md проекта.
 
+ПОДКЛЮЧЕНИЕ И ПЕРВЫЙ ЗАПУСК
+read model=connection и state.connection возвращают state, title/message/hint,
+clientDetected, region, profileAvailable, refreshing, history и retryPending.
+Состояния: offline, connecting, loading_profile, profile_error,
+unsupported_region, in_match, ready. history: unavailable/loading/available/cached.
+connection_retry ставит повторное обнаружение клиента в очередь рабочего потока;
+повторный клик блокируется до обработки. connection_builds открывает сборки,
+connection_voice открывает помощника и вызывает ту же проверку голоса, что UI.
+Отсутствие лобби не препятствует загрузке профиля EUW.
+build_example заполняет форму Виктор/MIDDLE, не отправляя запрос и не импортируя
+сборку; preview_build запускает обычный поиск. Чтение формы: champion_search,
+preview_role. Даже без клиента поиск доступен; блокировки импорта сохраняются.
+settings_advanced раскрывает необязательные настройки сайта. Сначала откройте
+menu_settings, затем settings_advanced; site/save_settings/open_site сохраняют
+прежние ID. save_settings сохраняет только адрес. Игровые параметры — сразу.
+overlay_laboratory раскрывает галерею демо; затем доступен overlay_preview.
+read model=overlays возвращает laboratoryExpanded и preview. Демо-переключатели
+по-прежнему заблокированы вне предпросмотра и не получают игровые данные.
+navigation_toggle сворачивает/разворачивает меню, сохраняя выбор пользователя.
+Без ручного выбора меню автоматически сворачивается при ширине меньше 900.
+menu_* остаются кнопками перехода с прежними ID даже в компактной панели;
+read control=menu_* возвращает current, а read model=navigation — page,
+collapsed, automatic. Навигация не является включаемой настройкой: set для
+menu_* отклоняется, используется click. Текущий раздел объявлен описанием
+кнопки для вспомогательных средств Windows.
+
 НАЧАЛО ДЛЯ АГЕНТА БЕЗ КОНТЕКСТА
 API управляет самим приложением через Qt, без мыши, координат и захвата
 экрана. Работает только на этом ПК и в контексте пользователя Windows.

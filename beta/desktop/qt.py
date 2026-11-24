@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QMargins, QRect, QSettings, QSignalBlocker, QStringListModel, Qt, QTimer, QUrl
+from PySide6.QtCore import QMargins, QRect, QSettings, QSignalBlocker, QSize, QStringListModel, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout,
@@ -23,6 +23,8 @@ from desktop.voice_assistant import Assistant, AssistantPage
 from desktop.update_page import UpdatePage
 from desktop.update_service import apply_update, confirm_startup, last_update_error
 from overlays import OverlayControls
+from connection import connection_view
+from navigation import navigation_icon
 
 
 PHASES = {
@@ -77,6 +79,7 @@ class Window(QWidget):
         self.snapshot = {"phase": "offline"}
         self.job = self.export_job = None
         self.role_change_pending = False
+        self.connection_retry_pending = False
         self.draft_action_focus = None
         self.notice_draft_key = None
         self.draft_key = None
@@ -125,7 +128,7 @@ class Window(QWidget):
         body = QWidget()
         body.setObjectName("body")
         self.scroll.setWidget(body)
-        layout = QVBoxLayout(body)
+        layout = self.body_layout = QVBoxLayout(body)
         layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(22, 18, 22, 14)
         layout.setSpacing(13)
@@ -187,6 +190,9 @@ class Window(QWidget):
         self.menu_notice = self.slot(menu)
         self.dashboard = Dashboard(self.artwork, self.open_match_review,
                                    lambda: self.show_home_page("history"), self.open_latest_review)
+        self.dashboard.retry.clicked.connect(self.retry_connection)
+        self.dashboard.builds.clicked.connect(lambda: self.show_home_page("builds"))
+        self.dashboard.voice.clicked.connect(self.test_connection_voice)
         self.match_history = MatchList(self.artwork, self.open_match_review)
         self.build_page = QWidget()
         main_column = QVBoxLayout(self.build_page)
@@ -313,13 +319,19 @@ class Window(QWidget):
             self.timer.start(225)
         self.automation = AutomationServer(self)
         for page, control in self.nav_buttons.items():
-            self.automation.add(f"menu_{page}", control.text(), control, "button")
+            self.automation.add(f"menu_{page}", HOME_PAGES[page], control, "button")
         for control, control_widget in (
             ("import_build", self.import_button), ("open_review", self.review_button),
             ("save_settings", self.save_button), ("open_site", self.site_button),
             ("choose_popular", self.choices["pick"]), ("choose_winrate", self.choices["win"]),
             ("choose_unusual", self.choices["unusual"]), ("open_build_source", self.build_source_button),
             ("import_spells", self.spell_button),
+            ("connection_retry", self.dashboard.retry), ("connection_builds", self.dashboard.builds),
+            ("connection_voice", self.dashboard.voice),
+            ("build_example", self.build_example),
+            ("settings_advanced", self.settings_advanced),
+            ("overlay_laboratory", self.overlays.laboratory_toggle),
+            ("navigation_toggle", self.navigation_toggle),
             ("preview_build", self.preview_button), ("open_latest_review", self.dashboard.matches.latest),
             ("open_match_history", self.dashboard.matches.history), ("show_more_matches", self.match_history.more),
             ("draft_stats_tab", self.draft_screen.stats_tab), ("draft_build_tab", self.draft_screen.build_tab),
@@ -405,7 +417,7 @@ class Window(QWidget):
     def build_menu_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName("dashboardSidebar")
-        layout = QVBoxLayout(sidebar)
+        layout = self.sidebar_layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(12, 19, 12, 15)
         layout.setSpacing(7)
         self.sidebar_identity = QHBoxLayout()
@@ -420,20 +432,52 @@ class Window(QWidget):
         self.nav_buttons = {}
         for key, title in HOME_PAGES.items():
             control = button(title, lambda _checked=False, page=key: self.show_home_page(page), "dashboardNav")
-            if key == "assistant":
-                control.setText("Голосовой\nпомощник")
-                control.setAccessibleName(title)
-            control.setCheckable(True)
+            control.setAccessibleName(title)
+            control.setToolTip(title)
+            control.setIcon(navigation_icon(key))
+            control.setIconSize(QSize(22, 22))
             self.nav_buttons[key] = control
             layout.addWidget(control)
         layout.addStretch()
+        self.navigation_toggle = button("Свернуть меню", self.toggle_navigation, "tab")
+        self.navigation_toggle.setAccessibleName("Свернуть меню навигации")
+        layout.addWidget(self.navigation_toggle)
         return sidebar
+
+    def toggle_navigation(self):
+        self.settings.setValue("navigation/collapsed", not self.navigation_collapsed())
+        self.arrange_home()
+
+    def navigation_collapsed(self):
+        return (self.settings.value("navigation/collapsed", type=bool)
+                if self.settings.contains("navigation/collapsed") else self.width() < 900)
+
+    def paint_navigation(self):
+        collapsed = self.navigation_collapsed()
+        compact = self.width() < 1180
+        self.sidebar_brand.setVisible(not collapsed)
+        self.navigation_toggle.setText("›" if collapsed else "Свернуть меню")
+        self.navigation_toggle.setToolTip("Развернуть меню" if collapsed else "Свернуть меню")
+        self.navigation_toggle.setAccessibleName("Развернуть меню навигации" if collapsed else "Свернуть меню навигации")
+        for key, control in self.nav_buttons.items():
+            title = HOME_PAGES[key]
+            if key == "updates" and self.updates_page.available:
+                title += " •"
+            if compact and key in {"assistant", "history"}:
+                title = title.replace(" ", "\n", 1)
+            control.setText("" if collapsed else title)
+            control.setAccessibleDescription("Текущий раздел" if key == self.home_page else "Открыть раздел " + HOME_PAGES[key])
+            current = key == self.home_page
+            if control.property("current") != current:
+                control.setProperty("current", current)
+                control.style().unpolish(control)
+                control.style().polish(control)
 
     def update_update_notice(self):
         available = self.updates_page.available
         self.update_banner.setVisible(bool(available))
         self.update_banner_text.setText(f"Доступна новая версия LoL Helper {available.version}" if available else "")
-        self.nav_buttons["updates"].setText("Обновление •" if available else "Обновление")
+        self.paint_navigation()
 
     def arrange_build(self, *, wide, compact=False):
         columns = 6 if wide and not compact else 3
@@ -469,7 +513,11 @@ class Window(QWidget):
 
     def arrange_home(self):
         compact_sidebar = self.width() < 1180
-        self.menu_sidebar.setFixedWidth(144 if compact_sidebar else 214)
+        collapsed = self.navigation_collapsed()
+        self.menu_sidebar.setFixedWidth(64 if collapsed else 154 if compact_sidebar else 214)
+        self.sidebar_layout.setContentsMargins(8 if collapsed else 12, 19, 8 if collapsed else 12, 15)
+        self.body_layout.setContentsMargins(14 if self.width() < 900 else 22, 18, 14 if self.width() < 900 else 22, 14)
+        self.paint_navigation()
         if self.sidebar_brand.property("compact") != compact_sidebar:
             self.sidebar_brand.setProperty("compact", compact_sidebar)
             self.sidebar_brand.style().unpolish(self.sidebar_brand)
@@ -501,7 +549,28 @@ class Window(QWidget):
         self.page_title.setText(HOME_PAGES[page])
         for name, view in self.home_views.items():
             view.setVisible(name == page)
-            self.nav_buttons[name].setChecked(name == page)
+        self.paint_navigation()
+        self.update_home_status()
+
+    def update_home_status(self):
+        info = connection_view(self.snapshot)
+        title = {"offline": "Клиент не подключён", "ready": "Клиент подключён"}.get(info.get("state"), info["title"])
+        self.home_connection.setText("Просмотр доступен без игры" if self.home_page == "builds" else title)
+        self.home_connection.setWordWrap(True)
+        self.home_connection.setMinimumWidth(0 if self.menu_header.direction() == QBoxLayout.Direction.TopToBottom
+                                            else self.home_connection.fontMetrics().horizontalAdvance(self.home_connection.text()) + 26)
+
+    def retry_connection(self):
+        if self.export_job is not None or self.role_change_pending:
+            return
+        self.connection_retry_pending = True
+        self.dashboard.retry.setEnabled(False)
+        self.dashboard.retry.setToolTip("Повторное подключение уже ожидает выполнения.")
+        self.dashboard.connection_message.setText("Повторяем подключение к клиенту…")
+
+    def test_connection_voice(self):
+        self.show_home_page("assistant")
+        self.assistant_page.test.click()
 
     def set_home_active(self, home):
         if home == self.home_active:
@@ -611,6 +680,10 @@ class Window(QWidget):
         contents.setContentsMargins(20, 17, 20, 20)
         contents.setSpacing(14)
         contents.addWidget(label("Поиск сборки", "homeSection"))
+        self.build_access_hint = label(
+            "Просматривайте сборки без запущенной игры. Импорт рун, предметов и заклинаний станет доступен "
+            "в драфте после подтверждения чемпиона.", "homeSecondary", wrap=True)
+        contents.addWidget(self.build_access_hint)
         fields = QHBoxLayout()
         fields.setSpacing(10)
         self.champion_input = QLineEdit()
@@ -644,7 +717,14 @@ class Window(QWidget):
         self.search_row.addLayout(fields, 1)
         self.search_row.addWidget(self.preview_button, alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         contents.addLayout(self.search_row)
+        self.build_example = button("Пример: Виктор · центр", self.fill_build_example, "tab")
+        contents.addWidget(self.build_example, alignment=Qt.AlignmentFlag.AlignLeft)
         return self.search_panel
+
+    def fill_build_example(self):
+        self.champion_input.setText("Виктор" if "виктор" in self.champion_index else "Viktor")
+        self.role_input.setCurrentIndex(self.role_input.findData("MIDDLE"))
+        self.champion_input.setFocus()
 
     def build_preview_placeholder(self):
         self.preview_placeholder, contents = panel("homePlaceholder")
@@ -663,7 +743,22 @@ class Window(QWidget):
         settings_panel.setMaximumWidth(694)
         contents.setContentsMargins(17, 15, 17, 16)
         contents.setSpacing(12)
-        contents.addWidget(label("Настройки", "homeSection"))
+        contents.addWidget(self.overlays.preferences)
+        contents.addWidget(label("Игровые параметры сохраняются сразу при изменении.", "homeSecondary", wrap=True))
+        self.settings_advanced = button("Дополнительно · сайт разбора матчей", lambda: None, "tab")
+        self.settings_advanced.setCheckable(True)
+        self.settings_advanced.setAccessibleName("Показать дополнительные настройки сайта")
+        contents.addWidget(self.settings_advanced)
+        self.site_settings = QWidget()
+        site_contents = QVBoxLayout(self.site_settings)
+        site_contents.setContentsMargins(0, 3, 0, 0)
+        site_contents.setSpacing(10)
+        site_contents.addWidget(label(
+            "Необязательное подключение к сайту с подробностями матчей. Нужен запущенный сервер по этому адресу. "
+            "Для сборок, оверлея и голосового помощника сайт не требуется.", "homeSecondary", wrap=True))
+        self.settings_advanced.toggled.connect(self.site_settings.setVisible)
+        self.site_settings.hide()
+        contents.addWidget(self.site_settings)
 
         site_group = QVBoxLayout()
         site_group.setSpacing(6)
@@ -674,16 +769,15 @@ class Window(QWidget):
         site_label.setBuddy(self.site)
         site_group.addWidget(site_label)
         site_group.addWidget(self.site)
-        contents.addLayout(site_group)
+        site_contents.addLayout(site_group)
 
         site_actions = QHBoxLayout()
         site_actions.setSpacing(8)
-        self.save_button = button("Сохранить", self.save)
+        self.save_button = button("Сохранить адрес", self.save)
         self.site_button = button("Открыть сайт", self.open_site)
         site_actions.addWidget(self.save_button)
         site_actions.addWidget(self.site_button)
-        contents.addLayout(site_actions)
-        contents.addWidget(self.overlays.preferences)
+        site_contents.addLayout(site_actions)
         return settings_panel
 
     def update_champion_index(self):
@@ -997,7 +1091,11 @@ class Window(QWidget):
             elif self.snapshot != previous or self.champion_catalog is not self.companion.catalog:
                 self.paint_snapshot()
         self.open_pending_review()
-        self.job = self.executor.submit(self.companion.snapshot, home=True, history_limit=self.match_history.limit)
+        options = {"home": True, "history_limit": self.match_history.limit}
+        if self.connection_retry_pending:
+            options["refresh_connection"] = True
+            self.connection_retry_pending = False
+        self.job = self.executor.submit(self.companion.snapshot, **options)
 
     def paint_snapshot(self):
         self.update_preview_context()
@@ -1022,10 +1120,15 @@ class Window(QWidget):
         self.set_home_active(home)
         self.preview_button.setEnabled(self.preview_job is None)
         if home:
-            self.home_connection.setText(HOME_CONNECTION.get(phase, "Клиент LoL подключён"))
+            self.update_home_status()
             self.latest_match = self.snapshot.get("latestMatch")
             profile = self.snapshot.get("homeProfile") or {}
-            self.dashboard.populate(profile)
+            self.dashboard.populate(profile, connection_view(self.snapshot))
+            self.dashboard.retry.setEnabled(not self.connection_retry_pending and self.export_job is None
+                                            and not self.role_change_pending
+                                            and not (self.snapshot.get("connection") or {}).get("refreshing", False))
+            self.dashboard.retry.setToolTip("Загрузка профиля или действие клиента уже выполняется. Дождитесь завершения."
+                                           if not self.dashboard.retry.isEnabled() else "Повторно найти клиент и загрузить профиль.")
             self.match_history.populate(profile.get("matches", []), profile.get("historyAvailable", False),
                                         profile.get("historyHasMore", False))
         options = self.preview_options if home else self.snapshot.get("buildOptions", {})

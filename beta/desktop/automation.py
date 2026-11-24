@@ -39,7 +39,7 @@ def schema():
         "endpoint": SOCKET_NAME,
         "instanceEndpointPattern": f"{SOCKET_NAME}-pid-<processId>",
         "capabilities": {"automaticControls": True, "typedInputs": True, "backgroundOperations": True,
-                         "models": ["profile", "history", "draft", "build", "updates", "overlays"]},
+                         "models": ["connection", "navigation", "profile", "history", "draft", "build", "updates", "overlays"]},
         "transport": "Qt local socket, one UTF-8 JSON request and response per connection, each terminated by LF",
         "methods": {
             "describe": {"request": {"method": "describe"}, "result": "Protocol and live control catalog"},
@@ -175,6 +175,7 @@ class AutomationServer(QObject):
                         "status": self.window.updates_page.status.text()},
             "latestMatch": self.window.latest_match if self.window.is_home() else None,
             "homePage": self.window.home_page if self.window.is_home() else None,
+            "connection": self.read_model({"model": "connection"}),
             "draftTab": self.window.draft_screen.tab if self.window.draft_active else None,
             "importInProgress": self.window.export_job is not None,
             "overlayVisible": self.window.overlays.visible(),
@@ -219,6 +220,15 @@ class AutomationServer(QObject):
     def read_model(self, request):
         name = request.get("model")
         profile = self.window.snapshot.get("homeProfile") or {}
+        if name == "connection":
+            if __package__:
+                from .connection import connection_view
+            else:
+                from connection import connection_view
+            return dict(connection_view(self.window.snapshot), retryPending=getattr(self.window, "connection_retry_pending", False))
+        if name == "navigation":
+            return {"page": self.window.home_page, "collapsed": self.window.navigation_collapsed(),
+                    "automatic": not self.window.settings.contains("navigation/collapsed")}
         if name == "profile":
             return {key: value for key, value in profile.items() if key != "matches"}
         if name == "history":
@@ -242,8 +252,10 @@ class AutomationServer(QObject):
             overlays = self.window.overlays
             return {"theme": getattr(overlays, "theme_id", None), "scale": getattr(overlays, "scale_percent", None),
                     "preview": getattr(overlays, "previewing", False),
+                    "laboratoryExpanded": bool(getattr(overlays, "laboratory_toggle", None)
+                                               and overlays.laboratory_toggle.isChecked()),
                     "positions": {key: card.position for key, card in getattr(overlays, "cards", {}).items()}}
-        raise UIError("unknown_model", "Use profile, history, draft, build, updates or overlays.")
+        raise UIError("unknown_model", "Use connection, navigation, profile, history, draft, build, updates or overlays.")
 
     def window_action(self, request):
         key = request.get("window", "main")

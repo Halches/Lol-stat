@@ -75,7 +75,8 @@ class FullAPITests(unittest.TestCase):
         self.assertFalse(self.send("set", control="assistant_cs_target", value=7.25)["ok"])
 
     def test_choice_data_preserve_types_and_checkbox_clicks_are_real_actions(self):
-        self.good("set", control="rank_history_queue", value="flex")
+        # Queue may be hidden before rank data arrives; hidden access is explicit.
+        self.good("set", control="rank_history_queue", value="flex", allowHidden=True)
         self.assertEqual(self.window.dashboard.queue.currentData(), "flex")
         choice = QComboBox(self.window)
         choice.addItem("Solo", 420)

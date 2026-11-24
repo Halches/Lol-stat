@@ -182,9 +182,14 @@ class DesktopAuditTests(unittest.TestCase):
                 self.app.processEvents()
                 brand = window.sidebar_brand
                 self.assertEqual(brand.text(), "LoL Helper")
-                self.assertLessEqual(brand.fontMetrics().horizontalAdvance(brand.text()), brand.contentsRect().width())
-                self.assertLessEqual(brand.geometry().right(), window.menu_sidebar.contentsRect().right())
-                self.assertEqual(window.menu_sidebar.width(), 144 if width < 1180 else 214)
+                if width >= 900:
+                    self.assertTrue(brand.isVisible())
+                    self.assertLessEqual(brand.fontMetrics().horizontalAdvance(brand.text()), brand.contentsRect().width())
+                    self.assertLessEqual(brand.geometry().right(), window.menu_sidebar.contentsRect().right())
+                else:
+                    self.assertTrue(brand.isHidden())
+                    self.assertFalse(window.sidebar_mark.isHidden())
+                self.assertEqual(window.menu_sidebar.width(), 64 if width < 900 else 154 if width < 1180 else 214)
                 self.assertEqual(window.minimumWidth(), 670)
 
     def test_changed_champion_explains_why_preview_is_waiting(self):
