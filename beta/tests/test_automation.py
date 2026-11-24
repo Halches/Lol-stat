@@ -82,7 +82,9 @@ class InstanceTests(unittest.TestCase):
         self.assertEqual(result["endpoint"], second["instance"])
         self.assertEqual(result["processId"], second["pid"])
         self.assertEqual(result["appVersion"], VERSION)
-        self.assertEqual([c["id"] for c in result["controls"]], ["second"])
+        controls = [c["id"] for c in result["controls"]]
+        self.assertIn("second", controls)
+        self.assertNotIn("first", controls)
 
     def test_explicit_missing_pid_does_not_fall_back_to_running_owner(self):
         response = automation.request({"method": "state"}, self.base, pid=2_000_000_000)

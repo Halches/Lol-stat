@@ -10,10 +10,13 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QLockFile, QObject, QPoint, QStandardPaths, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import QDialog
 if __package__:
     from .app_version import VERSION as APP_VERSION
+    from .ui_api import UIError, UIRegistry, numeric
 else:
     from app_version import VERSION as APP_VERSION
+    from ui_api import UIError, UIRegistry, numeric
 
 
 VERSION = 1
@@ -35,6 +38,8 @@ def schema():
         "version": VERSION,
         "endpoint": SOCKET_NAME,
         "instanceEndpointPattern": f"{SOCKET_NAME}-pid-<processId>",
+        "capabilities": {"automaticControls": True, "typedInputs": True, "backgroundOperations": True,
+                         "models": ["profile", "history", "draft", "build", "updates", "overlays"]},
         "transport": "Qt local socket, one UTF-8 JSON request and response per connection, each terminated by LF",
         "methods": {
             "describe": {"request": {"method": "describe"}, "result": "Protocol and live control catalog"},
@@ -43,6 +48,20 @@ def schema():
                       "result": "Dispatch a visible, enabled button and return the updated state"},
             "set": {"request": {"method": "set", "control": "field ID", "value": "See inputType in state"},
                     "result": "Edit a visible, enabled field and return the updated state"},
+            "select": {"request": {"method": "select", "control": "choice ID", "index": 0},
+                       "result": "Choose an enabled dropdown option by index or typed value"},
+            "read": {"request": {"method": "read", "model": "build"},
+                     "result": "Read a control, screen text, or profile/history/draft/build/updates/overlays model"},
+            "find": {"request": {"method": "find", "query": "громкость", "visibleOnly": True},
+                     "result": "Discover controls by label, ID or tooltip; optional scope/page filter"},
+            "focus": {"request": {"method": "focus", "control": "field ID"}, "result": "Focus an application control"},
+            "submit": {"request": {"method": "submit", "control": "text field ID"}, "result": "Invoke the field's Enter action"},
+            "scroll": {"request": {"method": "scroll", "control": "scroll area ID", "axis": "vertical", "value": 0},
+                       "result": "Scroll to a value within the reported range"},
+            "window": {"request": {"method": "window", "window": "main", "operation": "restore"},
+                       "result": "Read/restore/activate/minimize/resize/close an owned main window or dialog"},
+            "overlay_position": {"request": {"method": "overlay_position", "overlay": "build", "x": 0.1, "y": 0.2},
+                                 "result": "Set a draggable overlay position (0..1), or reset=true"},
         },
         "response": {"success": {"ok": True, "result": {}},
                      "failure": {"ok": False, "error": {"code": "stable identifier", "message": "detail"}}},
@@ -51,8 +70,13 @@ def schema():
         "notes": [
             "Read state before acting. Use control IDs to act without screen coordinates.",
             "Check state after a click for app validation messages or a pending import.",
-            "Use the Save button to persist edited settings.",
+            "save_settings applies the site address. Voice and overlay settings are saved immediately by their normal UI handlers.",
             "Use --pid PROCESS_ID to address the GUI process explicitly; it never falls back to the shared endpoint.",
+            "describe/state accept query, scope and visibleOnly filters. Read control actions, values, options and ranges before acting.",
+            "All application buttons and input controls are discovered automatically, including dynamic match rows and dialogs.",
+            "Explicit IDs are stable; auto_* IDs are valid for this widget lifetime. Rediscover after replacing a screen.",
+            "allowHidden=true explicitly permits background operations. Disabled controls and modal dialogs remain protected.",
+            "Boolean and numeric values are JSON values; CLI set supports --json-value, and call accepts a complete JSON request.",
         ],
     }
 
@@ -72,6 +96,7 @@ class AutomationServer(QObject):
         self.name = name
         self.instance_name = endpoint_for_pid(os.getpid(), name)
         self.controls = {}
+        self.registry = UIRegistry(window, self.controls)
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
         self.server.newConnection.connect(lambda: self._accept(self.server))
@@ -88,7 +113,7 @@ class AutomationServer(QObject):
         widget.setAccessibleName(label)
         self.controls[key] = (label, widget, kind)
 
-    def start(self):
+    def start(self, *, legacy=True):
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -97,7 +122,8 @@ class AutomationServer(QObject):
             return False
         # The shared endpoint is optional compatibility, never a prerequisite
         # for addressing this instance. Another application may own it.
-        self._listen(self.server, self.lock, self.name)
+        if legacy:
+            self._listen(self.server, self.lock, self.name)
         return True
 
     @staticmethod
@@ -124,38 +150,14 @@ class AutomationServer(QObject):
                 "appVersion": APP_VERSION, "instanceEndpoint": self.instance_name,
                 "legacyEndpoint": self.name if self.server.isListening() else None}
 
-    def catalog(self):
-        return [
-            {"id": key, "label": label, "kind": kind,
-             "actions": ["click"] if kind == "button" else ["set"],
-             **({"inputType": "boolean" if kind == "checkbox" else "string"} if kind != "button" else {}),
-             **({"options": [{"value": widget.itemData(i), "label": widget.itemText(i)}
-                             for i in range(widget.count())]} if kind == "choice" else {})}
-            for key, (label, widget, kind) in self.controls.items()
-        ]
+    def catalog(self, request=None):
+        return self.registry.catalog(request)
 
-    def state(self):
+    def state(self, request=None):
         origin = self.window.mapToGlobal(QPoint())
         visible = self.window.isVisible() and not self.window.isMinimized()
-        controls = self.catalog()
-        for entry in controls:
-            _, widget, kind = self.controls[entry["id"]]
-            entry["visible"] = visible and widget.isVisibleTo(self.window)
-            entry["enabled"] = widget.isEnabled()
-            if entry["visible"]:
-                position = widget.mapTo(self.window, QPoint())
-                entry["bounds"] = rect(position.x(), position.y(), widget.width(), widget.height())
-            if kind == "checkbox":
-                entry["value"] = widget.isChecked()
-            elif kind == "choice":
-                entry["value"] = widget.currentData()
-            elif kind == "text":
-                entry["value"] = widget.text()
-                if entry["id"] == "site" and widget.text().strip():
-                    try:
-                        entry["value"] = self.window.validated_site()
-                    except ValueError:
-                        entry["value"] = None
+        controls = self.catalog(request)
+        texts = self.registry.texts((request or {}).get("scope"))
         return {
             "version": VERSION,
             **self.identity(),
@@ -177,6 +179,10 @@ class AutomationServer(QObject):
             "importInProgress": self.window.export_job is not None,
             "overlayVisible": self.window.overlays.visible(),
             "controls": controls,
+            "windows": self.registry.windows(),
+            "screenText": texts[:200],
+            "screenTextTruncated": len(texts) > 200,
+            "roleChangeInProgress": bool(getattr(self.window, "role_change_pending", False)),
         }
 
     def dispatch(self, request, *, endpoint=None):
@@ -185,37 +191,106 @@ class AutomationServer(QObject):
         if "processId" in request and (type(request["processId"]) is not int or request["processId"] != os.getpid()):
             return failure("wrong_process", "This command targets another process. Read state using the correct --pid.")
         method = request.get("method")
-        if method == "describe":
-            return {"ok": True, "result": dict(schema(), endpoint=endpoint or self.name,
-                                               controls=self.catalog(), **self.identity())}
-        if method == "state":
+        try:
+            if method in ("describe", "find"):
+                return {"ok": True, "result": dict(schema(), endpoint=endpoint or self.name,
+                                                   controls=self.catalog(request), windows=self.registry.windows(), **self.identity())}
+            if method == "state":
+                return {"ok": True, "result": self.state(request)}
+            if method == "read":
+                result = (self.registry.operate(request) if "control" in request else self.read_model(request)
+                          if "model" in request else {"text": self.registry.texts(request.get("scope")),
+                                                      "windows": self.registry.windows()})
+                return {"ok": True, "result": dict(self.identity(), data=result)}
+            if method == "window":
+                return {"ok": True, "result": dict(self.identity(), **self.window_action(request))}
+            if method == "overlay_position":
+                self.overlay_position(request)
+            elif method in ("click", "set", "select", "focus", "submit", "scroll"):
+                self.registry.operate(request)
+            else:
+                return failure("unknown_method", "Use describe to discover the supported methods.")
             return {"ok": True, "result": self.state()}
-        if method not in ("click", "set"):
-            return failure("unknown_method", "Use describe to discover the supported methods.")
-        key = request.get("control")
-        if not isinstance(key, str) or key not in self.controls:
-            return failure("unknown_control", "Use state to discover the current control IDs.")
-        _, widget, kind = self.controls[key]
-        if not self.window.isVisible() or self.window.isMinimized() or not widget.isVisibleTo(self.window):
-            return failure("control_hidden", "This control is not visible in the current window.")
-        if not widget.isEnabled():
-            return failure("control_disabled", "This control is disabled in the current state.")
-        if method == "click" and kind == "button":
-            widget.click()
-        elif method == "set" and kind == "checkbox" and type(request.get("value")) is bool:
-            widget.setChecked(request["value"])
-        elif method == "set" and kind == "text" and isinstance(request.get("value"), str):
-            widget.setText(request["value"])
-        elif method == "set" and kind == "choice" and isinstance(request.get("value"), str):
-            index = widget.findData(request["value"])
-            if index < 0:
-                return failure("invalid_value", "Use one of the values in the control options.")
-            widget.setCurrentIndex(index)
+        except UIError as error:
+            return failure(error.code, error.message)
+        except (RuntimeError, ReferenceError):
+            return failure("control_gone", "The UI element changed. Refresh state and retry.")
+
+    def read_model(self, request):
+        name = request.get("model")
+        profile = self.window.snapshot.get("homeProfile") or {}
+        if name == "profile":
+            return {key: value for key, value in profile.items() if key != "matches"}
+        if name == "history":
+            offset = numeric(request.get("offset", 0), integer=True)
+            limit = numeric(request.get("limit", 20), integer=True)
+            if offset < 0 or not 1 <= limit <= 100:
+                raise UIError("invalid_value", "History requires offset>=0 and limit in 1..100.")
+            matches = profile.get("matches", [])
+            return {"matches": matches[offset:offset + limit], "loaded": len(matches), "offset": offset,
+                    "hasMore": profile.get("historyHasMore", False), "available": profile.get("historyAvailable", False)}
+        if name == "draft":
+            return self.window.snapshot.get("draft")
+        if name == "build":
+            return getattr(self.window, "shown_build", None)
+        if name == "updates":
+            page = self.window.updates_page
+            return {"installed": page.version, "status": page.status.text(),
+                    "releases": [{"version": r.version, "title": r.title, "published": r.published,
+                                  "notes": r.notes, "url": r.url} for r in getattr(page, "releases", [])]}
+        if name == "overlays":
+            overlays = self.window.overlays
+            return {"theme": getattr(overlays, "theme_id", None), "scale": getattr(overlays, "scale_percent", None),
+                    "preview": getattr(overlays, "previewing", False),
+                    "positions": {key: card.position for key, card in getattr(overlays, "cards", {}).items()}}
+        raise UIError("unknown_model", "Use profile, history, draft, build, updates or overlays.")
+
+    def window_action(self, request):
+        key = request.get("window", "main")
+        roots = self.registry.roots()
+        if not isinstance(key, str) or key not in roots:
+            raise UIError("unknown_window", "Use an owned window ID from state.windows.")
+        widget = roots[key]
+        operation = request.get("operation", "read")
+        if operation == "read":
+            return {"window": next(w for w in self.registry.windows() if w["id"] == key)}
+        if key != "main" and not isinstance(widget, QDialog):
+            raise UIError("invalid_action", "Control this overlay using its settings, not window actions.")
+        if operation in ("restore", "activate"):
+            widget.showNormal()
+            if operation == "activate":
+                widget.raise_()
+                widget.activateWindow()
+        elif operation == "minimize":
+            widget.showMinimized()
+        elif operation == "resize":
+            width = numeric(request.get("width"), integer=True)
+            height = numeric(request.get("height"), integer=True)
+            if not max(1, widget.minimumWidth()) <= width <= 16384 or not max(1, widget.minimumHeight()) <= height <= 16384:
+                raise UIError("invalid_value", "Requested window size is outside its limits.")
+            widget.resize(width, height)
+        elif operation == "close":
+            QTimer.singleShot(100, widget.close)
         else:
-            return failure("invalid_action", "Use describe for the control action and input type.")
-        if self.window.scroll.widget().isAncestorOf(widget):
-            self.window.scroll.ensureWidgetVisible(widget)
-        return {"ok": True, "result": self.state()}
+            raise UIError("invalid_action", "Use read, restore, activate, minimize, resize or close.")
+        return {"accepted": True, "window": key, "operation": operation}
+
+    def overlay_position(self, request):
+        key = request.get("overlay")
+        cards = getattr(self.window.overlays, "cards", {})
+        if not isinstance(key, str) or key not in cards:
+            raise UIError("unknown_control", "Choose a draggable overlay from read model=overlays.")
+        card = cards[key]
+        if request.get("reset") is True:
+            card.position = None
+            card.settings.remove(card.position_key)
+        else:
+            x, y = numeric(request.get("x")), numeric(request.get("y"))
+            if not 0 <= x <= 1 or not 0 <= y <= 1:
+                raise UIError("invalid_value", "Overlay coordinates must be within 0..1.")
+            card.position = (x, y)
+            card.settings.setValue(card.position_key, [x, y])
+        self.window.overlays.sync()
 
     def _accept(self, server):
         while server.hasPendingConnections():
@@ -238,6 +313,7 @@ class AutomationServer(QObject):
         elif socket.canReadLine():
             try:
                 request = json.loads(bytes(socket.readLine()).decode("utf-8"))
+                json.dumps(request, ensure_ascii=False, allow_nan=False).encode("utf-8")
             except (ValueError, RecursionError):
                 response = failure("invalid_json", "Send a UTF-8 JSON object on one line.")
             else:
@@ -258,14 +334,17 @@ def request(message, name=SOCKET_NAME, *, pid=None):
         except ValueError as error:
             return failure("invalid_pid", str(error))
         message = dict(message, processId=pid)
+    try:
+        data = (json.dumps(message, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        return failure("invalid_request", "Send a valid UTF-8 JSON request with finite numbers.")
+    if len(data) > MAX_REQUEST:
+        return failure("request_too_large", "Requests may be at most 8192 bytes.")
     socket = QLocalSocket()
     socket.connectToServer(name)
     if not socket.waitForConnected(TIMEOUT_MS):
         return failure("not_connected", f"LoL Helper PID {pid} is not available; no other instance was used."
                        if pid is not None else "Open LoL Helper Beta on this computer and try again.")
-    data = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
-    if len(data) > MAX_REQUEST:
-        return failure("request_too_large", "Requests may be at most 8192 bytes.")
     socket.write(data)
     socket.flush()
     deadline = time.monotonic() + TIMEOUT_MS / 1000
@@ -296,9 +375,10 @@ def positive_pid(value):
         raise argparse.ArgumentTypeError("PID must be a positive integer.") from None
 
 
-def main():
+def main(*, require_pid=False):
     parser = argparse.ArgumentParser(description="Inspect and control a running LoL Helper Beta for Windows.")
     parser.add_argument("--pid", type=positive_pid, help="GUI process ID; no fallback to another instance")
+    parser.add_argument("--output", help="Write the JSON result to this UTF-8 file (required by the GUI EXE)")
     commands = parser.add_subparsers(dest="method", required=True)
     commands.add_parser("schema", help="Print the API contract without starting the app")
     commands.add_parser("describe", help="List the controls and their supported actions")
@@ -308,21 +388,58 @@ def main():
     edit = commands.add_parser("set", help="Set a field by control ID")
     edit.add_argument("control")
     edit.add_argument("value", help="Enter true or false for a checkbox, or text for a text field")
+    edit.add_argument("--json-value", action="store_true", help="Parse value as JSON (numbers, booleans, choice data)")
+    for method in ("read", "focus", "submit"):
+        command = commands.add_parser(method, help="Read/focus/submit a control by ID")
+        command.add_argument("control")
+    find = commands.add_parser("find", help="Find controls by ID, label or tooltip")
+    find.add_argument("query")
+    call = commands.add_parser("call", help="Execute any documented JSON API request")
+    source = call.add_mutually_exclusive_group(required=True)
+    source.add_argument("--json", dest="request_json", help="One JSON request object")
+    source.add_argument("--file", dest="request_file", help="UTF-8 file containing one JSON request object")
     for command in commands.choices.values():
         command.add_argument("--pid", type=positive_pid, default=argparse.SUPPRESS,
                              help="GUI process ID; no fallback to another instance")
+        command.add_argument("--output", default=argparse.SUPPRESS, help="Write the JSON result to a UTF-8 file")
     args = vars(parser.parse_args())
     pid = args.pop("pid", None)
-    sys.stdout.reconfigure(encoding="utf-8")
+    output = args.pop("output", None)
+    if require_pid and args["method"] != "schema" and pid is None:
+        parser.error("Choose the GUI process explicitly with --pid")
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if sys.stdout is None and not output:
+        parser.error("Use --output response.json when calling the GUI EXE")
+    def emit(value):
+        data = json.dumps(value, ensure_ascii=False, indent=2)
+        if output:
+            Path(output).write_text(data, encoding="utf-8")
+        if sys.stdout is not None:
+            print(data)
     if args["method"] == "schema":
-        print(json.dumps(dict(schema(), endpoint=endpoint_for_pid(pid) if pid is not None else SOCKET_NAME),
-                         ensure_ascii=False, indent=2))
+        emit(dict(schema(), endpoint=endpoint_for_pid(pid) if pid is not None else SOCKET_NAME))
         return 0
     if args["method"] == "set" and args["value"] in ("true", "false"):
         args["value"] = args["value"] == "true"
+    if args.pop("json_value", False):
+        try:
+            args["value"] = json.loads(args["value"]) if isinstance(args["value"], str) else args["value"]
+        except ValueError:
+            parser.error("--json-value requires valid JSON")
+    if args["method"] == "call":
+        try:
+            data = args.get("request_json")
+            if args.get("request_file"):
+                data = Path(args["request_file"]).read_text(encoding="utf-8-sig")
+            args = json.loads(data)
+            if not isinstance(args, dict):
+                raise ValueError("Request must be an object")
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
     _application = QCoreApplication.instance() or QCoreApplication([])
     response = request(args, pid=pid)
-    print(json.dumps(response, ensure_ascii=False, indent=2))
+    emit(response)
     return 0 if response["ok"] else 1
 
 

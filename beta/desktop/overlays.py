@@ -353,6 +353,7 @@ class OverlayControls(QObject):
         for text, direction, name in (("‹", -1, "Предыдущая тема"), ("›", 1, "Следующая тема")):
             change = QPushButton(text)
             change.setAccessibleName(name)
+            change.setProperty("automationId", "game_overlay_theme_previous" if direction == -1 else "game_overlay_theme_next")
             change.setFixedWidth(34)
             change.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             change.clicked.connect(lambda _checked=False, step=direction: self.cycle_theme(step))

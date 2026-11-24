@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from artwork import Artwork, DraftHero, loadout_catalog
-from automation import AutomationServer
+from automation import AutomationServer, main as automation_main
 from build_choice import BuildChoice
 from draft import DraftScreen
 from home import Dashboard, MatchList, logo_path, set_portrait
@@ -330,6 +330,9 @@ class Window(QWidget):
                                 card.more_comments, "button")
         for side, title in (("allies", "союзник"), ("enemies", "соперник")):
             for index, card in enumerate(self.draft_screen.cards[side], 1):
+                if side == "enemies":
+                    self.automation.add(f"draft_comments_enemies_{index}", f"Все комментарии · соперник {index}",
+                                        card.more_comments, "button")
                 self.automation.add(f"draft_role_{side}_{index}", f"Роль · {title} {index}",
                                     card.role_icon, "choice")
                 self.automation.add(f"draft_details_{side}_{index}", f"Детали статистики · {title} {index}",
@@ -357,6 +360,30 @@ class Window(QWidget):
             self.automation.add(key, title, widget, kind)
         for (scope, topic), widget in self.assistant_page.checks.items():
             self.automation.add(f"assistant_{scope.lower() or 'common'}_{topic}", widget.accessibleName(), widget, "checkbox")
+        for key, widget, kind in (
+            ("main_scroll", self.scroll, "scroll"),
+            ("open_update_offer", self.update_banner_button, "button"),
+            ("assistant_volume", self.assistant_page.volume, "integer"),
+            ("assistant_cs_target", self.assistant_page.cs, "number"),
+            ("overlay_theme", self.overlays.desktop_theme, "choice"),
+            ("overlay_scale", self.overlays.desktop_scale, "integer"),
+            ("overlay_preview", self.overlays.desktop_preview, "checkbox"),
+            ("game_overlay_scale", self.overlays.game_scale, "integer"),
+            ("game_overlay_preview", self.overlays.game_preview, "toggle"),
+            ("game_overlay_next_object", self.overlays.objective_preview, "button"),
+            ("game_overlay_expand", self.overlays.drawer_header, "toggle"),
+            ("game_overlay_scroll", self.overlays.drawer_scroll, "scroll"),
+            ("overview_show_more", self.dashboard.matches.more, "button"),
+        ):
+            title = widget.accessibleName() or (widget.text() if hasattr(widget, "text") else "") or widget.toolTip() or key
+            self.automation.add(key, title, widget, kind)
+        for key, widget in self.overlays.in_game.items():
+            self.automation.add(f"game_overlay_{key}", widget.text(), widget, "checkbox")
+        for (scope, topic), widget in self.assistant_page.previews.items():
+            self.automation.add(f"assistant_example_{scope.lower() or 'common'}_{topic}",
+                                "Прослушать: " + self.assistant_page.checks[(scope, topic)].accessibleName(), widget, "button")
+        for index, (_card, _title, _date, _body, link) in enumerate(self.updates_page.notes, 1):
+            self.automation.add(f"update_notes_{index}", f"Полный патчноут · {index}", link, "button")
         self.home_active = None
         self.paint_snapshot()
         if self.auto_open_review:
@@ -1192,4 +1219,7 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--apply-update":
         raise SystemExit(apply_update(sys.argv[2]))
+    if "--api" in sys.argv:
+        sys.argv.remove("--api")
+        raise SystemExit(automation_main(require_pid=True))
     raise SystemExit(main())

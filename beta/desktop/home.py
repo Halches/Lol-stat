@@ -328,6 +328,7 @@ class MatchList(QWidget):
                 if row is focused and focused is not None:
                     replacement = added
         for row in existing.values():
+            row.setProperty("automationRetired", True)
             row.hide()
             row.deleteLater()
         if replacement and replacement.review and self.isVisible():
@@ -340,6 +341,10 @@ class MatchList(QWidget):
 
     def add_row(self, item):
         row = MatchCard(self.artwork, item, self.open_review)
+        if row.review is not None:
+            scope = "overview" if self.overview else "history"
+            row.review.setProperty("automationId", f"{scope}_match_{row.match_id}_review")
+            row.review.setAccessibleName(f"Разбор матча {row.match_id}")
         row.set_compact(self.compact_width)
         self.cards.addWidget(row)
         self.rows.append(row)

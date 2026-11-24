@@ -1,0 +1,157 @@
+LoL Helper — локальный API интерфейса, протокол 1
+
+ОБЯЗАТЕЛЬНО ДЛЯ РАЗРАБОТКИ НОВЫХ ФУНКЦИЙ
+Каждая новая пользовательская функция получает API одновременно с UI:
+действия, чтение состояния и результата, понятный каталог и постоянные
+смысловые ID основных элементов. Фоновая функция без действий должна
+экспортировать состояние и результат. Агенту не должны требоваться
+скриншоты, координаты или история чата для выполнения сценария.
+Динамические кнопки адресуются по ID сущности. Для нестандартного элемента
+добавляется семантическая команда. Автообнаружение не заменяет продуманную
+привязку основных функций. Проверки UI, блокировки и изоляция по PID
+сохраняются; секреты не экспортируются.
+В том же изменении обновляются контракт/примеры и проверки успешного
+действия, результата и недопустимого ввода/состояния. При пересборке
+проверяется API итогового EXE. До этого новая функция не считается готовой.
+Полное правило для всех разработчиков: корневой AGENTS.md проекта.
+
+НАЧАЛО ДЛЯ АГЕНТА БЕЗ КОНТЕКСТА
+API управляет самим приложением через Qt, без мыши, координат и захвата
+экрана. Работает только на этом ПК и в контексте пользователя Windows.
+Транспорт — named pipe Qt, один JSON-запрос UTF-8 и ответ на соединение,
+разделитель LF. Сначала получите describe, затем state перед действием.
+Не угадывайте ID кнопок: берите их из актуального каталога.
+
+1. Найдите PID процесса окна. У PyInstaller также есть процесс-загрузчик,
+   у него нет главного окна; его PID не подходит.
+   PowerShell:
+   Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like 'LoL Helper*' } | Select-Object Id,MainWindowTitle,Path
+2. Из beta, Python с установленным PySide6:
+   python desktop/automation.py --pid 12345 describe
+   python desktop/automation.py --pid 12345 state
+3. Сверьте processId, executable, appVersion. Явный --pid никогда не
+   обращается к другому экземпляру. Не используйте общий адрес, если
+   запущено несколько копий. В старой сборке PID-адрес может отсутствовать:
+   это ошибка подключения, а не повод подставлять общий канал.
+
+БЕЗ УСТАНОВЛЕННОГО PYTHON
+Сам EXE также содержит API-клиент. --api не открывает ещё одно главное
+окно, а обращается к указанному PID. У GUI EXE нет консольного stdout,
+поэтому укажите --output. Например, PowerShell:
+   $exe = 'W:\LolHelper-main\beta\out\LoLHelperBeta-Qt.exe'
+   New-Item -ItemType Directory -Path C:\Temp -Force | Out-Null
+   Start-Process -FilePath $exe -ArgumentList '--api --pid 12345 state --output C:\Temp\lolhelper-state.json' -WindowStyle Hidden -Wait
+   Get-Content C:\Temp\lolhelper-state.json -Raw
+Для путей с пробелами используйте обычное Windows-кавычение аргументов.
+--api schema --output ... выдаёт контракт без подключения. Для остальных
+действий EXE-клиент требует --pid. Результат — тот же JSON, что у Python.
+
+ПРИМЕРЫ CLI
+   python desktop/automation.py --pid 12345 click menu_assistant
+   python desktop/automation.py --pid 12345 find громкость
+   python desktop/automation.py --pid 12345 read assistant_volume
+   python desktop/automation.py --pid 12345 set assistant_volume 70 --json-value
+   python desktop/automation.py --pid 12345 set assistant_cs_target 7.5 --json-value
+   python desktop/automation.py --pid 12345 click menu_builds
+   python desktop/automation.py --pid 12345 set champion_search Виктор
+   python desktop/automation.py --pid 12345 set preview_role MIDDLE
+   python desktop/automation.py --pid 12345 click preview_build
+   python desktop/automation.py --pid 12345 call --file request.json
+
+СОЗДАНИЕ ЗАПРОСОВ ИЗ PYTHON
+   from PySide6.QtCore import QCoreApplication
+   from desktop.automation import request
+   app = QCoreApplication.instance() or QCoreApplication([])
+   result = request({'method': 'state', 'visibleOnly': True}, pid=12345)
+Не меняйте глобальный SOCKET_NAME: передавайте pid явно.
+
+КАТАЛОГ
+describe возвращает методы, capabilities, окна и все кнопки/вводы, в том
+числе скрытые. state содержит их текущие значения, видимость, доступность,
+диапазоны чисел, варианты списков и текст экрана. Для сокращения выдачи:
+   {"method":"state","visibleOnly":true}
+   {"method":"describe","scope":"assistant"}
+   {"method":"find","query":"масштаб"}
+scope берётся из каталога: имя страницы, main или ID отдельного окна.
+Каждый control содержит id, label, text (если применимо), kind, actions,
+scope, visible, available, enabled, tooltip, description и stableId.
+Для чисел: inputType, value, minimum, maximum, step, decimals.
+Для списков: options с типизированным value, label, index, enabled.
+Не преобразуйте числовые значения списка в строки.
+Пароли не возвращаются в state/read.
+
+СТАБИЛЬНОСТЬ И ОХВАТ
+Текущие основные элементы имеют постоянные смысловые ID. Кнопки разбора
+матчей: history_match_<ID матча>_review и overview_match_<ID матча>_review.
+После перерисовки они адресуют тот же матч; удалённая строка не подменяется
+другим матчем. Для будущих кнопок/полей есть автоматическое обнаружение.
+auto_* — ID конкретного живого виджета, stableId=false. Не сохраняйте их
+между перезапусками. После обновления страницы перечитайте каталог.
+Внутренние компоненты Qt (редактор spinbox, стрелки scrollbars и т.п.)
+управляются через соответствующее поле/прокрутку, а не отдельными кликами.
+
+ДЕЙСТВИЯ
+click: button, checkbox, toggle; вызывает обычное действие Qt.
+set: JSON value нужного inputType. Числа проверяются до изменения:
+диапазон, конечность, целочисленность/точность. Выключенные и read-only
+элементы изменить нельзя. Валидация QLineEdit сохраняется.
+select: список по value или index. Выключенные варианты не выбираются.
+Голос и оверлеи сохраняются сразу. save_settings/Enter в поле site
+сохраняют адрес сайта, а не все параметры страницы.
+focus: фокус элемента без системных нажатий.
+submit: Enter для текстового поля; требует допустимого значения.
+scroll: scroll-area, axis=vertical|horizontal, value внутри диапазона.
+
+   {"method":"set","control":"assistant_volume","value":75}
+   {"method":"select","control":"preview_role","value":"MIDDLE"}
+   {"method":"select","control":"other_build","index":0}
+   {"method":"scroll","control":"main_scroll","axis":"vertical","value":200}
+
+По умолчанию скрытые элементы не нажимаются. Для намеренного фонового
+действия допустимо allowHidden=true; enabled, readOnly, ограничения
+приложения и блокировка модальным диалогом остаются в силе. На свёрнутом
+главном окне можно работать с элементами текущей страницы, не разворачивая
+и не активируя приложение. Действие не обходит проверку состояния драфта,
+блокировки импорта или запрет перезапуска обновления во время матча.
+
+ЧТЕНИЕ БЕЗ СКРИНШОТА
+   {"method":"read","control":"assistant_cs_target"}
+   {"method":"read","scope":"updates"}
+   {"method":"read","model":"build"}
+   {"method":"read","model":"draft"}
+   {"method":"read","model":"profile"}
+   {"method":"read","model":"history","offset":0,"limit":20}
+   {"method":"read","model":"updates"}
+   {"method":"read","model":"overlays"}
+Ответ read расположен в result.data, метаданные экземпляра — рядом.
+history читает загруженные строки (limit 1..100), available и hasMore.
+updates содержит полные патчноуты даже при сокращённом тексте на экране.
+state.screenText содержит видимые подписи/доступные имена/подсказки;
+если их больше 200, используйте read с нужным scope.
+
+ОКНА И ОВЕРЛЕИ
+ID окон находятся в state.windows/describe.windows. main — главное;
+диалоги получают собственный ID. Содержимое диалога читается через scope.
+   {"method":"window","window":"main","operation":"restore"}
+   {"method":"window","window":"main","operation":"resize","width":1160,"height":770}
+   {"method":"window","window":"dialog_123","operation":"close"}
+Доступны read/restore/activate/minimize/resize/close, перечисленные для
+конкретного окна. close отложен до отправки ответа. Чужие окна/процессы
+недоступны. Оверлеи настраиваются через controls; перемещение без мыши:
+   {"method":"overlay_position","overlay":"build","x":0.1,"y":0.2}
+   {"method":"overlay_position","overlay":"build","reset":true}
+x/y нормализованы в 0..1. Прикреплённый к Tab оверлей не перемещается.
+
+ОТВЕТЫ И ОШИБКИ
+Успех: {"ok":true,"result":{...}}.
+Ошибка: {"ok":false,"error":{"code":"...","message":"..."}}.
+wrong_process/not_connected: перепроверьте PID, не переключайтесь на общий
+канал. unknown_control/control_gone: перечитайте каталог.
+control_hidden: откройте страницу или намеренно задайте allowHidden.
+control_disabled/modal_open: выясните причину в state и выполните обычный
+сценарий, не обходите блокировку. invalid_value: используйте options/range.
+Долгие действия не блокируют API: следите за previewInProgress,
+importInProgress, roleChangeInProgress, updates.busy и текстом статуса.
+
+Системные диалоги Windows, браузер и управление самой игрой не являются
+интерфейсом LoL Helper и через этот API не экспортируются.
