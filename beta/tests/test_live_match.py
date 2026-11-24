@@ -57,6 +57,23 @@ class FlexTests(unittest.TestCase):
 
 
 class LiveCardsTests(unittest.TestCase):
+    def test_tab_keeps_confirmed_frame_when_roster_reorders_and_templates_arrive(self):
+        from overlay_tab import TabFrameFinder
+        finder=TabFrameFinder();self.addCleanup(finder.close)
+        rect=(0,0,3440,1440)
+        players=[{'c':'A','team':'ORDER'},{'c':'B','team':'CHAOS'}]
+        observed={'frame':(949,408,2488,930,340),'columns':(('A',),('B',)),
+                  'teams':('ORDER','CHAOS'),'confidence':.9}
+        with patch('overlay_tab.monotonic',return_value=0):
+            finder.update(rect,{'A':'png'},players,[0,1])
+            finder.accept_observation(observed,.1);finder.accept_observation(observed,.2)
+            revision=finder.revision
+            result=finder.update(rect,{'A':'png','B':'png'},list(reversed(players)),[0,1])
+            self.assertEqual(result['columns'],observed['columns'])
+            self.assertEqual(finder.revision,revision)
+            self.assertIsNone(finder.update(rect,{'A':'png','B':'png'},players,[0,2]))
+            self.assertGreater(finder.revision,revision)
+
     def test_tab_geometry_ignores_recorded_four_pixel_jitter_and_confirms_movement(self):
         from overlay_tab import TabFrameFinder
         finder=TabFrameFinder();self.addCleanup(finder.close)
@@ -171,6 +188,25 @@ class NewSettingsTests(unittest.TestCase):
 
     setUp = ux.ConnectionUXTests.setUp
     call = ux.ConnectionUXTests.call
+
+    def test_tab_api_explains_disabled_and_released_key_without_game_actions(self):
+        import overlays
+        controls=self.window.overlays
+        with patch.object(overlays,'foreground_game',return_value={'x':0,'y':0,'width':1920,'height':1080}), \
+             patch.object(overlays.native,'overlay_area',return_value=ux.checks.qt.QRect(0,0,1920,1080)), \
+             patch.object(overlays.native,'scoreboard_key',return_value=False):
+            controls.timer.start(75)
+            controls.desktop['tab'].setChecked(False)
+            controls.sync()
+            result=self.call('read',model='overlays')['data']['tab']
+            self.assertEqual(result['reasonCode'],'disabled')
+            self.assertFalse(result['windowVisible'])
+            controls.desktop['tab'].setChecked(True)
+            controls.sync()
+            result=self.call('read',model='overlays')['data']['tab']
+            self.assertEqual(result['reasonCode'],'key_released')
+            self.assertTrue(result['enabled'])
+            self.assertFalse(result['keyDown'])
 
     def test_repeated_tab_attach_does_not_resize_move_or_repaint_unchanged_window(self):
         from PySide6.QtCore import QRect

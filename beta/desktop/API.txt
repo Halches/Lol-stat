@@ -23,6 +23,11 @@ read model=overlays.tab: state=hidden/searching/attached, frame, confidence,
 columns (распознанные чемпионы слева/справа), ownLeft, gold в порядке экрана
 и differences в пользу своей команды. Неопознанная строка имеет null.
 Положение Tab вычисляется по реальной рамке; overlay_position для tab запрещён.
+tab также сообщает enabled, keyDown, gameForeground, dataAvailable,
+windowVisible и reasonCode: disabled/game_not_foreground/key_released/
+no_live_data/detecting/outside_game_area/visible. Это позволяет проверить
+причину отсутствия окна без снимка. Загрузка портретов и порядок выдачи
+игроков не сбрасывают подтверждённую рамку; смена матча сбрасывает её.
 Геометрия подтверждается повторным наблюдением. Колебания до 8 физических
 пикселей не двигают прикреплённое окно. Новый размер/положение требует двух
 согласованных кадров. Последние идентификаторы строк удерживаются не дольше

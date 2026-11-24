@@ -626,7 +626,9 @@ class OverlayControls(QObject):
             else:
                 card.hide()
         live = (self.match_contents.get("tab") or {}).get("visual")
-        show_tab = has_area and (self.previewing or self.match_active and live) and self.desktop["tab"].isChecked() and native.scoreboard_key()
+        tab_enabled = self.desktop["tab"].isChecked()
+        tab_key_down = native.scoreboard_key()
+        show_tab = has_area and (self.previewing or self.match_active and live) and tab_enabled and tab_key_down
         tab_bounds = tuple(bounds[key] for key in ("x", "y", "width", "height")) if show_tab else None
         portraits = None
         players = None
@@ -661,6 +663,13 @@ class OverlayControls(QObject):
                 self.tab_status = {"state": "searching", "reason": "Рамка находится за доступной областью окна."}
         else:
             self.scoreboard.hide()
+        reason = ("disabled" if not tab_enabled else "game_not_foreground" if not has_area
+                  else "key_released" if not tab_key_down else "no_live_data" if not (self.previewing or self.match_active and live)
+                  else "outside_game_area" if "reason" in self.tab_status
+                  else "detecting" if self.tab_status["state"] == "searching" else "visible")
+        self.tab_status.update(reasonCode=reason, enabled=tab_enabled, keyDown=tab_key_down,
+                               gameForeground=has_area, dataAvailable=bool(live),
+                               windowVisible=self.scoreboard.isVisible())
         if has_area and self.previewing:
             self.preview_indicator.present(area, (.5, .012))
         else:

@@ -92,8 +92,10 @@ class TabFrameFinder:
         self.frame = result
 
     def update(self, rect, portraits=None, players=None, session=None):
-        context = (rect, tuple(sorted(portraits)) if portraits is not None else None,
-                   tuple((p['c'], p['team']) for p in players or []), session)
+        # Downloaded templates and API row order do not change the scoreboard.
+        # Keep its confirmed geometry while using new templates on the next scan.
+        context = (rect, portraits is not None,
+                   tuple(sorted((p['c'], p['team']) for p in players or [])), session)
         if self.rect != context:
             self.rect = context
             self.revision += 1
