@@ -9,6 +9,32 @@ from desktop.live_overlays import live_cards
 
 class FlexTests(unittest.TestCase):
     snapshots = desktop.GameflowTests.snapshots
+
+    def test_import_accepts_observed_stale_flow_but_refuses_changed_context(self):
+        from desktop.worker import Companion
+        from unittest.mock import Mock
+        for flow_id, draft_id, champion, expected in ((14,15,112,True),(16,15,112,False),(14,16,112,False),(14,15,103,False)):
+            with self.subTest(flow=flow_id,draft=draft_id,champion=champion):
+                client=Mock(port=123,token='test')
+                client.region.return_value='EUW'
+                client.call.return_value=desktop.gameflow('ChampSelect',flow_id,440)
+                draft={'gameId':draft_id,'localPlayerCellId':0,
+                       'myTeam':[{'cellId':0,'championId':champion,'assignedPosition':'middle'}],
+                       'actions':[[{'actorCellId':0,'type':'pick','championId':champion,'completed':True}]]}
+                client.champ_select.return_value=draft
+                client.set_runes.side_effect=lambda *args,**kwargs: bool(kwargs['draft_session']())
+                client.set_items.side_effect=lambda *args,**kwargs: bool(kwargs['draft_session']())
+                catalog=desktop.DraftRosterTests.catalog
+                with patch('desktop.worker.read_catalog',return_value=catalog),patch.object(Companion,'update_catalog',return_value=catalog):
+                    companion=Companion(client)
+                self.addCleanup(companion.close)
+                companion.build_key=('Viktor','MIDDLE',112,15)
+                companion.draft_flow_binding=((companion.flow_generation,15),14)
+                companion.build={'pick':{'variant':{'prim':8200,'sec':8000,'perks':[],'shards':[]},'sets':[]}}
+                result=companion.export(list(companion.build_key),'pick')
+                self.assertEqual(client.set_runes.called,expected)
+                if expected:
+                    self.assertEqual(result['results'],['Руны применены','Набор предметов добавлен'])
     def test_flex_game_and_reconnect_remain_connected(self):
         playing, reconnect = self.snapshots(desktop.gameflow('InProgress', 123, 440),
                                             desktop.gameflow('Reconnect', 123, 440), home=True)
@@ -31,6 +57,38 @@ class FlexTests(unittest.TestCase):
 
 
 class LiveCardsTests(unittest.TestCase):
+    def test_tab_rows_follow_recognized_portraits_and_team_side(self):
+        from overlays import tab_values
+        live = {'myTeam':'CHAOS','players':[{'c':'A','team':'ORDER','gold':100},
+                {'c':'B','team':'CHAOS','gold':300},{'c':'C','team':'ORDER','gold':500},
+                {'c':'D','team':'CHAOS','gold':50}]}
+        detected = {'teams':['ORDER','CHAOS'], 'columns':[['C','A',None],['B','D',None]]}
+        result = tab_values(live,detected)
+        self.assertFalse(result['ownLeft'])
+        self.assertEqual(result['gold'],[600,350])
+        self.assertEqual(result['differences'],[-200,-50,None])
+        detected={'teams':['CHAOS','ORDER'],'columns':[['B','D',None],['C','A',None]]}
+        result=tab_values(live,detected)
+        self.assertTrue(result['ownLeft'])
+        self.assertEqual(result['differences'],[-200,-50,None])
+
+    def test_releasing_tab_discards_pending_detection(self):
+        from overlay_tab import TabFrameFinder
+        from unittest.mock import Mock
+        finder=TabFrameFinder()
+        finder.executor.shutdown(wait=True)
+        finder.executor=Mock()
+        pending=Future()
+        finder.executor.submit.return_value=pending
+        self.addCleanup(finder.close)
+        with patch('overlay_tab.monotonic',return_value=0):
+            finder.update((0,0,1920,1080))
+        with patch('overlay_tab.monotonic',return_value=.3):
+            finder.update((0,0,1920,1080))
+            finder.update(None)
+            pending.set_result((1,2,3,4,0))
+            self.assertIsNone(finder.update(None))
+
     def test_old_request_is_discarded_on_match_change_and_frozen_clock_is_hidden(self):
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -75,6 +133,24 @@ class NewSettingsTests(unittest.TestCase):
 
     setUp = ux.ConnectionUXTests.setUp
     call = ux.ConnectionUXTests.call
+
+    def test_each_phrase_has_independent_output_channels_and_reset(self):
+        self.call('click',control='menu_assistant')
+        self.call('click',control='assistant_phrases_expand')
+        self.call('set',control='assistant_phrase_hoard_voice',value=False)
+        self.call('set',control='assistant_phrase_hoard_text',value=True)
+        self.call('set',control='assistant_phrase_hoard_sound',value=True)
+        assistant=self.window.assistant
+        with patch.object(ux.checks.qt.QApplication,'beep') as beep, patch.object(assistant.player,'submit') as submit:
+            assistant.deliver_phrase('hoard')
+            beep.assert_called_once();submit.assert_not_called()
+        self.assertIn('золота',assistant.text_message)
+        model=self.call('read',model='assistant')['data']
+        self.assertEqual(model['phrases']['hoard']['channels'],{'voice':False,'text':True,'sound':True})
+        self.assertEqual(model['phrases']['trinket']['channels'],{'voice':True,'text':False,'sound':False})
+        self.call('click',control='assistant_phrase_hoard_reset')
+        model=self.call('read',model='assistant')['data']
+        self.assertEqual(model['phrases']['hoard']['channels'],model['phrases']['trinket']['channels'])
 
     def test_live_portraits_request_actual_champion_and_use_preview_dimensions(self):
         from overlay_samples import SampleCard

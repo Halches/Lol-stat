@@ -2,7 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 
-from PySide6.QtCore import QObject, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 
@@ -74,7 +74,24 @@ class Assistant(QObject):
         self.poll()
         self.changed.emit()
 
+    def phrase_channel(self, phrase, channel):
+        key = f"assistant/phrase_output/{phrase}/{channel}"
+        if self.settings.contains(key):
+            return self.flag(key)
+        mode = self.settings.value("assistant/output", "voice")
+        return self.flag("assistant/text", False) if channel == "text" else mode == channel
+
+    def reset_phrase_output(self, phrase):
+        self.settings.remove(f"assistant/phrase_output/{phrase}")
+        self.revision += 1
+        self.player.stop()
+        self.text_message = ""
+        self.changed.emit()
+
     def preview(self, phrase="sample"):
+        if phrase != "sample":
+            self.deliver_phrase(phrase, preview=True)
+            return
         self.player.stop()
         path = self.pack.clip(self.voice, phrase)
         if path:
@@ -91,12 +108,11 @@ class Assistant(QObject):
         if not preview and not self.flag("assistant/phrases/" + phrase):
             return
         self.last_phrase = PHRASES.get(phrase, "")
-        if self.flag("assistant/text", False):
+        if self.phrase_channel(phrase, "text"):
             self.text_message, self.text_until = self.last_phrase, monotonic() + 6
-        mode = self.settings.value("assistant/output", "voice")
-        if mode == "sound":
+        if self.phrase_channel(phrase, "sound"):
             QApplication.beep()
-        elif mode == "voice":
+        if self.phrase_channel(phrase, "voice"):
             path = self.pack.clip(self.voice, phrase)
             if path:
                 priority = 90 if phrase.startswith(("enemy_level", "level", "dragon", "baron", "elder")) else 50
@@ -114,7 +130,8 @@ class Assistant(QObject):
         now = monotonic()
         context = dict(getattr(self.companion, "voice_context", {}) or {})
         configured = self.flag("assistant/enabled", False) and (bool(self.pack.voices)
-            or self.settings.value("assistant/output", "voice") != "voice" or self.flag("assistant/text", False))
+            or self.settings.value("assistant/output", "voice") != "voice" or self.flag("assistant/text", False)
+            or any(self.phrase_channel(p, c) for p in PHRASES for c in ("text", "sound")))
         active = bool(configured and context.get("active") and now - context.get("observedAt", 0) <= 4)
         session = (context.get("generation"), context.get("gameId")) if configured and context.get("gameId") else None
         if session != self.session:
@@ -332,6 +349,7 @@ class AssistantPage(QWidget):
                                "Исторические маршруты лесника и имена чемпионов в записи не включены.", "caption", wrap=True))
         self.show_category()
         self.phrase_toggles = {}
+        self.channel_checks = {}
         phrase_card, phrases = panel("homePanel")
         self.phrase_expand = button("Отдельные фразы", lambda: None, "tab")
         self.phrase_expand.setProperty("automationId", "assistant_phrases_expand")
@@ -351,6 +369,20 @@ class AssistantPage(QWidget):
             row.addWidget(toggle)
             row.addWidget(label(text, "captionStrong", wrap=True), 1)
             rows.addLayout(row)
+            channels = QHBoxLayout()
+            for channel, title in (("voice", "Голос"), ("text", "Текст"), ("sound", "Сигнал")):
+                option = QCheckBox(title)
+                option.setAccessibleName(f"{title}: {text}")
+                option.setProperty("automationId", f"assistant_phrase_{key}_{channel}")
+                option.setChecked(assistant.phrase_channel(key, channel))
+                option.toggled.connect(lambda value, key=key, channel=channel: assistant.configure(
+                    f"assistant/phrase_output/{key}/{channel}", value))
+                self.channel_checks[(key, channel)] = option
+                channels.addWidget(option)
+            reset = button("По умолчанию", lambda _checked=False, key=key: assistant.reset_phrase_output(key), "tab")
+            reset.setProperty("automationId", f"assistant_phrase_{key}_reset")
+            channels.addWidget(reset)
+            rows.addLayout(channels)
             self.phrase_toggles[key] = toggle
         phrases.addWidget(phrase_list)
         phrase_list.hide()
@@ -367,6 +399,9 @@ class AssistantPage(QWidget):
         self.voice_row.setDirection(QBoxLayout.Direction.TopToBottom if width < 620 else QBoxLayout.Direction.LeftToRight)
 
     def refresh(self):
+        for (phrase, channel), widget in self.channel_checks.items():
+            with QSignalBlocker(widget):
+                widget.setChecked(self.assistant.phrase_channel(phrase, channel))
         self.state.setText(self.assistant.status)
         self.last.setText(f"Последняя подсказка: {self.assistant.last_phrase}")
         self.error.setText(self.assistant.error)

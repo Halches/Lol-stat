@@ -237,7 +237,7 @@ class SampleCard(QWidget):
             draw_comparison(painter, QRectF(11 + 47 * index, 40, 44, 23), self.theme, value)
 
 
-def draw_team_bar(painter, rect, theme, gold=None):
+def draw_team_bar(painter, rect, theme, gold=None, own_left=True, caption=""):
     # Match the scoreboard's side edges and leave its own top border visible at the join.
     left, top = rect.left() + .5, rect.top() + .5
     right, bottom = rect.right() - .5, rect.bottom()
@@ -263,21 +263,21 @@ def draw_team_bar(painter, rect, theme, gold=None):
     stripe = QRectF(rect.left() + 9, rect.bottom() - 8, rect.width() - 18, 4)
     gold = gold if gold is not None else TEAM_GOLD
     split = stripe.width() * (gold[0] / sum(gold) if sum(gold) else .5)
-    painter.fillRect(QRectF(stripe.left(), stripe.top(), split, stripe.height()), GOOD)
-    painter.fillRect(QRectF(stripe.left() + split, stripe.top(), stripe.width() - split, stripe.height()), BAD)
-    difference = gold[0] - gold[1]
-    text(painter, f"{difference:+,}".replace(",", " "),
+    painter.fillRect(QRectF(stripe.left(), stripe.top(), split, stripe.height()), GOOD if own_left else BAD)
+    painter.fillRect(QRectF(stripe.left() + split, stripe.top(), stripe.width() - split, stripe.height()), BAD if own_left else GOOD)
+    difference = (gold[0] - gold[1]) * (1 if own_left else -1)
+    text(painter, caption + f"{difference:+,}".replace(",", " "),
          (rect.left(), rect.top(), rect.width(), rect.height() - 8), min(22, rect.height() * .57),
          trend(difference), Qt.AlignmentFlag.AlignHCenter)
 
 
-def draw_comparison(painter, rect, theme, value):
+def draw_comparison(painter, rect, theme, value, own_left=True):
     draw_panel(painter, rect, theme)
     color = trend(value)
     text(painter, f"{value:+}" if value else "0", (rect.left(), rect.top(), rect.width(), rect.height() * .60),
          min(20, rect.height() * .48), color, Qt.AlignmentFlag.AlignHCenter)
     if value:
-        triangle(painter, rect.center().x(), rect.top() + rect.height() * .74, "left" if value > 0 else "right",
+        triangle(painter, rect.center().x(), rect.top() + rect.height() * .74, "left" if (value > 0) == own_left else "right",
                  color, min(5, rect.height() * .16))
 
 
@@ -291,15 +291,20 @@ class ScoreboardDecoration(QWidget):
         self.header = 0
         self.bar = 0
         self.scale = 1
+        self.live = None
 
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        draw_team_bar(painter, QRectF(0, 0, self.width(), self.bar), self.theme)
+        draw_team_bar(painter, QRectF(0, 0, self.width(), self.bar), self.theme,
+                      self.live["gold"] if self.live else None,
+                      self.live["ownLeft"] if self.live else True,
+                      "Ваш перевес по предметам: " if self.live else "")
         step = self.rows / 5
         label_width = min(54 * self.scale, step)
         label_height = min(33 * self.scale, step * .74)
-        for index, value in enumerate(LANE_DIFFS):
+        for index, value in enumerate(self.live["differences"] if self.live else LANE_DIFFS):
             y = self.header + (index + .5) * step - label_height / 2
-            draw_comparison(painter, QRectF((self.width() - label_width) / 2, y, label_width, label_height),
-                            self.theme, value)
+            if value is not None:
+                draw_comparison(painter, QRectF((self.width() - label_width) / 2, y, label_width, label_height),
+                                self.theme, value, self.live["ownLeft"] if self.live else True)

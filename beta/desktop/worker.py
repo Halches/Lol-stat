@@ -276,6 +276,7 @@ class Companion:
         self.build = None
         self.build_roster = None
         self.build_patch = None
+        self.draft_flow_binding = None
         self.build_locked = False
         self.special_job = None
         self.special_cache = OrderedDict()
@@ -678,6 +679,9 @@ class Companion:
         self.draft_seen = now
         roster = draft_roster(draft, self.catalog)
         draft_id = draft.get("gameId") or game_id
+        binding_key = (self.flow_generation, draft_id)
+        if self.draft_flow_binding is None or self.draft_flow_binding[0] != binding_key:
+            self.draft_flow_binding = (binding_key, game_id)
         self.apply_draft_roles(roster, draft_id, role_change)
         self.card_stats.apply(roster, self.catalog, unavailable_draft_champions(draft, roster, self.catalog), now)
         ids = {key: cid for cid, key in self.catalog["ids"].items()}
@@ -768,9 +772,22 @@ class Companion:
             game = flow.get("gameData") or {}
             game_id = game.get("gameId")
             if (flow.get("phase") != "ChampSelect" or (game.get("queue") or {}).get("id") not in SUPPORTED_QUEUES
-                    or type(key[3]) is not int or key[3] <= 0 or game_id not in (None, 0, key[3])):
+                    or type(key[3]) is not int or key[3] <= 0):
                 return None, False
             draft = self.query_draft() or {}
+            current_id = draft.get("gameId")
+            # Champ-select is authoritative here: gameflow can retain the last
+            # match ID until the next game starts. Missing IDs still use the
+            # conservative gameflow fallback; another explicit draft is refused.
+            if current_id not in (None, 0):
+                if current_id != key[3]:
+                    return None, False
+                binding = self.draft_flow_binding
+                observed_flow = binding[1] if binding and binding[0] == (self.flow_generation, key[3]) else None
+                if game_id not in (None, 0, key[3], observed_flow):
+                    return None, False
+            elif game_id not in (None, 0, key[3]):
+                return None, False
             if (self.lcu.port, self.lcu.token) != connection:
                 return None, False
             target = self.draft_target(draft, game_id=game_id)

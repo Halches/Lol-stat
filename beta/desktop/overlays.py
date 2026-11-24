@@ -3,8 +3,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 import sys
+import base64
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSignalBlocker, Qt, QTimer, QUrl
+from PySide6.QtCore import QBuffer, QIODevice, QEvent, QObject, QPoint, QRect, QSignalBlocker, Qt, QTimer, QUrl
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QPushButton, QScrollArea, QSlider, QToolTip,
     QVBoxLayout, QWidget,
@@ -180,7 +181,7 @@ OVERLAYS = (
     OverlaySpec("objectives", "События объектов", "Время с последнего подтверждённого события объекта.",
                 partial(SampleCard, kind="objectives"), {}, (.55, .06), preview_only=False),
     OverlaySpec("tab", "Перевес в Tab", "Полоска над игровой таблицей и разница по золоту между соперниками.",
-                partial(SampleCard, kind="tab"), {}, default_position=(.5, .08)),
+                partial(SampleCard, kind="tab"), {}, attached=True),
 )
 
 
@@ -263,6 +264,19 @@ class OverlayCard(OverlaySurface):
         super().present(area, self.position or self.default_position)
 
 
+def tab_values(live, detected):
+    """Use recognized screen columns, never fixed role order or assumed sides."""
+    by_champion = {p["c"]: p for p in live["players"]}
+    own_left = detected["teams"][0] == live["myTeam"]
+    gold = [sum(p["gold"] for p in live["players"] if p["team"] == team) for team in detected["teams"]]
+    differences = []
+    for left, right in zip(*detected["columns"]):
+        a, b = by_champion.get(left), by_champion.get(right)
+        differences.append((a["gold"] - b["gold"]) * (1 if own_left else -1) if a and b else None)
+    return {"gold": gold, "ownLeft": own_left, "differences": differences,
+            "columns": detected["columns"]}
+
+
 class ScoreboardSurface(OverlaySurface):
     def __init__(self):
         self.decoration = ScoreboardDecoration()
@@ -304,6 +318,9 @@ class OverlayControls(QObject):
         self.previewing = probe
         self.match_active = False
         self.match_contents = {}
+        self.artwork = artwork
+        self.tab_portraits = {}
+        self.tab_status = {"state": "hidden"}
         self.theme_id = settings.value("overlays/theme", DEFAULT_THEME, type=str)
         if self.theme_id not in THEMES:
             self.theme_id = DEFAULT_THEME
@@ -604,11 +621,40 @@ class OverlayControls(QObject):
                 raise_drawer |= editing and not was_visible and card.isVisible()
             else:
                 card.hide()
-        show_tab = has_area and self.previewing and self.desktop["tab"].isChecked() and native.scoreboard_key()
+        live = (self.match_contents.get("tab") or {}).get("visual")
+        show_tab = has_area and (self.previewing or self.match_active and live) and self.desktop["tab"].isChecked() and native.scoreboard_key()
         tab_bounds = tuple(bounds[key] for key in ("x", "y", "width", "height")) if show_tab else None
-        frame = self.tab_finder.update(tab_bounds)
+        portraits = None
+        players = None
+        session = None
+        if show_tab and not self.previewing:
+            players = live["players"]
+            session = live.get("session")
+            portraits = {}
+            for player in players:
+                key = player["c"]
+                url = f"{DDRAGON}/cdn/{live['version']}/img/champion/{key}.png"
+                if url not in self.tab_portraits:
+                    image = self.artwork.image(url)
+                    if not image.isNull():
+                        buffer = QBuffer()
+                        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+                        image.save(buffer, "PNG")
+                        self.tab_portraits[url] = base64.b64encode(bytes(buffer.data())).decode("ascii")
+                if url in self.tab_portraits:
+                    portraits[key] = self.tab_portraits[url]
+        detected = self.tab_finder.update(tab_bounds, portraits, players, session)
+        frame = detected.get("frame") if isinstance(detected, dict) else detected
+        self.scoreboard.decoration.live = None
+        self.tab_status = {"state": "searching" if show_tab else "hidden"}
+        if show_tab and not self.previewing and isinstance(detected, dict):
+            values = tab_values(live, detected)
+            self.scoreboard.decoration.live = values
+            self.tab_status = dict(values, state="attached", frame=list(frame), confidence=detected["confidence"])
         if show_tab and frame:
             self.scoreboard.attach(area, bounds, frame, THEMES[self.theme_id], self.scale_percent / 100)
+            if not self.scoreboard.isVisible():
+                self.tab_status = {"state": "searching", "reason": "Рамка находится за доступной областью окна."}
         else:
             self.scoreboard.hide()
         if has_area and self.previewing:

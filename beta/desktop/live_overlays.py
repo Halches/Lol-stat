@@ -45,7 +45,8 @@ def live_cards(raw, catalog, role="", build=None):
             theirs = [p for p in game.enemies if p["pos"] == role_key]
             differences.append(ours[0]["igold"]-theirs[0]["igold"] if len(ours)==len(theirs)==1 else None)
         cards["tab"]["visual"] = {"gold": [sum(p["igold"] for p in game.allies),sum(p["igold"] for p in game.enemies)],
-                                   "differences": differences}
+                                   "differences": differences, "version": version, "myTeam": game.my_team,
+                                   "players": [{"c": p["c"], "team": p["team"], "gold": p["igold"]} for p in game.players]}
         if game.opp:
             cards["lane"] = {"title": "Предметы на линии", "lines": [f"Разница: {game.lane_diff():+.0f}"]}
             cards["lane"]["visual"] = {"version": version, "champion": game.opp["c"],
@@ -105,6 +106,8 @@ class LiveFeed(QObject):
                     self.contents = (live_cards(raw, self.companion.catalog, context.get("role", ""), self.build)
                                      if monotonic() - self.clock_at < 3 else {})
                     self.observed = monotonic()
+                    if self.contents.get("tab"):
+                        self.contents["tab"]["visual"]["session"] = session
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 self.contents = {}
         if active and self.job is None and not self.closed:

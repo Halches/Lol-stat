@@ -249,7 +249,8 @@ class AutomationServer(QObject):
                     "text": assistant.flag("assistant/text", False), "status": assistant.status,
                     "lastPhrase": assistant.last_phrase, "textMessage": assistant.text_message,
                     "error": assistant.error, "textActive": bool(assistant.text_message and time.monotonic() < assistant.text_until),
-                    "phrases": {key: {"text": text, "enabled": assistant.flag("assistant/phrases/" + key)}
+                    "phrases": {key: {"text": text, "enabled": assistant.flag("assistant/phrases/" + key),
+                                     "channels": {channel: assistant.phrase_channel(key,channel) for channel in ("voice","text","sound")}}
                                 for key, text in PHRASES.items() if key != "sample"}}
         if name == "build":
             return getattr(self.window, "shown_build", None)
@@ -263,6 +264,7 @@ class AutomationServer(QObject):
             return {"theme": getattr(overlays, "theme_id", None), "scale": getattr(overlays, "scale_percent", None),
                     "preview": getattr(overlays, "previewing", False),
                     "live": getattr(getattr(self.window, "live_feed", None), "contents", {}),
+                    "tab": getattr(overlays, "tab_status", {"state": "hidden"}),
                     "laboratoryExpanded": bool(getattr(overlays, "laboratory_toggle", None)
                                                and overlays.laboratory_toggle.isChecked()),
                     "positions": {key: card.position for key, card in getattr(overlays, "cards", {}).items()}}

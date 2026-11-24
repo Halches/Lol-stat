@@ -409,7 +409,7 @@ class Window(QWidget):
         data = dict(contents)
         self.live_feed.build = self.match_build
         if self.assistant.text_message and monotonic() < self.assistant.text_until:
-            if self.assistant.flag("assistant/text", False) and self.assistant.flag("assistant/enabled", False):
+            if self.assistant.flag("assistant/enabled", False):
                 data["advice"] = {"title": "Подсказка", "lines": [self.assistant.text_message]}
         data["build"] = self.match_build
         self.overlays.update_match(self.snapshot.get("phase") == "game", data)
