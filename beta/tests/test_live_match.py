@@ -75,6 +75,19 @@ class NewSettingsTests(unittest.TestCase):
 
     setUp = ux.ConnectionUXTests.setUp
     call = ux.ConnectionUXTests.call
+
+    def test_live_portraits_request_actual_champion_and_use_preview_dimensions(self):
+        from overlay_samples import SampleCard
+        card = SampleCard(self.window.artwork, {}, kind='standings')
+        self.addCleanup(card.close)
+        card.set_content({'title':'Стоимость предметов','lines':['Виего: 500'],
+                          'visual':{'version':'16.23.1','rows':[['Viego','Виего',500,True]]}})
+        card.resize(card.sizeHint())
+        with patch.object(self.window.artwork,'image',return_value=ux.checks.QPixmap()) as images:
+            card.grab()
+        self.assertEqual(card.sizeHint().width(),232)
+        images.assert_any_call('https://ddragon.leagueoflegends.com/cdn/16.23.1/img/champion/Viego.png')
+        self.assertEqual(card.live_content['visual']['rows'][0][2],500)
     def test_phrase_switch_and_output_modes_through_api(self):
         self.call('click',control='menu_assistant')
         self.call('click',control='assistant_phrases_expand')

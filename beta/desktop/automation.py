@@ -248,6 +248,7 @@ class AutomationServer(QObject):
             return {"output": assistant.settings.value("assistant/output", "voice"),
                     "text": assistant.flag("assistant/text", False), "status": assistant.status,
                     "lastPhrase": assistant.last_phrase, "textMessage": assistant.text_message,
+                    "error": assistant.error, "textActive": bool(assistant.text_message and time.monotonic() < assistant.text_until),
                     "phrases": {key: {"text": text, "enabled": assistant.flag("assistant/phrases/" + key)}
                                 for key, text in PHRASES.items() if key != "sample"}}
         if name == "build":

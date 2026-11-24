@@ -15,11 +15,18 @@ def live_cards(raw, catalog, role="", build=None):
     cards = {"metrics": {"title": "Показатели матча", "lines": [
         f"Фарм: {cs} · уровень {me['lvl']}", f"KDA: {me['k']} / {me['d']} / {me['a']}",
         f"Наличные: {game.gold:.0f}"]}}
+    version = catalog.get("patch")
+    cards["metrics"]["visual"] = {"version": version, "champion": me["c"],
+        "name": catalog.get("names", {}).get(me["c"], me["c"]), "cs": cs,
+        "csMinute": round(me["cs"] / (game.t / 60), 1) if me["cs"] is not None and game.t > 0 else None,
+        "gold": round(game.gold), "level": me["lvl"], "kda": [me["k"],me["d"],me["a"]]}
     events = [event for event in game.events if event.get("EventName") in {"DragonKill", "BaronKill", "HeraldKill", "HordeKill"}]
     names = {"DragonKill": "Дракон", "BaronKill": "Барон", "HeraldKill": "Герольд", "HordeKill": "Личинки"}
     cards["objectives"] = {"title": "Объекты · события", "lines": [
         f"{names[event['EventName']]}: {max(0, int(game.t - event['EventTime']))} с назад"
         for event in events[-3:]] or ["Событий объектов пока нет"]}
+    cards["objectives"]["visual"] = {"events": [{"kind": e["EventName"], "elapsed": max(0,int(game.t-e["EventTime"]))}
+                                                for e in events]}
     items = catalog.get("items", {})
     def value(player):
         # Incomplete item costs must not look like zero inventory value.
@@ -28,9 +35,21 @@ def live_cards(raw, catalog, role="", build=None):
         cards["standings"] = {"title": "Стоимость предметов", "lines": [
             f"{catalog.get('names', {}).get(p['c'], p['c'])}: {p['igold']:.0f}"
             for p in sorted(game.players, key=lambda p: p["igold"], reverse=True)]}
+        cards["standings"]["visual"] = {"version": version, "rows": [
+            [p["c"], catalog.get("names", {}).get(p["c"], p["c"]), p["igold"], p["team"] == game.my_team]
+            for p in sorted(game.players, key=lambda p: p["igold"], reverse=True)]}
         cards["tab"] = {"title": "Предметы команд · Tab", "lines": [f"Перевес: {game.gold_diff():+.0f}"]}
+        differences = []
+        for role_key in ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"):
+            ours = [p for p in game.allies if p["pos"] == role_key]
+            theirs = [p for p in game.enemies if p["pos"] == role_key]
+            differences.append(ours[0]["igold"]-theirs[0]["igold"] if len(ours)==len(theirs)==1 else None)
+        cards["tab"]["visual"] = {"gold": [sum(p["igold"] for p in game.allies),sum(p["igold"] for p in game.enemies)],
+                                   "differences": differences}
         if game.opp:
             cards["lane"] = {"title": "Предметы на линии", "lines": [f"Разница: {game.lane_diff():+.0f}"]}
+            cards["lane"]["visual"] = {"version": version, "champion": game.opp["c"],
+                "name": catalog.get("names", {}).get(game.opp["c"],game.opp["c"]), "difference": game.lane_diff()}
     # The build's full purchase price is explicit; do not pretend unknown recipe
     # component credit or a game's quick-buy selection is available.
     for item in (build or {}).get("items", []):
@@ -40,6 +59,7 @@ def live_cards(raw, catalog, role="", build=None):
             if type(cost) in (int, float) and cost > 0:
                 cards["purchase"] = {"title": "Следующий предмет сборки", "lines": [item["name"],
                     f"Полная цена: {cost:.0f} · наличные: {game.gold:.0f}", "Компоненты в цене не вычтены"]}
+                cards["purchase"]["visual"] = {"version": version, "item": item["id"], "price": cost, "gold": game.gold}
             break
     return cards
 

@@ -68,6 +68,8 @@ class SampleCard(QWidget):
         self.scale = 1
         self.phase = 0
         self.frames = {}
+        self.artwork = _artwork
+        self.artwork.changed.connect(self.update)
 
     def set_content(self, _sample):
         self.live_content = _sample if _sample.get("lines") is not None else None
@@ -83,10 +85,21 @@ class SampleCard(QWidget):
     def sizeHint(self):
         width, height = self.dimensions[self.kind]
         if getattr(self, "live_content", None):
-            width, height = 330, 42 + len(self.live_lines) * 23
+            if self.live_content.get("visual") is not None:
+                width, height = self.dimensions[self.kind]
+                if self.kind == "metrics":
+                    width, height = 235, 160
+            else:
+                width, height = 330, 42 + len(self.live_lines) * 23
         return QSize(round(width * self.scale), round(height * self.scale))
 
     def pixmap(self, name):
+        content = getattr(self, "live_content", None)
+        if content and content.get("visual") and self.kind not in {"objectives", "tab"}:
+            version = content["visual"].get("version")
+            if version:
+                category = "item" if str(name).isdigit() else "champion"
+                return self.artwork.image(f"https://ddragon.leagueoflegends.com/cdn/{version}/img/{category}/{name}.png")
         if name not in self.frames:
             self.frames[name] = QPixmap(str(asset_folder("overlay-preview") / f"{name}.png"))
         return self.frames[name]
@@ -100,6 +113,10 @@ class SampleCard(QWidget):
         painter = QPainter(self)
         painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
         content = getattr(self, "live_content", None)
+        if content and content.get("visual") is not None:
+            painter.scale(self.scale, self.scale)
+            self.draw_live(painter, content["visual"])
+            return
         if content:
             painter.scale(self.scale, self.scale)
             draw_panel(painter, QRectF(0, 0, self.width() / self.scale, self.height() / self.scale), self.theme)
@@ -112,6 +129,54 @@ class SampleCard(QWidget):
         if self.kind != "tab":
             draw_panel(painter, QRectF(0, 0, width, height), self.theme)
         getattr(self, f"draw_{self.kind}")(painter)
+
+    def draw_live(self, painter, data):
+        width, height = self.sizeHint().width() / self.scale, self.sizeHint().height() / self.scale
+        if self.kind != "tab":
+            draw_panel(painter, QRectF(0, 0, width, height), self.theme)
+        if self.kind == "standings":
+            self.draw_standings(painter)
+        elif self.kind == "metrics":
+            self.icon(painter, data["champion"], 10, 8, 34)
+            text(painter, data["name"], (53, 8, 172, 30), 15)
+            rows = [("CS/мин", "—" if data["csMinute"] is None else str(data["csMinute"])),
+                    ("Наличные", money(data["gold"])), ("K / D / A", " / ".join(map(str,data["kda"]))),
+                    ("Уровень", str(data["level"]))]
+            for index, (name, value) in enumerate(rows):
+                y = 47 + index*26
+                if index % 2 == 0:
+                    painter.fillRect(QRectF(8,y,219,25),alpha(self.theme.light,13))
+                text(painter,name,(13,y,100,25),13,MUTED)
+                text(painter,value,(109,y,111,25),16,FOREGROUND,Qt.AlignmentFlag.AlignRight)
+        elif self.kind == "lane":
+            self.icon(painter,data["champion"],10,9,40)
+            text(painter,data["name"],(59,5,130,22),13)
+            difference=data["difference"]
+            text(painter,f"{difference:+.0f}",(59,27,130,25),19,trend(difference),Qt.AlignmentFlag.AlignRight)
+        elif self.kind == "purchase":
+            self.icon(painter,str(data["item"]),10,9,40)
+            text(painter,"Полная цена",(59,6,87,19),11,MUTED)
+            text(painter,f"{data['price']:.0f}",(59,24,82,27),20,GOLD)
+        elif self.kind == "objectives":
+            share=self.pixmap("objective-portraits")
+            events=data["events"]
+            dragon=next((e for e in reversed(events) if e["kind"]=="DragonKill"),None)
+            upper=next((e for e in reversed(events) if e["kind"]!="DragonKill"),None)
+            for x,index,event in ((8,0,dragon),(98,{"HordeKill":1,"BaronKill":2,"HeraldKill":3}.get((upper or {}).get("kind"),1),upper)):
+                if not share.isNull():
+                    cell_w,cell_h=share.width()/2,share.height()/2
+                    painter.drawPixmap(QRectF(x,11,34,34),share,QRectF(index%2*cell_w,index//2*cell_h,cell_w,cell_h))
+                value=f"{event['elapsed']//60}:{event['elapsed']%60:02}" if event else "—"
+                text(painter,value,(x+35,9,50,26),14)
+            text(painter,"После убийства",(10,43,165,16),10,MUTED)
+        elif self.kind == "tab":
+            draw_team_bar(painter,QRectF(12,7,230,28),self.theme,data["gold"])
+            for index,value in enumerate(data["differences"]):
+                rect=QRectF(11+47*index,40,44,23)
+                if value is None:
+                    text(painter,"—",(rect.x(),rect.y(),rect.width(),rect.height()),13,MUTED,Qt.AlignmentFlag.AlignHCenter)
+                else:
+                    draw_comparison(painter,rect,self.theme,value)
 
     def draw_metrics(self, painter):
         text(painter, "Ранг выше", (107, 4, 96, 22), 13, MUTED, Qt.AlignmentFlag.AlignRight)
@@ -131,7 +196,10 @@ class SampleCard(QWidget):
         text(painter, "+520", (130, 9, 59, 40), 19, GOOD, Qt.AlignmentFlag.AlignRight)
 
     def draw_standings(self, painter):
-        ranked = sorted(STANDINGS, key=lambda champion: champion[2], reverse=True)
+        live = getattr(self, "live_content", None)
+        ranked = sorted(live["visual"]["rows"] if live and live.get("visual") else STANDINGS, key=lambda champion: champion[2], reverse=True)
+        if not ranked:
+            return
         highest_cost = max(1, ranked[0][2])
         text(painter, "Стоимость предметов", (12, 6, 208, 21), 12, MUTED)
         for rank, (champion, name, cost, ally) in enumerate(ranked, 1):
@@ -169,7 +237,7 @@ class SampleCard(QWidget):
             draw_comparison(painter, QRectF(11 + 47 * index, 40, 44, 23), self.theme, value)
 
 
-def draw_team_bar(painter, rect, theme):
+def draw_team_bar(painter, rect, theme, gold=None):
     # Match the scoreboard's side edges and leave its own top border visible at the join.
     left, top = rect.left() + .5, rect.top() + .5
     right, bottom = rect.right() - .5, rect.bottom()
@@ -193,12 +261,14 @@ def draw_team_bar(painter, rect, theme):
     painter.drawPath(outline)
 
     stripe = QRectF(rect.left() + 9, rect.bottom() - 8, rect.width() - 18, 4)
-    split = stripe.width() * TEAM_GOLD[0] / sum(TEAM_GOLD)
+    gold = gold if gold is not None else TEAM_GOLD
+    split = stripe.width() * (gold[0] / sum(gold) if sum(gold) else .5)
     painter.fillRect(QRectF(stripe.left(), stripe.top(), split, stripe.height()), GOOD)
     painter.fillRect(QRectF(stripe.left() + split, stripe.top(), stripe.width() - split, stripe.height()), BAD)
-    text(painter, f"{TEAM_DIFF:+,}".replace(",", " "),
+    difference = gold[0] - gold[1]
+    text(painter, f"{difference:+,}".replace(",", " "),
          (rect.left(), rect.top(), rect.width(), rect.height() - 8), min(22, rect.height() * .57),
-         trend(TEAM_DIFF), Qt.AlignmentFlag.AlignHCenter)
+         trend(difference), Qt.AlignmentFlag.AlignHCenter)
 
 
 def draw_comparison(painter, rect, theme, value):
