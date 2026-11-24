@@ -57,6 +57,44 @@ class FlexTests(unittest.TestCase):
 
 
 class LiveCardsTests(unittest.TestCase):
+    def test_tab_geometry_ignores_recorded_four_pixel_jitter_and_confirms_movement(self):
+        from overlay_tab import TabFrameFinder
+        finder=TabFrameFinder();self.addCleanup(finder.close)
+        def observed(top=465,x=315,columns=None):
+            return {'frame':(x,537,x+1539,1061,top), 'teams':('ORDER','CHAOS'),
+                    'columns':columns or (('A','B',None,None,None),('C','D',None,None,None)),'confidence':.9}
+        finder.accept_observation(observed(),0)
+        self.assertIsNone(finder.frame)
+        finder.accept_observation(observed(469),.2)
+        anchor=finder.frame['frame']
+        for index,top in enumerate((465,469,465,469),1):
+            finder.accept_observation(observed(top),.2+index*.1)
+            self.assertEqual(finder.frame['frame'],anchor)
+        finder.accept_observation(observed(x=500),.8)
+        self.assertEqual(finder.frame['frame'],anchor)
+        finder.accept_observation(observed(x=501),1.0)
+        self.assertGreater(finder.frame['frame'][0],490)
+
+    def test_tab_identity_grace_is_bounded_and_row_reorder_invalidates_cache(self):
+        from overlay_tab import TabFrameFinder
+        finder=TabFrameFinder();self.addCleanup(finder.close)
+        def observed(columns):
+            return {'frame':(315,537,1854,1061,465),'teams':('ORDER','CHAOS'),
+                    'columns':columns,'confidence':.9}
+        full=(('A','B'),('C','D'))
+        finder.accept_observation(observed(full),0)
+        finder.accept_observation(observed(full),.2)
+        finder.accept_observation(observed((('A',None),('C',None))),.8)
+        self.assertEqual(finder.frame['columns'],full)
+        finder.accept_observation(observed((('B',None),('C',None))),1.0)
+        self.assertEqual(finder.frame['columns'][0],('B',None))
+        finder.accept_observation(observed((('B',None),('C',None))),2.0)
+        self.assertIsNone(finder.frame['columns'][1][1])
+        finder.accept_observation(None,2.1)
+        self.assertIsNotNone(finder.frame)
+        finder.accept_observation(None,4)
+        self.assertIsNone(finder.frame)
+
     def test_tab_rows_follow_recognized_portraits_and_team_side(self):
         from overlays import tab_values
         live = {'myTeam':'CHAOS','players':[{'c':'A','team':'ORDER','gold':100},
@@ -133,6 +171,21 @@ class NewSettingsTests(unittest.TestCase):
 
     setUp = ux.ConnectionUXTests.setUp
     call = ux.ConnectionUXTests.call
+
+    def test_repeated_tab_attach_does_not_resize_move_or_repaint_unchanged_window(self):
+        from PySide6.QtCore import QRect
+        import overlays
+        surface=self.window.overlays.scoreboard
+        frame=(300,300,1600,800,200)
+        target=(300,167,1300,633)
+        with patch.object(overlays.native,'geometry',return_value=target), \
+             patch.object(overlays.native,'move') as move, \
+             patch.object(surface,'resize') as resize, \
+             patch.object(surface.decoration,'update') as repaint:
+            for _ in range(5):
+                surface.attach(QRect(0,0,1920,1080),{'x':0,'y':0},frame,overlays.THEMES[overlays.DEFAULT_THEME],1)
+            move.assert_not_called();resize.assert_not_called()
+            repaint.assert_called_once()
 
     def test_each_phrase_has_independent_output_channels_and_reset(self):
         self.call('click',control='menu_assistant')

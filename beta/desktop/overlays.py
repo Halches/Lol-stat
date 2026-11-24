@@ -280,6 +280,7 @@ def tab_values(live, detected):
 class ScoreboardSurface(OverlaySurface):
     def __init__(self):
         self.decoration = ScoreboardDecoration()
+        self.render_key = None
         super().__init__("Перевес в Tab", self.decoration)
         self.set_interactive(False)
 
@@ -293,7 +294,6 @@ class ScoreboardSurface(OverlaySurface):
             if bar < 16 or not area.contains(target):
                 self.hide()
                 return
-            self.resize(round(target.width() / ratio), round(target.height() / ratio))
             if native.geometry(self) == target.getRect():
                 break
             try:
@@ -301,13 +301,17 @@ class ScoreboardSurface(OverlaySurface):
             except OSError:
                 self.hide()
                 return
-        self.decoration.theme = theme
-        self.decoration.scale = scale
-        self.decoration.bar = bar / ratio
-        self.decoration.header = (body_top - top + bar) / ratio
-        self.decoration.rows = (bottom - body_top) / ratio
-        self.decoration.update()
-        self.show()
+        key = (theme, scale, bar/ratio, (body_top-top+bar)/ratio, (bottom-body_top)/ratio, self.decoration.live)
+        if key != self.render_key:
+            self.render_key = key
+            self.decoration.theme = theme
+            self.decoration.scale = scale
+            self.decoration.bar = bar / ratio
+            self.decoration.header = (body_top - top + bar) / ratio
+            self.decoration.rows = (bottom - body_top) / ratio
+            self.decoration.update()
+        if not self.isVisible():
+            self.show()
 
 
 class OverlayControls(QObject):
