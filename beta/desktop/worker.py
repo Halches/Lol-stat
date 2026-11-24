@@ -261,6 +261,8 @@ def game_process_running():
 class Companion:
     def __init__(self, client=None):
         self.lcu = client or lcu.LCU()
+        self.voice_context = {}
+        self.voice_current_read = False
         self.catalog = read_catalog()
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.locked_executor = ThreadPoolExecutor(max_workers=2)
@@ -380,6 +382,13 @@ class Companion:
         if role_change is not None or now >= max(self.next_discovery, self.last_read + 0.9):
             self.last_read = now
             self.status = self.read_status(now, role_change)
+            self.voice_context = {
+                "active": (self.status.get("phase") == "game" and self.client_phase in PLAYING
+                           and self.flow_missing_since is None and self.euw and self.game is not None
+                           and self.voice_current_read),
+                "gameId": self.game, "generation": self.flow_generation, "observedAt": now,
+                "role": self.build_key[1] if self.build_key and self.build_key[3] == self.game else "",
+            }
         snapshot = dict(self.status, flowGeneration=self.flow_generation)
         if home:
             is_home = self.client_phase in HOME_PHASES
@@ -561,6 +570,7 @@ class Companion:
             self.catalog_job = self.executor.submit(self.update_catalog, self.catalog)
 
     def read_status(self, now, role_change=None):
+        self.voice_current_read = False
         self.refresh_catalog(now)
         previous = self.flow_connection
         before = self.lcu.port, self.lcu.token
@@ -667,6 +677,7 @@ class Companion:
                 "situationalItems": situational_items(self.catalog, key[0], roster["enemies"])}
 
     def read_game(self, now, phase, match_id, tracked_game):
+        self.voice_current_read = type(match_id) is int and match_id > 0
         if type(match_id) is int and match_id > 0:
             if self.build_key and self.build_key[3] != match_id:
                 self.clear_build()

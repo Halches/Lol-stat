@@ -19,6 +19,7 @@ from home import Dashboard, MatchList, logo_path, set_portrait
 from theme import STYLE
 from widgets import button, icon_label, label, panel
 from worker import Companion, DDRAGON, DRAFT_PHASES, HOME_PHASES, PLAYING, ROLES, SOURCE_ERRORS
+from desktop.voice_assistant import Assistant, AssistantPage
 from overlays import OverlayControls
 
 
@@ -41,6 +42,7 @@ HOME_PAGES = {
     "overview": "Главная",
     "history": "История матчей",
     "builds": "Сборки",
+    "assistant": "Голосовой помощник",
     "settings": "Настройки",
 }
 REVIEW_RETRY_SECONDS = 30
@@ -67,6 +69,8 @@ class Window(QWidget):
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.preview_executor = ThreadPoolExecutor(max_workers=1)
         self.settings = QSettings("LoL Helper", "Closed Beta")
+        self.assistant = Assistant(self.settings, self.companion, self,
+                                   running="--probe" not in sys.argv and "--smoke" not in sys.argv)
         self.snapshot = {"phase": "offline"}
         self.job = self.export_job = None
         self.role_change_pending = False
@@ -133,6 +137,11 @@ class Window(QWidget):
         identity.addWidget(label("EUW · Рейтинговая Solo/Duo", "caption"))
         header.addLayout(identity)
         header.addStretch()
+        self.assistant_mute = button("Голос: выкл", lambda checked: self.assistant_page.master.setChecked(checked), "tab")
+        self.assistant_mute.setCheckable(True)
+        self.assistant_mute.setAccessibleName("Включить или выключить голосового помощника")
+        self.assistant_mute.setEnabled(bool(self.assistant.pack.voices))
+        header.addWidget(self.assistant_mute)
         self.stage = label("КЛИЕНТ", "chip")
         header.addWidget(self.stage, alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.game_header)
@@ -170,7 +179,11 @@ class Window(QWidget):
         main_column.addWidget(self.build_search())
         main_column.addWidget(self.build_preview_placeholder())
         self.settings_page = self.slot(menu)
+        self.assistant_page = AssistantPage(self.assistant)
+        self.assistant.changed.connect(self.update_assistant_button)
+        self.update_assistant_button()
         self.home_views = {"overview": self.dashboard, "history": self.match_history, "builds": self.build_page,
+                           "assistant": self.assistant_page,
                            "settings": self.settings_page.parentWidget()}
         for key, view in self.home_views.items():
             if key != "settings":
@@ -309,6 +322,19 @@ class Window(QWidget):
         self.automation.add("other_build", "Другие сборки", self.extra_build_choice, "choice")
         self.automation.add("otp_build", "Мейнеры", self.otp_choice, "choice")
         self.automation.add("rank_history_queue", "Очередь графика ранга", self.dashboard.queue, "choice")
+        for key, widget, kind in (
+            ("assistant_enabled", self.assistant_page.master, "checkbox"),
+            ("assistant_voice", self.assistant_page.voice, "choice"),
+            ("assistant_category", self.assistant_page.category, "choice"),
+            ("assistant_role", self.assistant_page.role, "choice"),
+            ("assistant_test", self.assistant_page.test, "button"),
+            ("assistant_stop", self.assistant_page.stop, "button"),
+            ("assistant_mute", self.assistant_mute, "button"),
+        ):
+            title = widget.text() if kind == "button" else widget.accessibleName()
+            self.automation.add(key, title, widget, kind)
+        for (scope, topic), widget in self.assistant_page.checks.items():
+            self.automation.add(f"assistant_{scope.lower() or 'common'}_{topic}", widget.accessibleName(), widget, "checkbox")
         self.home_active = None
         self.paint_snapshot()
         if self.auto_open_review:
@@ -321,6 +347,11 @@ class Window(QWidget):
         contents.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(widget)
         return contents
+
+    def update_assistant_button(self):
+        enabled = self.assistant.flag("assistant/enabled", False)
+        self.assistant_mute.setChecked(enabled)
+        self.assistant_mute.setText("Голос: вкл" if enabled else "Голос: выкл")
 
     def build_menu_sidebar(self):
         sidebar = QFrame()
@@ -339,6 +370,9 @@ class Window(QWidget):
         self.nav_buttons = {}
         for key, title in HOME_PAGES.items():
             control = button(title, lambda _checked=False, page=key: self.show_home_page(page), "dashboardNav")
+            if key == "assistant":
+                control.setText("Голосовой\nпомощник")
+                control.setAccessibleName(title)
             control.setCheckable(True)
             self.nav_buttons[key] = control
             layout.addWidget(control)
@@ -419,7 +453,7 @@ class Window(QWidget):
                         self.dashboard.matches.history, self.champion_input, self.role_input, self.preview_button,
                         *self.choice_widgets, self.build_source_button, self.site, self.save_button, self.site_button,
                         self.overlays.desktop_theme, self.overlays.desktop_scale, self.overlays.desktop_preview,
-                        *self.overlays.desktop.values()]
+                        *self.overlays.desktop.values(), *self.assistant_page.focus_controls()]
             for before, after in zip(controls, controls[1:]):
                 QWidget.setTabOrder(before, after)
         else:
@@ -1058,6 +1092,7 @@ class Window(QWidget):
 
     def closeEvent(self, event):
         self.timer.stop()
+        self.assistant.close()
         self.automation.close()
         self.overlays.close()
         self.executor.shutdown(wait=False, cancel_futures=True)

@@ -196,6 +196,12 @@ QCheckBox::indicator {
     border: 1px solid #65557d; border-radius: 4px;
 }
 QCheckBox::indicator:checked { background: #a78bd9; border: 1px solid #ddc5fa; }
+QSpinBox, QDoubleSpinBox {
+    background: #14131c; color: #d6d0e1; border: 1px solid #4d4166;
+    border-radius: 6px; padding: 5px 8px; min-height: 20px;
+    selection-background-color: #695489;
+}
+QSpinBox:focus, QDoubleSpinBox:focus { border: 2px solid #c6afea; }
 QFrame[role="overlay"] { background: #171321; border: 1px solid #625182; border-radius: 12px; }
 QWidget#overlayRows { background: #171321; }
 QLabel[role="overlayRune"] {
