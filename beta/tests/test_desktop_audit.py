@@ -173,6 +173,20 @@ class DesktopAuditTests(unittest.TestCase):
                 self.app.processEvents()
                 self.assertLessEqual(window.scroll.widget().width(), window.scroll.viewport().width() + 2)
 
+    def test_sidebar_brand_fits_at_all_supported_widths(self):
+        window = self.window()
+        window.show()
+        for width in (1570, 1160, 670, 1570):
+            with self.subTest(width=width):
+                window.resize(width, 770)
+                self.app.processEvents()
+                brand = window.sidebar_brand
+                self.assertEqual(brand.text(), "LoL Helper")
+                self.assertLessEqual(brand.fontMetrics().horizontalAdvance(brand.text()), brand.contentsRect().width())
+                self.assertLessEqual(brand.geometry().right(), window.menu_sidebar.contentsRect().right())
+                self.assertEqual(window.menu_sidebar.width(), 144 if width < 1180 else 214)
+                self.assertEqual(window.minimumWidth(), 670)
+
     def test_changed_champion_explains_why_preview_is_waiting(self):
         window = self.window()
         pending = self.pending_preview(window)

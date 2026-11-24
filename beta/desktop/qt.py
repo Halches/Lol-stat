@@ -381,13 +381,14 @@ class Window(QWidget):
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(12, 19, 12, 15)
         layout.setSpacing(7)
-        identity = QHBoxLayout()
-        identity.setSpacing(8)
-        mark = icon_label(34, "")
-        set_portrait(mark, QPixmap(str(logo_path())), "L")
-        identity.addWidget(mark)
-        identity.addWidget(label("LoL Helper", "dashboardBrand"), 1)
-        layout.addLayout(identity)
+        self.sidebar_identity = QHBoxLayout()
+        self.sidebar_identity.setSpacing(8)
+        self.sidebar_mark = icon_label(34, "")
+        set_portrait(self.sidebar_mark, QPixmap(str(logo_path())), "L")
+        self.sidebar_brand = label("LoL Helper", "dashboardBrand")
+        self.sidebar_identity.addWidget(self.sidebar_mark)
+        self.sidebar_identity.addWidget(self.sidebar_brand, 1)
+        layout.addLayout(self.sidebar_identity)
         layout.addSpacing(24)
         self.nav_buttons = {}
         for key, title in HOME_PAGES.items():
@@ -440,7 +441,16 @@ class Window(QWidget):
             self.choice_grid.setColumnStretch(index, int(index < columns))
 
     def arrange_home(self):
-        self.menu_sidebar.setFixedWidth(214 if self.width() >= 1180 else 144)
+        compact_sidebar = self.width() < 1180
+        self.menu_sidebar.setFixedWidth(144 if compact_sidebar else 214)
+        if self.sidebar_brand.property("compact") != compact_sidebar:
+            self.sidebar_brand.setProperty("compact", compact_sidebar)
+            self.sidebar_brand.style().unpolish(self.sidebar_brand)
+            self.sidebar_brand.style().polish(self.sidebar_brand)
+            self.sidebar_brand.updateGeometry()
+            self.sidebar_mark.setFixedSize(28 if compact_sidebar else 34, 28 if compact_sidebar else 34)
+            self.sidebar_identity.setSpacing(6 if compact_sidebar else 8)
+            set_portrait(self.sidebar_mark, QPixmap(str(logo_path())), "L")
         width = self.width() - self.menu_sidebar.width() - 52
         self.dashboard.reflow(width)
         self.match_history.reflow(width)

@@ -49,6 +49,7 @@ QFrame#dashboardSidebar {
                                 stop:0 #231e31, stop:0.4 #15141d, stop:1 #101017);
 }
 QLabel[role="dashboardBrand"] { color: #f2edf8; font-size: 16px; font-weight: 700; }
+QLabel[role="dashboardBrand"][compact="true"] { font-size: 14px; }
 QLabel[role="dashboardTitle"] { color: #f4effa; font-size: 32px; font-weight: 700; }
 QLabel[role="dashboardSection"] { color: #eeeaf4; font-size: 21px; font-weight: 650; }
 QFrame[role="dashboardPanel"], QFrame[role="dashboardProfile"] {

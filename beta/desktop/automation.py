@@ -10,6 +10,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QLockFile, QObject, QPoint, QStandardPaths, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
+if __package__:
+    from .app_version import VERSION as APP_VERSION
+else:
+    from app_version import VERSION as APP_VERSION
 
 
 VERSION = 1
@@ -19,11 +23,18 @@ MAX_REQUEST = 8192
 TIMEOUT_MS = 3000
 
 
+def endpoint_for_pid(pid, base=SOCKET_NAME):
+    if type(pid) is not int or pid <= 0:
+        raise ValueError("PID must be a positive integer.")
+    return f"{base}-pid-{pid}"
+
+
 def schema():
     return {
         "application": "LoL Helper Windows Beta",
         "version": VERSION,
         "endpoint": SOCKET_NAME,
+        "instanceEndpointPattern": f"{SOCKET_NAME}-pid-<processId>",
         "transport": "Qt local socket, one UTF-8 JSON request and response per connection, each terminated by LF",
         "methods": {
             "describe": {"request": {"method": "describe"}, "result": "Protocol and live control catalog"},
@@ -41,6 +52,7 @@ def schema():
             "Read state before acting. Use control IDs to act without screen coordinates.",
             "Check state after a click for app validation messages or a pending import.",
             "Use the Save button to persist edited settings.",
+            "Use --pid PROCESS_ID to address the GUI process explicitly; it never falls back to the shared endpoint.",
         ],
     }
 
@@ -54,17 +66,22 @@ def rect(x, y, width, height):
 
 
 class AutomationServer(QObject):
-    def __init__(self, window, name=SOCKET_NAME):
+    def __init__(self, window, name=SOCKET_NAME, *, directory=None):
         super().__init__(window)
         self.window = window
         self.name = name
+        self.instance_name = endpoint_for_pid(os.getpid(), name)
         self.controls = {}
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
-        self.server.newConnection.connect(self._accept)
-        directory = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation))
-        self.directory = directory / "LoLHelper" / "automation"
+        self.server.newConnection.connect(lambda: self._accept(self.server))
+        self.instance_server = QLocalServer(self)
+        self.instance_server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
+        self.instance_server.newConnection.connect(lambda: self._accept(self.instance_server))
+        self.directory = Path(directory) if directory is not None else (
+            Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericDataLocation)) / "LoLHelper" / "automation")
         self.lock = QLockFile(str(self.directory / (name + ".lock")))
+        self.instance_lock = QLockFile(str(self.directory / (self.instance_name + ".lock")))
 
     def add(self, key, label, widget, kind):
         widget.setObjectName(key)
@@ -76,19 +93,36 @@ class AutomationServer(QObject):
             self.directory.mkdir(parents=True, exist_ok=True)
         except OSError:
             return False
-        if not self.lock.tryLock(0):
+        if not self._listen(self.instance_server, self.instance_lock, self.instance_name):
+            return False
+        # The shared endpoint is optional compatibility, never a prerequisite
+        # for addressing this instance. Another application may own it.
+        self._listen(self.server, self.lock, self.name)
+        return True
+
+    @staticmethod
+    def _listen(server, lock, name):
+        if server.isListening():
+            return True
+        if not lock.tryLock(0):
             return False
         if os.name != "nt":
-            QLocalServer.removeServer(self.name)
-        if not self.server.listen(self.name):
-            self.lock.unlock()
+            QLocalServer.removeServer(name)
+        if not server.listen(name):
+            lock.unlock()
             return False
         return True
 
     def close(self):
-        self.server.close()
-        if self.lock.isLocked():
-            self.lock.unlock()
+        for server, lock in ((self.instance_server, self.instance_lock), (self.server, self.lock)):
+            server.close()
+            if lock.isLocked():
+                lock.unlock()
+
+    def identity(self):
+        return {"processId": os.getpid(), "executable": str(Path(sys.executable).resolve()),
+                "appVersion": APP_VERSION, "instanceEndpoint": self.instance_name,
+                "legacyEndpoint": self.name if self.server.isListening() else None}
 
     def catalog(self):
         return [
@@ -124,6 +158,7 @@ class AutomationServer(QObject):
                         entry["value"] = None
         return {
             "version": VERSION,
+            **self.identity(),
             "window": {"title": self.window.windowTitle(), "visible": visible,
                        "minimized": self.window.isMinimized(), "active": self.window.isActiveWindow(),
                        "bounds": rect(origin.x(), origin.y(), self.window.width(), self.window.height())},
@@ -144,12 +179,15 @@ class AutomationServer(QObject):
             "controls": controls,
         }
 
-    def dispatch(self, request):
+    def dispatch(self, request, *, endpoint=None):
         if not isinstance(request, dict):
             return failure("invalid_request", "Send a JSON object.")
+        if "processId" in request and (type(request["processId"]) is not int or request["processId"] != os.getpid()):
+            return failure("wrong_process", "This command targets another process. Read state using the correct --pid.")
         method = request.get("method")
         if method == "describe":
-            return {"ok": True, "result": dict(schema(), endpoint=self.name, controls=self.catalog())}
+            return {"ok": True, "result": dict(schema(), endpoint=endpoint or self.name,
+                                               controls=self.catalog(), **self.identity())}
         if method == "state":
             return {"ok": True, "result": self.state()}
         if method not in ("click", "set"):
@@ -179,9 +217,10 @@ class AutomationServer(QObject):
             self.window.scroll.ensureWidgetVisible(widget)
         return {"ok": True, "result": self.state()}
 
-    def _accept(self):
-        while self.server.hasPendingConnections():
-            socket = self.server.nextPendingConnection()
+    def _accept(self, server):
+        while server.hasPendingConnections():
+            socket = server.nextPendingConnection()
+            socket.setProperty("automationEndpoint", server.serverName())
             socket.setReadBufferSize(MAX_REQUEST + 1)
             timer = QTimer(socket)
             timer.setSingleShot(True)
@@ -202,7 +241,7 @@ class AutomationServer(QObject):
             except (ValueError, RecursionError):
                 response = failure("invalid_json", "Send a UTF-8 JSON object on one line.")
             else:
-                response = self.dispatch(request)
+                response = self.dispatch(request, endpoint=socket.property("automationEndpoint"))
         else:
             return
         socket.setProperty("automationHandled", True)
@@ -210,11 +249,20 @@ class AutomationServer(QObject):
         socket.disconnectFromServer()
 
 
-def request(message, name=SOCKET_NAME):
+def request(message, name=SOCKET_NAME, *, pid=None):
+    if not isinstance(message, dict):
+        return failure("invalid_request", "Send a JSON object.")
+    if pid is not None:
+        try:
+            name = endpoint_for_pid(pid, name)
+        except ValueError as error:
+            return failure("invalid_pid", str(error))
+        message = dict(message, processId=pid)
     socket = QLocalSocket()
     socket.connectToServer(name)
     if not socket.waitForConnected(TIMEOUT_MS):
-        return failure("not_connected", "Open LoL Helper Beta on this computer and try again.")
+        return failure("not_connected", f"LoL Helper PID {pid} is not available; no other instance was used."
+                       if pid is not None else "Open LoL Helper Beta on this computer and try again.")
     data = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
     if len(data) > MAX_REQUEST:
         return failure("request_too_large", "Requests may be at most 8192 bytes.")
@@ -227,14 +275,30 @@ def request(message, name=SOCKET_NAME):
             break
     if socket.canReadLine():
         try:
-            return json.loads(bytes(socket.readLine()).decode("utf-8"))
+            response = json.loads(bytes(socket.readLine()).decode("utf-8"))
+            if not isinstance(response, dict) or type(response.get("ok")) is not bool:
+                return failure("invalid_response", "LoL Helper returned an invalid response.")
+            if pid is not None and response["ok"] and (not isinstance(response.get("result"), dict)
+                                                       or response["result"].get("processId") != pid):
+                return failure("wrong_process", "The responding application does not match the requested PID.")
+            return response
         except (ValueError, RecursionError):
             return failure("invalid_response", "LoL Helper returned an invalid response.")
     return failure("no_response", "LoL Helper did not reply in time.")
 
 
+def positive_pid(value):
+    try:
+        pid = int(value)
+        endpoint_for_pid(pid)
+        return pid
+    except ValueError:
+        raise argparse.ArgumentTypeError("PID must be a positive integer.") from None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Inspect and control a running LoL Helper Beta for Windows.")
+    parser.add_argument("--pid", type=positive_pid, help="GUI process ID; no fallback to another instance")
     commands = parser.add_subparsers(dest="method", required=True)
     commands.add_parser("schema", help="Print the API contract without starting the app")
     commands.add_parser("describe", help="List the controls and their supported actions")
@@ -244,15 +308,20 @@ def main():
     edit = commands.add_parser("set", help="Set a field by control ID")
     edit.add_argument("control")
     edit.add_argument("value", help="Enter true or false for a checkbox, or text for a text field")
+    for command in commands.choices.values():
+        command.add_argument("--pid", type=positive_pid, default=argparse.SUPPRESS,
+                             help="GUI process ID; no fallback to another instance")
     args = vars(parser.parse_args())
+    pid = args.pop("pid", None)
     sys.stdout.reconfigure(encoding="utf-8")
     if args["method"] == "schema":
-        print(json.dumps(schema(), ensure_ascii=False, indent=2))
+        print(json.dumps(dict(schema(), endpoint=endpoint_for_pid(pid) if pid is not None else SOCKET_NAME),
+                         ensure_ascii=False, indent=2))
         return 0
     if args["method"] == "set" and args["value"] in ("true", "false"):
         args["value"] = args["value"] == "true"
-    _application = QCoreApplication([])
-    response = request(args)
+    _application = QCoreApplication.instance() or QCoreApplication([])
+    response = request(args, pid=pid)
     print(json.dumps(response, ensure_ascii=False, indent=2))
     return 0 if response["ok"] else 1
 
