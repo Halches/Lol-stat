@@ -314,17 +314,17 @@ class HomeTests(unittest.TestCase):
         self.assertIsNone(self.companion.build)
         self.client.set_runes.assert_not_called()
 
-    def test_latest_card_uses_solo_duo_and_clears_on_client_disconnect(self):
+    def test_latest_card_accepts_flex_and_clears_on_client_disconnect(self):
         self.client.me.return_value = {"puuid": "local-profile"}
         self.client.history_page.return_value = ([
-            {"q": 440, "gid": 7, "t": 2000}, {"q": 420, "gid": 6, "champ": 112, "win": True,
+            {"q": 440, "gid": 7, "t": 2000, "champ": 112, "k": 5, "d": 2, "a": 8}, {"q": 420, "gid": 6, "champ": 112, "win": True,
                                               "k": 5, "d": 2, "a": 8, "t": 1000},
         ], False)
         self.companion.euw = True
         self.companion.update_latest_match(100, True)
         self.companion.history_job[1].result(timeout=2)
         self.companion.update_latest_match(101, True)
-        self.assertEqual(self.companion.latest_match["id"], "EUW1_6")
+        self.assertEqual(self.companion.latest_match["id"], "EUW1_7")
         self.assertEqual(self.companion.latest_match["champion"], "Виктор")
         self.assertEqual(self.companion.latest_match["kda"], [5, 2, 8])
         self.client.port = None

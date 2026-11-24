@@ -39,7 +39,7 @@ def schema():
         "endpoint": SOCKET_NAME,
         "instanceEndpointPattern": f"{SOCKET_NAME}-pid-<processId>",
         "capabilities": {"automaticControls": True, "typedInputs": True, "backgroundOperations": True,
-                         "models": ["connection", "navigation", "profile", "history", "draft", "build", "updates", "overlays"]},
+                         "models": ["connection", "navigation", "profile", "history", "draft", "build", "updates", "overlays", "assistant"]},
         "transport": "Qt local socket, one UTF-8 JSON request and response per connection, each terminated by LF",
         "methods": {
             "describe": {"request": {"method": "describe"}, "result": "Protocol and live control catalog"},
@@ -164,7 +164,8 @@ class AutomationServer(QObject):
             "window": {"title": self.window.windowTitle(), "visible": visible,
                        "minimized": self.window.isMinimized(), "active": self.window.isActiveWindow(),
                        "bounds": rect(origin.x(), origin.y(), self.window.width(), self.window.height())},
-            "game": {"phase": self.window.snapshot.get("phase"), "matchId": self.window.snapshot.get("matchId")},
+            "game": {"phase": self.window.snapshot.get("phase"), "matchId": self.window.snapshot.get("matchId"),
+                     "queueId": self.window.snapshot.get("queueId")},
             "status": " · ".join(filter(None, (self.window.headline.text(), self.window.status.text()))),
             "notice": self.window.notice.text(),
             "previewMessage": self.window.preview_message.text(),
@@ -241,6 +242,14 @@ class AutomationServer(QObject):
                     "hasMore": profile.get("historyHasMore", False), "available": profile.get("historyAvailable", False)}
         if name == "draft":
             return self.window.snapshot.get("draft")
+        if name == "assistant":
+            from desktop.voice_catalog import PHRASES
+            assistant = self.window.assistant
+            return {"output": assistant.settings.value("assistant/output", "voice"),
+                    "text": assistant.flag("assistant/text", False), "status": assistant.status,
+                    "lastPhrase": assistant.last_phrase, "textMessage": assistant.text_message,
+                    "phrases": {key: {"text": text, "enabled": assistant.flag("assistant/phrases/" + key)}
+                                for key, text in PHRASES.items() if key != "sample"}}
         if name == "build":
             return getattr(self.window, "shown_build", None)
         if name == "updates":
@@ -252,6 +261,7 @@ class AutomationServer(QObject):
             overlays = self.window.overlays
             return {"theme": getattr(overlays, "theme_id", None), "scale": getattr(overlays, "scale_percent", None),
                     "preview": getattr(overlays, "previewing", False),
+                    "live": getattr(getattr(self.window, "live_feed", None), "contents", {}),
                     "laboratoryExpanded": bool(getattr(overlays, "laboratory_toggle", None)
                                                and overlays.laboratory_toggle.isChecked()),
                     "positions": {key: card.position for key, card in getattr(overlays, "cards", {}).items()}}

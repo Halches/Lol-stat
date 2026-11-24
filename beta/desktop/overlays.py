@@ -158,6 +158,8 @@ class OverlaySpec:
 
 
 OVERLAYS = (
+    OverlaySpec("advice", "Текст помощника", "Фразы, выбранные в настройках помощника.",
+                partial(SampleCard, kind="metrics"), {"title": "Подсказка", "lines": ["Пример текстовой подсказки"]}, (.5, .75)),
     OverlaySpec(
         "build", "Сборка в матче", "Предметы по порядку покупки, заклинания и руны из драфта.",
         BuildCard, {"example": True, "champion": "Виктор", "championKey": "Viktor", "items": [
@@ -167,18 +169,18 @@ OVERLAYS = (
         ], "spellIds": [4, 12], "spellNames": ["Скачок", "Телепорт"],
             "runes": [8230, 8226, 8210, 8237, 8304, 8345], "shards": [5008, 5008, 5001]},
     ),
-    OverlaySpec("metrics", "Темп игры", "CS, золото, KDA и уровень против среднего на ранг выше.",
-                partial(SampleCard, kind="metrics"), {}, (.815, .18), preview_only=True),
-    OverlaySpec("lane", "Золото на линии", "Разница в золоте с соперником на линии.",
-                partial(SampleCard, kind="lane"), {}, (.815, .39), preview_only=True),
+    OverlaySpec("metrics", "Темп игры", "Фарм, наличное золото, KDA и уровень текущего игрока.",
+                partial(SampleCard, kind="metrics"), {}, (.815, .18), preview_only=False),
+    OverlaySpec("lane", "Золото на линии", "Разница стоимости предметов с соперником известной роли.",
+                partial(SampleCard, kind="lane"), {}, (.815, .39), preview_only=False),
     OverlaySpec("standings", "Стоимость предметов", "Десять чемпионов по стоимости предметов, от большей к меньшей.",
-                partial(SampleCard, kind="standings"), {}, (.04, .31), preview_only=True),
-    OverlaySpec("purchase", "До покупки", "Сколько золота осталось до предмета из быстрой покупки.",
-                partial(SampleCard, kind="purchase"), {}, (.815, .60), preview_only=True),
-    OverlaySpec("objectives", "Таймеры объектов", "Дракон и сменяемый слот Личинок, Герольда и Барона.",
-                partial(SampleCard, kind="objectives"), {}, (.55, .06), preview_only=True),
+                partial(SampleCard, kind="standings"), {}, (.04, .31), preview_only=False),
+    OverlaySpec("purchase", "До покупки", "Следующий предмет сборки: полная цена и наличные, без вычета компонентов.",
+                partial(SampleCard, kind="purchase"), {}, (.815, .60), preview_only=False),
+    OverlaySpec("objectives", "События объектов", "Время с последнего подтверждённого события объекта.",
+                partial(SampleCard, kind="objectives"), {}, (.55, .06), preview_only=False),
     OverlaySpec("tab", "Перевес в Tab", "Полоска над игровой таблицей и разница по золоту между соперниками.",
-                partial(SampleCard, kind="tab"), {}, preview_only=True, attached=True),
+                partial(SampleCard, kind="tab"), {}, default_position=(.5, .08)),
 )
 
 
@@ -444,13 +446,16 @@ class OverlayControls(QObject):
             if spec.preview_only:
                 setting_layout.addWidget(label("Только демонстрация · нет игровых данных", "caption", wrap=True))
             setting_layout.addWidget(label(spec.description, "caption", wrap=True))
-            setting_layout.addWidget(preview, alignment=Qt.AlignmentFlag.AlignLeft)
+            laboratory_layout.addWidget(label(spec.title, "captionStrong"))
+            laboratory_layout.addWidget(preview, alignment=Qt.AlignmentFlag.AlignLeft)
             (laboratory_layout if spec.preview_only else desktop_layout).addWidget(setting_panel)
             drawer_checkboxes.addWidget(game_toggle)
             for toggle in (desktop_toggle, game_toggle):
                 toggle.setChecked(enabled and (self.previewing or not spec.preview_only))
                 toggle.toggled.connect(lambda checked, key=spec.key: self.set_enabled(key, checked))
 
+        desktop_layout.addWidget(self.laboratory_toggle)
+        desktop_layout.addWidget(self.laboratory)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.sync)
         self.refresh_appearance()
@@ -590,6 +595,8 @@ class OverlayControls(QObject):
             self.timer.setInterval(25 if editing else 75)
         for key, card in self.cards.items():
             visible = has_area and card.content is not None and self.desktop[key].isChecked()
+            if key == "tab" and not self.previewing:
+                visible = visible and native.scoreboard_key()
             card.set_editing(editing and visible)
             if visible:
                 was_visible = card.isVisible()

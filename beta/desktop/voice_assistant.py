@@ -4,7 +4,7 @@ from time import monotonic
 
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QBoxLayout, QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 
 import lcu
 from .voice_audio import ClipPlayer, VoicePack
@@ -39,9 +39,11 @@ class Assistant(QObject):
         self.last_clock = None
         self.last_clock_at = 0
         self.closed = False
-        self.status = "Ожидаем матч EUW Solo/Duo"
+        self.status = "Ожидаем матч EUW Solo/Duo или Flex"
         self.last_phrase = "Подсказок ещё не было"
         self.error = ""
+        self.text_message = ""
+        self.text_until = 0
         self.played.connect(self.on_played)
         self.failed.connect(self.on_failed)
         self.timer = QTimer(self)
@@ -66,6 +68,7 @@ class Assistant(QObject):
         self.settings.setValue(key, value)
         self.revision += 1
         self.player.stop()
+        self.text_message = ""
         if self.rules:
             self.rules.engine.prev = None
         self.poll()
@@ -84,6 +87,23 @@ class Assistant(QObject):
         self.last_phrase = PHRASES.get(phrase, "")
         self.changed.emit()
 
+    def deliver_phrase(self, phrase, *, preview=False):
+        if not preview and not self.flag("assistant/phrases/" + phrase):
+            return
+        self.last_phrase = PHRASES.get(phrase, "")
+        if self.flag("assistant/text", False):
+            self.text_message, self.text_until = self.last_phrase, monotonic() + 6
+        mode = self.settings.value("assistant/output", "voice")
+        if mode == "sound":
+            QApplication.beep()
+        elif mode == "voice":
+            path = self.pack.clip(self.voice, phrase)
+            if path:
+                priority = 90 if phrase.startswith(("enemy_level", "level", "dragon", "baron", "elder")) else 50
+                self.player.submit(path, phrase, self.settings.value("assistant/volume", 70, type=int),
+                                   priority=priority, ttl=2 if phrase.endswith(("_60", "_30")) else 5)
+        self.changed.emit()
+
     def on_failed(self, error):
         self.error = f"Не удалось воспроизвести голос. {error}"
         self.changed.emit()
@@ -93,10 +113,12 @@ class Assistant(QObject):
             return
         now = monotonic()
         context = dict(getattr(self.companion, "voice_context", {}) or {})
-        configured = self.flag("assistant/enabled", False) and bool(self.pack.voices)
+        configured = self.flag("assistant/enabled", False) and (bool(self.pack.voices)
+            or self.settings.value("assistant/output", "voice") != "voice" or self.flag("assistant/text", False))
         active = bool(configured and context.get("active") and now - context.get("observedAt", 0) <= 4)
         session = (context.get("generation"), context.get("gameId")) if configured and context.get("gameId") else None
         if session != self.session:
+            self.text_message = ""
             self.revision += 1
             self.player.stop()
             self.session = session
@@ -105,6 +127,7 @@ class Assistant(QObject):
             self.watching = False
             self.last_clock = None
         if active != self.was_active:
+            self.text_message = ""
             self.revision += 1
             self.player.stop()
             if self.rules:
@@ -112,8 +135,8 @@ class Assistant(QObject):
             self.was_active = active
             self.watching = False
         self.status = ("Помощник выключен" if not self.flag("assistant/enabled", False) else
-                       "Нет готовых голосовых записей" if not self.pack.voices else
-                       "Ожидаем матч EUW Solo/Duo" if not active else
+                       "Нет готовых голосовых записей" if not self.pack.voices and self.settings.value("assistant/output", "voice") == "voice" and not self.flag("assistant/text", False) else
+                       "Ожидаем матч EUW Solo/Duo или Flex" if not active else
                        "Помощник следит за матчем" if self.watching else "Ожидаем данные игрока")
         if self.job and self.job[1].done():
             revision, job = self.job
@@ -135,17 +158,13 @@ class Assistant(QObject):
                     self.watching = self.rules.accepted
                     if self.watching:
                         self.status = "Помощник следит за матчем"
-                        self.player.retain(self.rules.valid_phrases)
+                        self.player.retain({p for p in self.rules.valid_phrases if self.flag("assistant/phrases/" + p)})
                     else:
                         self.status = "Данные матча недоступны · озвучка приостановлена"
                         self.player.stop()
                         self.rules.engine.prev = None
                     for phrase in phrases if self.watching else []:
-                        path = self.pack.clip(self.voice, phrase)
-                        if path:
-                            priority = 90 if phrase.startswith(("enemy_level", "level", "dragon", "baron", "elder")) else 50
-                            self.player.submit(path, phrase, self.settings.value("assistant/volume", 70, type=int),
-                                               priority=priority, ttl=2 if phrase.endswith(("_60", "_30")) else 5)
+                        self.deliver_phrase(phrase)
             except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
                 self.player.stop()
                 if self.rules:
@@ -183,6 +202,23 @@ class AssistantPage(QWidget):
         self.master.setChecked(assistant.flag("assistant/enabled", False))
         self.master.toggled.connect(lambda value: assistant.configure("assistant/enabled", value))
         contents.addWidget(self.master)
+        self.output = QComboBox()
+        self.output.setAccessibleName("Звуковое оповещение помощника")
+        self.output.setProperty("automationId", "assistant_output")
+        for title, value in (("Голос", "voice"), ("Звуковой сигнал вместо голоса", "sound"), ("Без звука", "none")):
+            self.output.addItem(title, value)
+        self.output.setCurrentIndex(max(0, self.output.findData(assistant.settings.value("assistant/output", "voice"))))
+        self.output.currentIndexChanged.connect(lambda _: assistant.configure("assistant/output", self.output.currentData()))
+        contents.addWidget(self.output)
+        self.text_hints = QCheckBox("Показывать подсказки текстом поверх игры")
+        self.text_hints.setProperty("automationId", "assistant_text")
+        self.text_hints.setChecked(assistant.flag("assistant/text", False))
+        self.text_hints.toggled.connect(lambda value: assistant.configure("assistant/text", value))
+        contents.addWidget(self.text_hints)
+        contents.addWidget(label("Звуковой сигнал использует системную громкость Windows. Текст можно включить с любым режимом звука.", "caption", wrap=True))
+        self.test_output = button("Проверить выбранное оповещение", lambda: assistant.deliver_phrase("sample", preview=True), "tab")
+        self.test_output.setProperty("automationId", "assistant_test_output")
+        contents.addWidget(self.test_output)
         self.voice_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         selector = QWidget()
         row = QHBoxLayout(selector)
@@ -295,6 +331,31 @@ class AssistantPage(QWidget):
         layout.addWidget(label("Ганки — оценка, а не обнаружение врага. Сравнение уровней требует известной роли оппонента. "
                                "Исторические маршруты лесника и имена чемпионов в записи не включены.", "caption", wrap=True))
         self.show_category()
+        self.phrase_toggles = {}
+        phrase_card, phrases = panel("homePanel")
+        self.phrase_expand = button("Отдельные фразы", lambda: None, "tab")
+        self.phrase_expand.setProperty("automationId", "assistant_phrases_expand")
+        self.phrase_expand.setCheckable(True)
+        phrases.addWidget(self.phrase_expand)
+        phrase_list = QWidget()
+        rows = QVBoxLayout(phrase_list)
+        for key, text in PHRASES.items():
+            if key == "sample":
+                continue
+            toggle = QCheckBox()
+            toggle.setAccessibleName(text)
+            toggle.setProperty("automationId", "assistant_phrase_" + key)
+            toggle.setChecked(assistant.flag("assistant/phrases/" + key))
+            toggle.toggled.connect(lambda value, key=key: assistant.configure("assistant/phrases/" + key, value))
+            row = QHBoxLayout()
+            row.addWidget(toggle)
+            row.addWidget(label(text, "captionStrong", wrap=True), 1)
+            rows.addLayout(row)
+            self.phrase_toggles[key] = toggle
+        phrases.addWidget(phrase_list)
+        phrase_list.hide()
+        self.phrase_expand.toggled.connect(phrase_list.setVisible)
+        layout.addWidget(phrase_card)
         assistant.changed.connect(self.refresh)
         self.refresh()
 

@@ -82,13 +82,13 @@ class ConnectionUXTests(unittest.TestCase):
         self.call("click", control="overlay_laboratory")
         self.assertTrue(self.call("read", model="overlays")["data"]["laboratoryExpanded"])
         demo = self.window.overlays.desktop["metrics"]
-        self.assertFalse(demo.isEnabled())
+        self.assertTrue(demo.isEnabled())
         with patch.object(self.window.overlays, "sync"):
             self.call("set", control="overlay_preview", value=True)
             self.assertTrue(demo.isEnabled())
             self.assertTrue(self.call("read", model="overlays")["data"]["preview"])
             self.call("set", control="overlay_preview", value=False)
-        self.assertFalse(demo.isEnabled())
+        self.assertTrue(demo.isEnabled())
         self.call("click", control="overlay_laboratory")
         self.assertTrue(self.window.overlays.laboratory.isHidden())
 

@@ -250,13 +250,13 @@ class DesktopAuditTests(unittest.TestCase):
         self.assertTrue(controls.desktop["metrics"].isChecked())
         controls.desktop["metrics"].setChecked(False)
         controls.set_preview(False)
-        self.assertFalse(controls.desktop["metrics"].isEnabled())
-        self.assertFalse(controls.desktop["lane"].isChecked())
+        self.assertTrue(controls.desktop["metrics"].isEnabled())
+        self.assertTrue(controls.desktop["lane"].isChecked())
         controls.set_preview(True)
         self.assertFalse(controls.desktop["metrics"].isChecked())
         self.assertTrue(controls.desktop["lane"].isChecked())
         controls.set_preview(False)
-        self.assertFalse(controls.desktop["lane"].isChecked())
+        self.assertTrue(controls.desktop["lane"].isChecked())
 
     def test_invalid_ports_are_rejected_and_valid_local_sites_are_preserved(self):
         window = self.window()

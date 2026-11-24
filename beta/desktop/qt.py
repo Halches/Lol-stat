@@ -25,6 +25,8 @@ from desktop.update_service import apply_update, confirm_startup, last_update_er
 from overlays import OverlayControls
 from connection import connection_view
 from navigation import navigation_icon
+from desktop.live_overlays import LiveFeed
+from time import monotonic
 
 
 PHASES = {
@@ -143,7 +145,7 @@ class Window(QWidget):
         identity.setSpacing(1)
         identity.setContentsMargins(5, 0, 0, 0)
         identity.addWidget(label("LoL Helper", "title"))
-        identity.addWidget(label("EUW · Рейтинговая Solo/Duo", "caption"))
+        identity.addWidget(label("EUW · Solo/Duo и Flex", "caption"))
         header.addLayout(identity)
         header.addStretch()
         self.assistant_mute = button("Голос: выкл", lambda checked: self.assistant_page.master.setChecked(checked), "tab")
@@ -396,10 +398,21 @@ class Window(QWidget):
                                 "Прослушать: " + self.assistant_page.checks[(scope, topic)].accessibleName(), widget, "button")
         for index, (_card, _title, _date, _body, link) in enumerate(self.updates_page.notes, 1):
             self.automation.add(f"update_notes_{index}", f"Полный патчноут · {index}", link, "button")
+        self.live_feed = LiveFeed(self.companion, self)
+        self.live_feed.changed.connect(self.update_live_cards)
         self.home_active = None
         self.paint_snapshot()
         if self.auto_open_review:
             self.automation.start()
+
+    def update_live_cards(self, contents):
+        data = dict(contents)
+        self.live_feed.build = self.match_build
+        if self.assistant.text_message and monotonic() < self.assistant.text_until:
+            if self.assistant.flag("assistant/text", False) and self.assistant.flag("assistant/enabled", False):
+                data["advice"] = {"title": "Подсказка", "lines": [self.assistant.text_message]}
+        data["build"] = self.match_build
+        self.overlays.update_match(self.snapshot.get("phase") == "game", data)
 
     @staticmethod
     def slot(layout):
@@ -555,6 +568,9 @@ class Window(QWidget):
     def update_home_status(self):
         info = connection_view(self.snapshot)
         title = {"offline": "Клиент не подключён", "ready": "Клиент подключён"}.get(info.get("state"), info["title"])
+        if self.snapshot.get("phase") == "Lobby":
+            queue = self.snapshot.get("queueId")
+            title = "Лобби Flex · ожидаем выбор чемпионов" if queue == 440 else "Лобби · ожидаем выбор чемпионов"
         self.home_connection.setText("Просмотр доступен без игры" if self.home_page == "builds" else title)
         self.home_connection.setWordWrap(True)
         self.home_connection.setMinimumWidth(0 if self.menu_header.direction() == QBoxLayout.Direction.TopToBottom
@@ -1162,7 +1178,7 @@ class Window(QWidget):
                 self.preview_champion.setText(build["champion"])
                 self.preview_context.setText(context)
         else:
-            self.headline.setText(PHASES.get(phase, "Ожидаем драфт Solo/Duo"))
+            self.headline.setText(PHASES.get(phase, "Лобби подключено · ожидаем выбор чемпионов"))
             self.status.clear()
         self.hero.setVisible(not home and not drafting)
         self.game_header.setVisible(not home)
@@ -1184,7 +1200,7 @@ class Window(QWidget):
         self.paint_build_controls(build, options, choice, home=home, phase=phase)
         self.review_button.setVisible(bool(self.snapshot.get("matchId")) and not home)
         self.open_pending_review()
-        self.overlays.update_match(phase == "game" or phase in PLAYING, {"build": self.match_build})
+        self.update_live_cards(self.live_feed.contents)
 
     def paint_build_controls(self, build, options, choice, *, home, phase):
         can_choose = home or phase == "draft"
@@ -1297,6 +1313,7 @@ class Window(QWidget):
         self.assistant.close()
         self.updates_page.close()
         self.automation.close()
+        self.live_feed.close()
         self.overlays.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.preview_executor.shutdown(wait=False, cancel_futures=True)

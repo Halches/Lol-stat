@@ -37,6 +37,7 @@ else:
 
 DDRAGON = "https://ddragon.leagueoflegends.com"
 PLAYING = {"GameStart", "InProgress", "Reconnect"}
+SUPPORTED_QUEUES = {420, 440}
 ENDED = {"WaitingForStats", "PreEndOfGame", "EndOfGame"}
 HOME_PHASES = {"None", "Lobby", "Matchmaking", "ReadyCheck", "idle", "offline"}
 DRAFT_PHASES = {"pick", "loading", "no_build", "draft"}
@@ -294,6 +295,7 @@ class Companion:
         self.platform = None
         self.region_after = 0
         self.client_phase = "offline"
+        self.queue_id = None
         self.latest_match = None
         self.home_profile = None
         self.rank_history = RankHistory()
@@ -395,7 +397,7 @@ class Companion:
                 "gameId": self.game, "generation": self.flow_generation, "observedAt": now,
                 "role": self.build_key[1] if self.build_key and self.build_key[3] == self.game else "",
             }
-        snapshot = dict(self.status, flowGeneration=self.flow_generation)
+        snapshot = dict(self.status, flowGeneration=self.flow_generation, queueId=self.queue_id)
         if home:
             is_home = self.client_phase in HOME_PHASES
             if history_limit is not None and history_limit > self.history_limit:
@@ -465,7 +467,7 @@ class Companion:
                            historyAvailable=profile["historyAvailable"] or previous["historyAvailable"],
                            historyHasMore=profile["historyHasMore"] or previous["historyHasMore"])
         self.home_profile = profile
-        self.latest_match = next((row for row in profile["matches"] if row["queue"] == 420), None)
+        self.latest_match = next((row for row in profile["matches"] if row["queue"] in SUPPORTED_QUEUES), None)
 
     def preview_build(self, champion_id, role, *, include_specials=False):
         catalog = self.catalog
@@ -639,20 +641,21 @@ class Companion:
         self.client_phase = phase
         game = session.get("gameData") or {}
         queue = (game.get("queue") or {}).get("id")
+        self.queue_id = queue
         if self.lcu.port and not self.euw and now >= self.region_after:
             region = self.lcu.region()
             self.platform = region.upper() if isinstance(region, str) and re.fullmatch(r"[A-Za-z0-9]{2,10}", region) else None
             self.euw = self.platform in {"EUW", "EUW1"}
             self.region_after = now + 5
-        if phase == "ChampSelect" and queue == 420 and self.euw:
+        if phase == "ChampSelect" and queue in SUPPORTED_QUEUES and self.euw:
             return self.read_draft(now, game.get("gameId"), role_change)
         self.draft_profiles.clear()
         self.role_draft_id = None
         self.role_overrides.clear()
         match_id = game.get("gameId")
-        tracked_game = (self.game is not None and queue in (None, 420)
+        tracked_game = (self.game is not None and queue in {None, *SUPPORTED_QUEUES}
                         and (match_id is None or type(match_id) is int and match_id in (0, self.game)))
-        if phase in PLAYING | ENDED and ((self.euw and queue == 420) or tracked_game):
+        if phase in PLAYING | ENDED and ((self.euw and queue in SUPPORTED_QUEUES) or tracked_game):
             return self.read_game(now, phase, match_id, tracked_game)
         if phase in {"None", "Lobby"} and self.game and not self.finished:
             self.finished = f"EUW1_{self.game}"
@@ -753,7 +756,7 @@ class Companion:
         if not current:
             return {"results": ["Клиент LoL временно недоступен."]}
         if (current.get("phase") != "ChampSelect"
-                or ((current.get("gameData") or {}).get("queue") or {}).get("id") != 420
+                or ((current.get("gameData") or {}).get("queue") or {}).get("id") not in SUPPORTED_QUEUES
                 or str(self.lcu.region()).upper() not in {"EUW", "EUW1"}):
             return {"results": ["Драфт Solo/Duo EUW завершён."]}
         key = self.build_key
@@ -764,7 +767,7 @@ class Companion:
         def pick(flow):
             game = flow.get("gameData") or {}
             game_id = game.get("gameId")
-            if (flow.get("phase") != "ChampSelect" or (game.get("queue") or {}).get("id") != 420
+            if (flow.get("phase") != "ChampSelect" or (game.get("queue") or {}).get("id") not in SUPPORTED_QUEUES
                     or type(key[3]) is not int or key[3] <= 0 or game_id not in (None, 0, key[3])):
                 return None, False
             draft = self.query_draft() or {}

@@ -1,5 +1,6 @@
 """Visual examples of the planned match overlays."""
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from textwrap import wrap
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QWidget
 
@@ -69,6 +70,9 @@ class SampleCard(QWidget):
         self.frames = {}
 
     def set_content(self, _sample):
+        self.live_content = _sample if _sample.get("lines") is not None else None
+        self.live_lines = [part for line in (_sample.get("lines") or []) for part in (wrap(line, 38) or [""])]
+        self.updateGeometry()
         self.update()
 
     def set_appearance(self, theme, scale):
@@ -78,6 +82,8 @@ class SampleCard(QWidget):
 
     def sizeHint(self):
         width, height = self.dimensions[self.kind]
+        if getattr(self, "live_content", None):
+            width, height = 330, 42 + len(self.live_lines) * 23
         return QSize(round(width * self.scale), round(height * self.scale))
 
     def pixmap(self, name):
@@ -93,6 +99,14 @@ class SampleCard(QWidget):
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
+        content = getattr(self, "live_content", None)
+        if content:
+            painter.scale(self.scale, self.scale)
+            draw_panel(painter, QRectF(0, 0, self.width() / self.scale, self.height() / self.scale), self.theme)
+            text(painter, content["title"], (12, 6, 306, 27), size=14)
+            for index, line in enumerate(self.live_lines):
+                text(painter, line, (12, 34 + index * 23, 306, 23), size=12)
+            return
         width, height = self.dimensions[self.kind]
         painter.scale(self.width() / width, self.height() / height)
         if self.kind != "tab":
