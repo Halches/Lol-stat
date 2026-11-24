@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import partial
 import sys
 import base64
+import math
 
 from PySide6.QtCore import QBuffer, QIODevice, QEvent, QObject, QPoint, QRect, QSignalBlocker, Qt, QTimer, QUrl
 from PySide6.QtWidgets import (
@@ -176,7 +177,7 @@ OVERLAYS = (
                 partial(SampleCard, kind="lane"), {}, (.815, .39), preview_only=False),
     OverlaySpec("standings", "Стоимость предметов", "Десять чемпионов по стоимости предметов, от большей к меньшей.",
                 partial(SampleCard, kind="standings"), {}, (.04, .31), preview_only=False),
-    OverlaySpec("purchase", "До покупки", "Следующий предмет сборки: полная цена и наличные, без вычета компонентов.",
+    OverlaySpec("purchase", "До покупки", "Предмет, выбранный справа от золота в магазине: распознавание иконки стандартного нижнего HUD. При неуверенном результате карточка скрыта.",
                 partial(SampleCard, kind="purchase"), {}, (.815, .60), preview_only=False),
     OverlaySpec("objectives", "События объектов", "Время с последнего подтверждённого события объекта.",
                 partial(SampleCard, kind="objectives"), {}, (.55, .06), preview_only=False),
@@ -207,6 +208,19 @@ class OverlaySurface(QWidget):
         self.setVisible(visible)
 
 
+def saved_position(value):
+    """QSettings on Windows returns saved numeric lists as QStringList."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        if any(isinstance(v, bool) or not isinstance(v, (int, float, str)) for v in value):
+            return None
+        point = tuple(float(v) for v in value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return point if all(math.isfinite(v) and 0 <= v <= 1 for v in point) else None
+
+
 class OverlayCard(OverlaySurface):
     def __init__(self, spec, settings, artwork, catalog):
         self.card = spec.card(artwork, catalog)
@@ -215,8 +229,7 @@ class OverlayCard(OverlaySurface):
         self.default_position = spec.default_position
         self.position_key = f"overlays/{spec.key}/position"
         saved = settings.value(self.position_key)
-        self.position = (tuple(saved) if isinstance(saved, (list, tuple)) and len(saved) == 2
-                         and all(isinstance(value, (float, int)) and 0 <= value <= 1 for value in saved) else None)
+        self.position = saved_position(saved)
         self.content = None
         self.drag_offset = None
         self.editing = False
@@ -249,6 +262,7 @@ class OverlayCard(OverlaySurface):
             self.drag_offset = None
             if self.position is not None:
                 self.settings.setValue(self.position_key, list(self.position))
+                self.settings.sync()
 
     def present_card(self, area):
         if self.drag_offset is not None:
@@ -294,6 +308,12 @@ class ScoreboardSurface(OverlaySurface):
             if bar < 16 or not area.contains(target):
                 self.hide()
                 return
+            # SetWindowPos alone does not update the Qt backing store of a
+            # hidden translucent window. Its child can remain 0x0 after show.
+            # Resize only when needed; repeated Tab scans must not resize it.
+            logical_size = round(target.width() / ratio), round(target.height() / ratio)
+            if self.size().toTuple() != logical_size:
+                self.resize(*logical_size)
             if native.geometry(self) == target.getRect():
                 break
             try:

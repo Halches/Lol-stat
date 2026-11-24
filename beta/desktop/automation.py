@@ -265,6 +265,7 @@ class AutomationServer(QObject):
                     "preview": getattr(overlays, "previewing", False),
                     "live": getattr(getattr(self.window, "live_feed", None), "contents", {}),
                     "tab": getattr(overlays, "tab_status", {"state": "hidden"}),
+                    "purchase": getattr(getattr(self.window, "live_feed", None), "purchase_status", {"state":"inactive","source":"screen"}),
                     "laboratoryExpanded": bool(getattr(overlays, "laboratory_toggle", None)
                                                and overlays.laboratory_toggle.isChecked()),
                     "positions": {key: card.position for key, card in getattr(overlays, "cards", {}).items()}}
@@ -315,6 +316,7 @@ class AutomationServer(QObject):
                 raise UIError("invalid_value", "Overlay coordinates must be within 0..1.")
             card.position = (x, y)
             card.settings.setValue(card.position_key, [x, y])
+        card.settings.sync()
         self.window.overlays.sync()
 
     def _accept(self, server):

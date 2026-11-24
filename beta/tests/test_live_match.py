@@ -42,6 +42,15 @@ class FlexTests(unittest.TestCase):
         self.assertEqual(reconnect['phase'], 'game')
         self.assertEqual(reconnect['queueId'], 440)
 
+    def test_practice_live_overlay_does_not_create_ranked_match_review(self):
+        playing,ended=self.snapshots(desktop.gameflow('InProgress',123,3140),
+                                    desktop.gameflow('EndOfGame',123,3140),home=True)
+        self.assertEqual(playing['phase'],'game')
+        self.assertIsNone(ended['matchId'])
+        from desktop.voice_rules import Catalog,game_snapshot
+        raw=voice.snapshot();raw['gameData']['gameMode']='PRACTICETOOL'
+        self.assertIsNotNone(game_snapshot(raw,Catalog(voice.CATALOG)))
+
     def test_flex_champ_select_enters_draft_reader(self):
         from desktop.worker import Companion
         from unittest.mock import Mock
@@ -189,6 +198,24 @@ class NewSettingsTests(unittest.TestCase):
     setUp = ux.ConnectionUXTests.setUp
     call = ux.ConnectionUXTests.call
 
+    def test_overlay_positions_roundtrip_settings_and_survive_match_transitions(self):
+        from PySide6.QtCore import QSettings
+        from overlays import OverlayCard, OVERLAYS, saved_position
+        self.call('overlay_position',overlay='metrics',x=.31,y=.62)
+        self.window.overlays.update_match(False,{})
+        self.window.overlays.update_match(True,{})
+        settings=QSettings(self.window.settings.fileName(),QSettings.Format.IniFormat)
+        # The native Windows backend serializes a list of doubles as strings.
+        settings.setValue('overlays/metrics/position',['0.31','0.62']);settings.sync()
+        card=OverlayCard(next(s for s in OVERLAYS if s.key=='metrics'),settings,self.window.artwork,{})
+        self.addCleanup(card.close)
+        self.assertEqual(card.position,(.31,.62))
+        self.assertEqual(self.call('read',model='overlays')['data']['positions']['metrics'],(.31,.62))
+        for invalid in (['nan','.5'],['inf','.5'],['-0.1','.5'],['1.1','.5'],['bad','.5'],[True,.5],'.3,.6',[]):
+            with self.subTest(invalid=invalid):self.assertIsNone(saved_position(invalid))
+        self.call('overlay_position',overlay='metrics',reset=True)
+        self.assertIsNone(self.call('read',model='overlays')['data']['positions']['metrics'])
+
     def test_tab_api_explains_disabled_and_released_key_without_game_actions(self):
         import overlays
         controls=self.window.overlays
@@ -214,6 +241,7 @@ class NewSettingsTests(unittest.TestCase):
         surface=self.window.overlays.scoreboard
         frame=(300,300,1600,800,200)
         target=(300,167,1300,633)
+        surface.resize(1300,633)
         with patch.object(overlays.native,'geometry',return_value=target), \
              patch.object(overlays.native,'move') as move, \
              patch.object(surface,'resize') as resize, \
@@ -222,6 +250,20 @@ class NewSettingsTests(unittest.TestCase):
                 surface.attach(QRect(0,0,1920,1080),{'x':0,'y':0},frame,overlays.THEMES[overlays.DEFAULT_THEME],1)
             move.assert_not_called();resize.assert_not_called()
             repaint.assert_called_once()
+
+    def test_first_tab_attach_sizes_qt_surface_and_paint_child(self):
+        from PySide6.QtCore import QRect
+        import overlays
+        surface=self.window.overlays.scoreboard
+        surface.resize(0,0)
+        with patch.object(overlays.native,'geometry',return_value=(422,449,1539,625)), \
+             patch.object(overlays.native,'move'):
+            surface.attach(QRect(0,0,3440,1440),{'x':0,'y':0},(422,550,1961,1074,482),
+                           overlays.THEMES[overlays.DEFAULT_THEME],1)
+            self.app.processEvents()
+            self.assertEqual(surface.size().toTuple(),(1539,625))
+            self.assertEqual(surface.decoration.size(),surface.size())
+            self.assertFalse(surface.decoration.grab().isNull())
 
     def test_each_phrase_has_independent_output_channels_and_reset(self):
         self.call('click',control='menu_assistant')

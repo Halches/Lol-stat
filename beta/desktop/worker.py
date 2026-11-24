@@ -38,6 +38,7 @@ else:
 DDRAGON = "https://ddragon.leagueoflegends.com"
 PLAYING = {"GameStart", "InProgress", "Reconnect"}
 SUPPORTED_QUEUES = {420, 440}
+LIVE_QUEUES = SUPPORTED_QUEUES | {3140}  # Multiplayer Practice Tool; no ranked draft/import.
 ENDED = {"WaitingForStats", "PreEndOfGame", "EndOfGame"}
 HOME_PHASES = {"None", "Lobby", "Matchmaking", "ReadyCheck", "idle", "offline"}
 DRAFT_PHASES = {"pick", "loading", "no_build", "draft"}
@@ -654,11 +655,11 @@ class Companion:
         self.role_draft_id = None
         self.role_overrides.clear()
         match_id = game.get("gameId")
-        tracked_game = (self.game is not None and queue in {None, *SUPPORTED_QUEUES}
+        tracked_game = (self.game is not None and queue in {None, *LIVE_QUEUES}
                         and (match_id is None or type(match_id) is int and match_id in (0, self.game)))
-        if phase in PLAYING | ENDED and ((self.euw and queue in SUPPORTED_QUEUES) or tracked_game):
+        if phase in PLAYING | ENDED and ((self.euw and queue in LIVE_QUEUES) or tracked_game):
             return self.read_game(now, phase, match_id, tracked_game)
-        if phase in {"None", "Lobby"} and self.game and not self.finished:
+        if phase in {"None", "Lobby"} and self.game and not self.finished and getattr(self,"reviewable_game",False):
             self.finished = f"EUW1_{self.game}"
         if self.game is not None:
             self.history_after = 0
@@ -722,10 +723,12 @@ class Companion:
     def read_game(self, now, phase, match_id, tracked_game):
         self.voice_current_read = type(match_id) is int and match_id > 0
         if type(match_id) is int and match_id > 0:
+            if match_id != self.game:
+                self.reviewable_game = self.queue_id in SUPPORTED_QUEUES
             if self.build_key and self.build_key[3] != match_id:
                 self.clear_build()
             self.game = match_id
-        if phase in ENDED and self.game is not None:
+        if phase in ENDED and self.game is not None and getattr(self,"reviewable_game",False):
             self.finished = f"EUW1_{self.game}"
         elif phase not in ENDED:
             self.finished = None

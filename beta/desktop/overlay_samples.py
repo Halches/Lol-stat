@@ -74,6 +74,8 @@ class SampleCard(QWidget):
     def set_content(self, _sample):
         self.live_content = _sample if _sample.get("lines") is not None else None
         self.live_lines = [part for line in (_sample.get("lines") or []) for part in (wrap(line, 38) or [""])]
+        self.setToolTip("\n".join(_sample.get("lines") or []))
+        self.setAccessibleDescription(self.toolTip())
         self.updateGeometry()
         self.update()
 
@@ -155,7 +157,7 @@ class SampleCard(QWidget):
             text(painter,f"{difference:+.0f}",(59,27,130,25),19,trend(difference),Qt.AlignmentFlag.AlignRight)
         elif self.kind == "purchase":
             self.icon(painter,str(data["item"]),10,9,40)
-            text(painter,"Полная цена",(59,6,87,19),11,MUTED)
+            text(painter,"Не хватает",(59,6,87,19),11,MUTED)
             text(painter,f"{data['price']:.0f}",(59,24,82,27),20,GOLD)
         elif self.kind == "objectives":
             share=self.pixmap("objective-portraits")

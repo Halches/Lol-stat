@@ -399,6 +399,7 @@ class Window(QWidget):
         for index, (_card, _title, _date, _body, link) in enumerate(self.updates_page.notes, 1):
             self.automation.add(f"update_notes_{index}", f"Полный патчноут · {index}", link, "button")
         self.live_feed = LiveFeed(self.companion, self)
+        self.live_feed.purchase_enabled = lambda: self.overlays.desktop["purchase"].isChecked()
         self.live_feed.changed.connect(self.update_live_cards)
         self.home_active = None
         self.paint_snapshot()

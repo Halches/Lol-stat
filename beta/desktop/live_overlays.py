@@ -4,9 +4,11 @@ from time import monotonic
 from PySide6.QtCore import QObject, Signal, QTimer
 from .voice_assistant import read_live
 from .voice_rules import Catalog, game_snapshot
+from .quick_buy import QuickBuyReader, remaining_price
+from .worker import foreground_game
 
 
-def live_cards(raw, catalog, role="", build=None):
+def live_cards(raw, catalog, role="", build=None, quick_buy=None):
     game = game_snapshot(raw, Catalog(catalog), role)
     if game is None:
         return {}
@@ -51,17 +53,18 @@ def live_cards(raw, catalog, role="", build=None):
             cards["lane"] = {"title": "Предметы на линии", "lines": [f"Разница: {game.lane_diff():+.0f}"]}
             cards["lane"]["visual"] = {"version": version, "champion": game.opp["c"],
                 "name": catalog.get("names", {}).get(game.opp["c"],game.opp["c"]), "difference": game.lane_diff()}
-    # The build's full purchase price is explicit; do not pretend unknown recipe
-    # component credit or a game's quick-buy selection is available.
-    for item in (build or {}).get("items", []):
-        if item.get("id") not in me["items"]:
-            entry = items.get(str(item.get("id")), {})
-            cost = entry.get("g", (entry.get("gold") or {}).get("total"))
-            if type(cost) in (int, float) and cost > 0:
-                cards["purchase"] = {"title": "Следующий предмет сборки", "lines": [item["name"],
-                    f"Полная цена: {cost:.0f} · наличные: {game.gold:.0f}", "Компоненты в цене не вычтены"]}
-                cards["purchase"]["visual"] = {"version": version, "item": item["id"], "price": cost, "gold": game.gold}
-            break
+    if quick_buy and quick_buy.get("state") == "ready":
+        item_id = quick_buy.get("item")
+        entry = items.get(str(item_id), {})
+        cost = remaining_price(item_id, me["items"], items)
+        if entry and cost is not None:
+            missing = max(0, cost-game.gold)
+            name = entry.get("n") or entry.get("name") or str(item_id)
+            cards["purchase"] = {"title": "Выбрано в магазине", "lines": [name,
+                f"Осталось заплатить: {cost:.0f} · не хватает: {missing:.0f}", "Источник: иконка быстрого закупа"]}
+            cards["purchase"]["visual"] = {"version": version, "item": item_id, "name": name,
+                "price": missing, "remaining": cost, "gold": game.gold, "source": "quick_buy",
+                "confidence": quick_buy.get("confidence")}
     return cards
 
 
@@ -77,6 +80,9 @@ class LiveFeed(QObject):
         self.contents = {}
         self.observed = 0
         self.build = None
+        self.quick_buy = QuickBuyReader()
+        self.purchase_enabled = lambda: False
+        self.purchase_status = {"state": "inactive", "source": "screen"}
         self.session = None
         self.clock = None
         self.clock_at = 0
@@ -88,6 +94,9 @@ class LiveFeed(QObject):
         context = self.companion.voice_context or {}
         active = context.get("active") and monotonic() - context.get("observedAt", 0) < 4
         session = (context.get("generation"), context.get("gameId"))
+        bounds = foreground_game() if active and self.purchase_enabled() else None
+        rect = tuple(bounds[key] for key in ("x","y","width","height")) if bounds else None
+        self.purchase_status = self.quick_buy.poll(rect, session, self.companion.catalog)
         if session != self.session:
             self.session = session
             self.contents = {}
@@ -103,7 +112,7 @@ class LiveFeed(QObject):
                     clock = (raw.get("gameData") or {}).get("gameTime") if isinstance(raw, dict) else None
                     if clock != self.clock:
                         self.clock, self.clock_at = clock, monotonic()
-                    self.contents = (live_cards(raw, self.companion.catalog, context.get("role", ""), self.build)
+                    self.contents = (live_cards(raw, self.companion.catalog, context.get("role", ""), self.build, self.purchase_status)
                                      if monotonic() - self.clock_at < 3 else {})
                     self.observed = monotonic()
                     if self.contents.get("tab"):
@@ -117,4 +126,5 @@ class LiveFeed(QObject):
     def close(self):
         self.closed = True
         self.timer.stop()
+        self.quick_buy.close()
         self.executor.shutdown(wait=False, cancel_futures=True)

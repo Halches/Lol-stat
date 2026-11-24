@@ -31,7 +31,7 @@ def game_snapshot(raw, data, selected_role=""):
     players = raw.get("allPlayers")
     if (not isinstance(active, dict) or not isinstance(info, dict) or not isinstance(players, list)
             or not valid_number(info.get("gameTime")) or info["gameTime"] < 0
-            or info.get("mapNumber") != 11 or info.get("gameMode") != "CLASSIC"
+            or info.get("mapNumber") != 11 or info.get("gameMode") not in {"CLASSIC", "PRACTICETOOL"}
             or not valid_number(active.get("currentGold")) or active["currentGold"] < 0):
         return None
     if not all(isinstance(p, dict) and type(p.get("level")) is int and 1 <= p["level"] <= 30
