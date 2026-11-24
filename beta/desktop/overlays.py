@@ -335,6 +335,7 @@ class OverlayControls(QObject):
         self.desktop_preview = QCheckBox("Предпросмотр в игре")
         self.desktop_preview.setToolTip("Показывает примерные данные поверх матча или тренировки.")
         desktop_layout.addWidget(self.desktop_preview)
+        desktop_layout.addWidget(label("Действующие в матче", "captionStrong"))
 
         drawer_panel = self.drawer_skin = ThemePanel()
         drawer_layout = QVBoxLayout(drawer_panel)
@@ -399,11 +400,23 @@ class OverlayControls(QObject):
         self.drawer = OverlaySurface("Настройки оверлеев", drawer_panel)
         self.drawer.set_interactive(True)
 
+        demo_heading_shown = False
         for spec in OVERLAYS:
+            if spec.preview_only and not demo_heading_shown:
+                demo_heading_shown = True
+                desktop_layout.addWidget(label("Демонстрационные оверлеи", "section"))
+                desktop_layout.addWidget(label(
+                    "Эти примеры пока не получают данные матча. Переключатели доступны только в предпросмотре.",
+                    "caption", wrap=True))
+                drawer_checkboxes.addWidget(label("Только демонстрация", "captionStrong"))
             if not spec.attached:
                 self.cards[spec.key] = OverlayCard(spec, settings, artwork, catalog)
-            desktop_toggle = QCheckBox(spec.title)
-            game_toggle = QCheckBox(spec.title)
+            title = f"{spec.title} · демо" if spec.preview_only else spec.title
+            desktop_toggle = QCheckBox(title)
+            game_toggle = QCheckBox(title)
+            if spec.preview_only:
+                for toggle in (desktop_toggle, game_toggle):
+                    toggle.setToolTip("Только демонстрация. Игровые данные не подключены. Включите предпросмотр.")
             game_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             self.desktop[spec.key] = desktop_toggle
             self.in_game[spec.key] = game_toggle
@@ -415,12 +428,14 @@ class OverlayControls(QObject):
             self.samples[spec.key] = preview
             setting_panel, setting_layout = panel("tile")
             setting_layout.addWidget(desktop_toggle)
+            if spec.preview_only:
+                setting_layout.addWidget(label("Только демонстрация · нет игровых данных", "caption", wrap=True))
             setting_layout.addWidget(label(spec.description, "caption", wrap=True))
             setting_layout.addWidget(preview, alignment=Qt.AlignmentFlag.AlignLeft)
             desktop_layout.addWidget(setting_panel)
             drawer_checkboxes.addWidget(game_toggle)
             for toggle in (desktop_toggle, game_toggle):
-                toggle.setChecked(enabled)
+                toggle.setChecked(enabled and (self.previewing or not spec.preview_only))
                 toggle.toggled.connect(lambda checked, key=spec.key: self.set_enabled(key, checked))
 
         self.timer = QTimer(self)
@@ -505,6 +520,13 @@ class OverlayControls(QObject):
                 toggle.setChecked(self.previewing)
         self.game_preview.setText("Завершить предпросмотр" if self.previewing else "Предпросмотр")
         self.objective_preview.setVisible(self.previewing)
+        for spec in OVERLAYS:
+            if spec.preview_only:
+                enabled = self.previewing and self.settings.value(f"overlays/{spec.key}/enabled", True, type=bool)
+                for toggle in (self.desktop[spec.key], self.in_game[spec.key]):
+                    with QSignalBlocker(toggle):
+                        toggle.setChecked(enabled)
+                    toggle.setEnabled(self.previewing)
 
     def set_preview(self, enabled):
         self.previewing = enabled
@@ -518,6 +540,8 @@ class OverlayControls(QObject):
             widget.update()
 
     def set_enabled(self, key, enabled):
+        if not self.previewing and any(spec.key == key and spec.preview_only for spec in OVERLAYS):
+            return
         self.settings.setValue(f"overlays/{key}/enabled", enabled)
         for toggle in (self.desktop[key], self.in_game[key]):
             with QSignalBlocker(toggle):

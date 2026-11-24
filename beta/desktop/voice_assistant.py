@@ -4,7 +4,7 @@ from time import monotonic
 
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 
 import lcu
 from .voice_audio import ClipPlayer, VoicePack
@@ -183,23 +183,37 @@ class AssistantPage(QWidget):
         self.master.setChecked(assistant.flag("assistant/enabled", False))
         self.master.toggled.connect(lambda value: assistant.configure("assistant/enabled", value))
         contents.addWidget(self.master)
-        row = QHBoxLayout()
+        self.voice_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        selector = QWidget()
+        row = QHBoxLayout(selector)
+        row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(label("Голос", "captionStrong"))
         self.voice = QComboBox()
         self.voice.setAccessibleName("Голос помощника")
+        self.voice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.voice.setMinimumContentsLength(10)
+        self.voice.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.voice.setMinimumWidth(0)
         for key, metadata in assistant.pack.voices.items():
             self.voice.addItem(metadata["name"], key)
         if not assistant.pack.voices:
             self.voice.addItem("Нет готовых записей", "")
         self.voice.setCurrentIndex(max(0, self.voice.findData(assistant.voice)))
+        self.voice.setToolTip(self.voice.currentText())
+        self.voice.currentTextChanged.connect(self.voice.setToolTip)
         self.voice.currentIndexChanged.connect(lambda _: assistant.configure("assistant/voice", self.voice.currentData()))
         row.addWidget(self.voice, 1)
+        self.voice_row.addWidget(selector, 1)
+        actions = QWidget()
+        row = QHBoxLayout(actions)
+        row.setContentsMargins(0, 0, 0, 0)
         self.test = button("▶ Проверить голос", lambda: assistant.preview(), "tab")
         self.test.setEnabled(bool(assistant.pack.voices))
         row.addWidget(self.test)
         self.stop = button("■ Остановить", assistant.player.stop, "tab")
         row.addWidget(self.stop)
-        contents.addLayout(row)
+        self.voice_row.addWidget(actions)
+        contents.addLayout(self.voice_row)
         row = QHBoxLayout()
         row.addWidget(label("Громкость", "captionStrong"))
         self.volume = QSpinBox()
@@ -287,6 +301,9 @@ class AssistantPage(QWidget):
     def show_category(self, *_):
         for scope, section in self.sections.items():
             section.setVisible(scope == self.category.currentData())
+
+    def reflow(self, width):
+        self.voice_row.setDirection(QBoxLayout.Direction.TopToBottom if width < 620 else QBoxLayout.Direction.LeftToRight)
 
     def refresh(self):
         self.state.setText(self.assistant.status)

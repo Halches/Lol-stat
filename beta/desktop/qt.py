@@ -20,6 +20,8 @@ from theme import STYLE
 from widgets import button, icon_label, label, panel
 from worker import Companion, DDRAGON, DRAFT_PHASES, HOME_PHASES, PLAYING, ROLES, SOURCE_ERRORS
 from desktop.voice_assistant import Assistant, AssistantPage
+from desktop.update_page import UpdatePage
+from desktop.update_service import apply_update, confirm_startup, last_update_error
 from overlays import OverlayControls
 
 
@@ -44,6 +46,7 @@ HOME_PAGES = {
     "builds": "Сборки",
     "assistant": "Голосовой помощник",
     "settings": "Настройки",
+    "updates": "Обновление",
 }
 REVIEW_RETRY_SECONDS = 30
 
@@ -87,6 +90,9 @@ class Window(QWidget):
         self.preview_target = None
         self.preview_patch = None
         self.preview_action_focus = None
+        self.preview_session_context = None
+        self.preview_revision = 0
+        self.preview_request_revision = None
         self.champion_index = {}
         self.champion_catalog = None
         self.latest_match = None
@@ -163,12 +169,21 @@ class Window(QWidget):
         menu.setContentsMargins(0, 0, 0, 0)
         menu.setSpacing(14)
         layout.addWidget(self.workspace)
-        menu_header = QHBoxLayout()
-        self.page_title = label("", "dashboardTitle")
-        menu_header.addWidget(self.page_title, 1)
+        self.menu_header = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.page_title = label("", "dashboardTitle", wrap=True)
+        self.menu_header.addWidget(self.page_title, 1)
         self.home_connection = label("", "homeConnection")
-        menu_header.addWidget(self.home_connection, alignment=Qt.AlignmentFlag.AlignVCenter)
-        menu.addLayout(menu_header)
+        self.menu_header.addWidget(self.home_connection, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        menu.addLayout(self.menu_header)
+        self.update_banner = QWidget()
+        self.update_banner_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self.update_banner)
+        self.update_banner_layout.setContentsMargins(0, 0, 0, 0)
+        self.update_banner_text = label("", "notice", wrap=True)
+        self.update_banner_layout.addWidget(self.update_banner_text, 1)
+        self.update_banner_button = button("Открыть обновление", lambda: self.show_home_page("updates"), "tab")
+        self.update_banner_layout.addWidget(self.update_banner_button)
+        self.update_banner.hide()
+        menu.addWidget(self.update_banner)
         self.menu_notice = self.slot(menu)
         self.dashboard = Dashboard(self.artwork, self.open_match_review,
                                    lambda: self.show_home_page("history"), self.open_latest_review)
@@ -182,9 +197,14 @@ class Window(QWidget):
         self.assistant_page = AssistantPage(self.assistant)
         self.assistant.changed.connect(self.update_assistant_button)
         self.update_assistant_button()
+        self.updates_page = UpdatePage(
+            self.settings, lambda: self.is_home() and self.export_job is None,
+            running=not self.probe and "--smoke" not in sys.argv)
+        self.updates_page.restart.connect(self.close)
+        self.updates_page.changed.connect(self.update_update_notice)
         self.home_views = {"overview": self.dashboard, "history": self.match_history, "builds": self.build_page,
                            "assistant": self.assistant_page,
-                           "settings": self.settings_page.parentWidget()}
+                           "settings": self.settings_page.parentWidget(), "updates": self.updates_page}
         for key, view in self.home_views.items():
             if key != "settings":
                 menu.addWidget(view)
@@ -322,6 +342,8 @@ class Window(QWidget):
         self.automation.add("other_build", "Другие сборки", self.extra_build_choice, "choice")
         self.automation.add("otp_build", "Мейнеры", self.otp_choice, "choice")
         self.automation.add("rank_history_queue", "Очередь графика ранга", self.dashboard.queue, "choice")
+        self.automation.add("update_action", "Проверить или установить обновление", self.updates_page.action, "button")
+        self.automation.add("update_github", "Все выпуски на GitHub", self.updates_page.github, "button")
         for key, widget, kind in (
             ("assistant_enabled", self.assistant_page.master, "checkbox"),
             ("assistant_voice", self.assistant_page.voice, "choice"),
@@ -379,6 +401,12 @@ class Window(QWidget):
         layout.addStretch()
         return sidebar
 
+    def update_update_notice(self):
+        available = self.updates_page.available
+        self.update_banner.setVisible(bool(available))
+        self.update_banner_text.setText(f"Доступна новая версия LoL Helper {available.version}" if available else "")
+        self.nav_buttons["updates"].setText("Обновление •" if available else "Обновление")
+
     def arrange_build(self, *, wide, compact=False):
         columns = 6 if wide and not compact else 3
         margins = (16, 13, 16, 13) if wide else (11, 9, 11, 9)
@@ -418,6 +446,9 @@ class Window(QWidget):
         self.match_history.reflow(width)
         self.settings_panel.setFixedWidth(min(694, width))
         compact = width < 660
+        self.menu_header.setDirection(QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight)
+        self.update_banner_layout.setDirection(QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight)
+        self.assistant_page.reflow(width)
         if compact != self.build_compact:
             self.build_compact = compact
             self.search_row.setDirection(
@@ -453,7 +484,8 @@ class Window(QWidget):
                         self.dashboard.matches.history, self.champion_input, self.role_input, self.preview_button,
                         *self.choice_widgets, self.build_source_button, self.site, self.save_button, self.site_button,
                         self.overlays.desktop_theme, self.overlays.desktop_scale, self.overlays.desktop_preview,
-                        *self.overlays.desktop.values(), *self.assistant_page.focus_controls()]
+                        *self.overlays.desktop.values(), *self.assistant_page.focus_controls(),
+                        self.updates_page.action, self.updates_page.github]
             for before, after in zip(controls, controls[1:]):
                 QWidget.setTabOrder(before, after)
         else:
@@ -742,6 +774,26 @@ class Window(QWidget):
         champion = self.champion_index.get(self.champion_input.text().strip().casefold())
         return champion, self.role_input.currentData()
 
+    def update_preview_context(self):
+        generation = self.snapshot.get("flowGeneration")
+        account = ((self.snapshot.get("homeProfile") or {}).get("profile") or {}).get("riot")
+        # The profile may be absent during a match or a temporary read failure.
+        # Keep the last confirmed identity only within the same LCU generation.
+        if not account and self.preview_session_context and generation == self.preview_session_context[0]:
+            account = self.preview_session_context[1]
+        context = generation, account
+        if context == self.preview_session_context:
+            return
+        self.preview_session_context = context
+        self.preview_revision += 1
+        had_preview = bool(self.preview_options) or self.preview_job is not None
+        self.preview_options = {}
+        self.preview_choice = None
+        if had_preview:
+            self.set_preview_message(
+                "Сессия клиента изменилась. Дождитесь завершения предыдущего запроса и загрузите сборку заново."
+                if self.preview_job is not None else "Сессия клиента изменилась. Загрузите сборку заново.")
+
     def set_preview_message(self, text):
         self.preview_message.setText(text)
         self.preview_message.setVisible(bool(text))
@@ -751,7 +803,9 @@ class Window(QWidget):
         if self.current_preview_target() != self.preview_target:
             self.preview_options = {}
             self.preview_choice = None
-            self.set_preview_message("")
+            self.set_preview_message(
+                "Загружаем предыдущую сборку. Дождитесь завершения, затем нажмите «Показать сборку»."
+                if self.preview_job is not None else "")
         elif self.preview_job is not None:
             self.set_preview_message("Загружаем сборку…")
         self.paint_snapshot()
@@ -759,6 +813,7 @@ class Window(QWidget):
     def request_preview(self):
         if not self.is_home() or self.preview_job is not None:
             return
+        self.update_preview_context()
         target = self.current_preview_target()
         if not all(target):
             self.set_preview_message("Выберите чемпиона из списка и укажите роль.")
@@ -767,6 +822,7 @@ class Window(QWidget):
         self.preview_choice = None
         self.preview_target = target
         self.preview_patch = self.companion.catalog.get("patch")
+        self.preview_request_revision = self.preview_revision
         self.set_preview_message("Загружаем сборку…")
         self.preview_job = self.preview_executor.submit(self.companion.preview_build, *target, include_specials=True)
         focused = self.preview_button.hasFocus()
@@ -777,9 +833,12 @@ class Window(QWidget):
     def finish_preview(self):
         if not self.preview_job or not self.preview_job.done():
             return
+        self.update_preview_context()
         job, self.preview_job = self.preview_job, None
         previous_focus, self.preview_action_focus = self.preview_action_focus, None
-        if self.preview_target == self.current_preview_target():
+        if self.preview_request_revision != self.preview_revision:
+            self.set_preview_message("Сессия клиента изменилась. Нажмите «Показать сборку», чтобы загрузить новый вариант.")
+        elif self.preview_target == self.current_preview_target():
             options = {}
             if self.preview_patch != self.companion.catalog.get("patch"):
                 message = "Патч обновился. Загрузите сборку ещё раз."
@@ -791,6 +850,8 @@ class Window(QWidget):
                     message = "Источник сборок временно недоступен. Попробуйте ещё раз."
             self.preview_options = options
             self.set_preview_message(message)
+        else:
+            self.set_preview_message("Выбор изменён. Нажмите «Показать сборку», чтобы загрузить новый вариант.")
         restore_focus = previous_focus is not None and self.focusWidget() is previous_focus
         self.paint_snapshot()
         if restore_focus and self.is_home() and self.isActiveWindow():
@@ -902,6 +963,7 @@ class Window(QWidget):
         self.job = self.executor.submit(self.companion.snapshot, home=True, history_limit=self.match_history.limit)
 
     def paint_snapshot(self):
+        self.update_preview_context()
         phase = self.snapshot.get("phase")
         drafting = phase in DRAFT_PHASES
         if self.notice_draft_key is not None and (not drafting or self.notice_draft_key != self.snapshot.get("draftKey")):
@@ -1093,6 +1155,7 @@ class Window(QWidget):
     def closeEvent(self, event):
         self.timer.stop()
         self.assistant.close()
+        self.updates_page.close()
         self.automation.close()
         self.overlays.close()
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -1106,11 +1169,17 @@ def main():
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     window = Window()
+    if error := last_update_error():
+        window.show_home_page("updates")
+        window.updates_page.status.setText(f"Обновление не установлено. {error}")
     window.show()
+    confirm_startup()
     if "--smoke" in sys.argv:
         QTimer.singleShot(2000, window.close)
     return app.exec()
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--apply-update":
+        raise SystemExit(apply_update(sys.argv[2]))
     raise SystemExit(main())
