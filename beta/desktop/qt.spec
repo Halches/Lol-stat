@@ -43,4 +43,5 @@ a.binaries = [
     entry for entry in a.binaries if not is_icu_binary(entry)
 ]
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, a.binaries, a.datas, name="LoLHelperBeta-Qt", console=False, upx=False)
+exe = EXE(pyz, a.scripts, a.binaries, a.datas, name="LoLHelperBeta-Qt", console=False, upx=False,
+          icon=str(desktop / "assets/lolhelper-logo.ico"))
