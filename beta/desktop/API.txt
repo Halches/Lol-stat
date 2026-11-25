@@ -74,6 +74,14 @@ Data Dragon и кешируются локально. Нестандартное
 Полное правило для всех разработчиков: корневой AGENTS.md проекта.
 
 ПОДКЛЮЧЕНИЕ И ПЕРВЫЙ ЗАПУСК
+Последний подтверждённый профиль EUW сохраняется локально в
+%LOCALAPPDATA%/LoLHelper/last-profile.json, без паролей и токенов LCU.
+read model=profile/history возвращает сохранённые данные при закрытом клиенте.
+read model=connection: profileCached=true означает сохранённый аккаунт,
+savedAt — Unix-время сохранения. Это не подтверждает текущий вход в Riot.
+После нового подключения флаг снимается только по подтверждённому профилю;
+другой аккаунт заменяет предыдущий без переноса его матчей. Импорт и личные
+сборки по-прежнему проверяют живую сессию, а не сохранённый профиль.
 read model=connection и state.connection возвращают state, title/message/hint,
 clientDetected, region, profileAvailable, refreshing, history и retryPending.
 Состояния: offline, connecting, loading_profile, profile_error,

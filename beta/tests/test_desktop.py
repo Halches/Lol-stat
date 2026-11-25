@@ -314,7 +314,7 @@ class HomeTests(unittest.TestCase):
         self.assertIsNone(self.companion.build)
         self.client.set_runes.assert_not_called()
 
-    def test_latest_card_accepts_flex_and_clears_on_client_disconnect(self):
+    def test_latest_card_accepts_flex_and_remains_cached_on_client_disconnect(self):
         self.client.me.return_value = {"puuid": "local-profile"}
         self.client.history_page.return_value = ([
             {"q": 440, "gid": 7, "t": 2000, "champ": 112, "k": 5, "d": 2, "a": 8}, {"q": 420, "gid": 6, "champ": 112, "win": True,
@@ -329,8 +329,9 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(self.companion.latest_match["kda"], [5, 2, 8])
         self.client.port = None
         self.companion.update_latest_match(102, True)
-        self.assertIsNone(self.companion.latest_match)
-        self.assertIsNone(self.companion.home_profile)
+        self.assertEqual(self.companion.latest_match['id'],'EUW1_7')
+        self.assertTrue(self.companion.home_profile)
+        self.assertTrue(self.companion.connection_state()['profileCached'])
 
     def test_home_separates_weekly_queues_and_records_rank_for_each_account(self):
         now = datetime(2026, 11, 23, 12).astimezone()

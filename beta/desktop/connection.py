@@ -30,4 +30,11 @@ def connection_view(snapshot):
             message = "Профиль загружен. Клиент пока не отдаёт историю матчей."
         elif raw.get("refreshing"):
             message = "Профиль загружен. Обновляем историю в фоне."
+    if raw.get('profileCached'):
+        if state == 'offline':
+            title = 'Сохранённый профиль'
+            message = 'Клиент LoL закрыт. Показываем последний аккаунт и загруженную историю.'
+            hint = 'При запуске клиента проверим аккаунт и обновим данные автоматически.'
+        else:
+            message += ' Пока показываем последний сохранённый аккаунт; текущий вход ещё не подтверждён.'
     return dict(raw, title=title, message=message, hint=hint)

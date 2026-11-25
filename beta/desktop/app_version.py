@@ -1,2 +1,2 @@
 """Single version shared by the EXE, release workflow and update checks."""
-VERSION = "v3.0.6"
+VERSION = "v3.0.7"

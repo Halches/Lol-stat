@@ -28,11 +28,13 @@ if __package__:
     from .draft_stats import DraftStats, SUGGESTION_LIMIT
     from .extra_builds import SOURCE_ERRORS, lane_opponent, load_specials, situational_items, special_options, uncommon_build
     from .home_data import PAGE_SIZE, RankHistory, read_home
+    from .profile_memory import ProfileMemory
 else:
     from draft_analysis import DraftProfiles, team_capabilities
     from draft_stats import DraftStats, SUGGESTION_LIMIT
     from extra_builds import SOURCE_ERRORS, lane_opponent, load_specials, situational_items, special_options, uncommon_build
     from home_data import PAGE_SIZE, RankHistory, read_home
+    from profile_memory import ProfileMemory
 
 
 DDRAGON = "https://ddragon.leagueoflegends.com"
@@ -261,7 +263,7 @@ def game_process_running():
 
 
 class Companion:
-    def __init__(self, client=None):
+    def __init__(self, client=None, *, profile_memory=None):
         self.lcu = client or lcu.LCU()
         self.voice_context = {}
         self.voice_current_read = False
@@ -299,7 +301,11 @@ class Companion:
         self.client_phase = "offline"
         self.queue_id = None
         self.latest_match = None
-        self.home_profile = None
+        self.profile_memory = profile_memory if profile_memory is not None else ProfileMemory() if client is None else None
+        self.home_profile = self.profile_memory.load() if self.profile_memory else None
+        self.profile_cached = bool(self.home_profile)
+        if self.home_profile:
+            self.latest_match = next((row for row in self.home_profile['matches'] if row.get('queue') in SUPPORTED_QUEUES),None)
         self.rank_history = RankHistory()
         self.history_limit = PAGE_SIZE
         self.history_after = 0
@@ -419,8 +425,7 @@ class Companion:
         connection = (self.lcu.port, self.lcu.token) if self.euw and self.lcu.port else None
         if connection != self.history_connection:
             self.history_connection = connection
-            self.latest_match = None
-            self.home_profile = None
+            self.profile_cached = bool(self.home_profile)
             self.history_after = 0
             self.history_failed = False
         if self.history_job and self.history_job[1].done():
@@ -443,7 +448,7 @@ class Companion:
             state = "offline"
         elif not self.euw:
             state = "unsupported_region" if self.platform else "connecting"
-        elif has_profile:
+        elif has_profile and not self.profile_cached:
             state = "ready"
         elif loading:
             state = "loading_profile"
@@ -453,11 +458,12 @@ class Companion:
             state = "in_match"
         else:
             state = "connecting"
-        history = ("cached" if self.home_profile and self.home_profile.get("historyInterrupted")
+        history = ("cached" if self.home_profile and (self.profile_cached or self.home_profile.get("historyInterrupted"))
                    and self.home_profile.get("matches") else "available" if self.home_profile
                    and self.home_profile.get("historyAvailable") else "loading" if loading else "unavailable")
         return {"state": state, "clientDetected": bool(self.lcu.port), "region": self.platform if self.lcu.port else None,
-                "profileAvailable": has_profile, "refreshing": loading, "history": history}
+                "profileAvailable": has_profile, "refreshing": loading, "history": history,
+                "profileCached": self.profile_cached, "savedAt": (self.home_profile or {}).get('savedAt')}
 
     def apply_home_profile(self, profile):
         previous = self.home_profile
@@ -469,6 +475,10 @@ class Companion:
                            historyAvailable=profile["historyAvailable"] or previous["historyAvailable"],
                            historyHasMore=profile["historyHasMore"] or previous["historyHasMore"])
         self.home_profile = profile
+        self.profile_cached = False
+        self.home_profile = dict(profile,savedAt=int(time.time()))
+        if self.profile_memory:
+            self.profile_memory.save(self.home_profile)
         self.latest_match = next((row for row in profile["matches"] if row["queue"] in SUPPORTED_QUEUES), None)
 
     def preview_build(self, champion_id, role, *, include_specials=False):
