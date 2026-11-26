@@ -1,8 +1,10 @@
 """Сервисы приложения, перенесённые из ui.App; интерфейс и планировщик предоставляет Qt.
 Расчёты, ограничения скрытых профилей и валидация импорта сохранены.
 """
-import json,os,platform,queue,threading,time,urllib.request
+import copy,json,os,platform,queue,threading,time,urllib.request
 from collections import Counter
+from concurrent.futures import Future
+from dataclasses import dataclass, field
 import core,lcu,tab_detect,player_comments,player_traits,player_evidence,champion_rank,champion_pool,profile_ranks,performance_model
 from app_config import *
 
@@ -12,6 +14,24 @@ AFTER_GAME_PHASES = {
     'WaitingForStats', 'PreEndOfGame', 'EndOfGame', 'Lobby',
     'Matchmaking', 'ReadyCheck', 'ChampSelect', 'None',
 }
+LOLA_CACHE_TTL = 12 * 3600
+
+
+@dataclass
+class LiveScouting:
+    """Кеш одной игры, используемый только задачами игроков и лесника."""
+
+    client: lcu.LCU
+    data: core.Data
+    hraw: dict
+    rank_pu: dict
+    jg_cache: dict
+    pus: dict
+    ranks: dict = field(default_factory=dict)
+    hists: dict = field(default_factory=dict)
+    evidence_region: str | None = None
+    evidence_region_at: float = 0
+
 
 class ApplicationServices:
     def layout(self):
@@ -34,7 +54,6 @@ class ApplicationServices:
         if history: history.profile_changed()
         champion=getattr(self,'champion_view',None)
         if champion: champion.refresh()
-        self.engine = None
 
     def current_pool(self):
         defaults = self.data.d.get('pools',{}).get(self.who or '',{})
@@ -56,7 +75,7 @@ class ApplicationServices:
         if self.dash: self.dash.draft_sig = None
 
     def new_engine(self):
-        self.engine = core.Engine(self.data, self.player, enabled=self.hint_flags(''))
+        return core.Engine(self.data, self.player, enabled=self.hint_flags(''))
 
     def cached_build(self, champ, role):
         """Сборка по Европе из памяти или с диска (любой давности): в игре важнее быстро, чем свежо."""
@@ -67,21 +86,21 @@ class ApplicationServices:
                 return core.restore_lola_styles(json.load(source))
         except Exception: return None
 
-    def prep_engine(self, g):
+    def prep_engine(self, g, engine):
         """В начале игры: порядок умений, ситуативные предметы и темп Изумруда+ для подсказок."""
-        self.engine.prepped = True
+        engine.prepped = True
         chosen=getattr(self,'_chosen_draft_build',None)
         context=self.s.get('draft_build_context','general')
         b=chosen[3] if chosen and chosen[:3]==(g.me['c'],g.role,context) else None
         if context == 'matchup' and b and (b.get('matchup') or {}).get('opponent') != (g.opp or {}).get('c'):
             b = None
         if not b and context == 'general':b=self.cached_build(g.me['c'],g.role)
-        if not b and g.role and context == 'general': self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); self.engine.prepped = False
+        if not b and g.role and context == 'general': self.root.after(0, lambda: self.lola_fetch('build', g.me['c'], g.role)); engine.prepped = False
         v = self.draft_build_variant(b, g.role) or {}
-        self.engine.skills, self.engine.skill_prio = v.get('skills', ''), v.get('skill_prio', '')
-        self.engine.situ = (b or {}).get('situ') or []
+        engine.skills, engine.skill_prio = v.get('skills', ''), v.get('skill_prio', '')
+        engine.situ = (b or {}).get('situ') or []
         lo = self.data.lola.get(f"{g.me['c']}|{g.role}")
-        self.engine.bench={'csm':lo['csm']} if lo and type(lo.get('csm')) in (int,float) and lo['csm']<float('inf') and lo['csm']>=0 else None
+        engine.bench={'csm':lo['csm']} if lo and type(lo.get('csm')) in (int,float) and lo['csm']<float('inf') and lo['csm']>=0 else None
 
     def hint_mode(self, hid, role=None):
         """Режим подсказки: общие — один на все роли, ролевые — свой у каждой роли."""
@@ -128,65 +147,128 @@ class ApplicationServices:
         self.ov['hints'].push(text, color); self.ov['hints'].show()
 
     def poll(self):
-        last_lcu, last_me, last_scout, in_game = 0, 0, 0, False
+        last_lcu, last_me = 0, 0
+        live, engine = None, None
         game_ended = live_missing = False
         match_id = queue_id = retired_match_id = None
         last_game_time = next_id_check = 0
+        # The poller owns these slots. Workers only complete their own futures.
+        jobs = {}
+
+        def start_job(kind, work):
+            if kind in jobs:
+                return False
+            result = Future()
+
+            def run():
+                try: result.set_result(work())
+                except Exception as error: result.set_exception(error)
+
+            threading.Thread(target=run, daemon=True, name=f'live-{kind}').start()
+            jobs[kind] = result
+            return True
+
+        def collect(kind):
+            result = jobs.get(kind)
+            if result is None or not result.done():
+                return None
+            del jobs[kind]
+            try: return result.result()
+            except Exception as error: log_error(f'данные игры: {kind}', error)
+
         while not self.stopping.is_set():
             try:
                 raw = lcu.live_data()
                 now = time.time()
+                context = collect('context')
+                loading = collect('loading')
                 if raw and (raw.get('gameData') or {}).get('gameTime', 0) > 0:
+                    jobs.pop('loading', None)
                     g = core.Game(raw, self.data)
-                    clock_restarted = in_game and g.t + 10 < last_game_time
-                    gid = qid = None
-                    if (not in_game or live_missing or clock_restarted
-                            or ((match_id is None or queue_id is None) and now >= next_id_check)):
-                        gid, qid = self.client.live_match_context()
-                        next_id_check = now + 10
-                        if gid is not None and gid == retired_match_id:
-                            gid = qid = None
-                    match_changed = in_game and gid is not None and match_id is not None and gid != match_id
-                    g.replaced_previous_match = match_changed or (clock_restarted and (gid is None or gid != match_id))
+                    gid, qid = context if context else (None, None)
+                    if gid == retired_match_id:
+                        gid = qid = None
+                    clock_restarted = live is not None and g.t + 10 < last_game_time
+                    match_changed = live is not None and gid is not None and match_id is not None and gid != match_id
+                    g.replaced_previous_match = match_changed or clock_restarted
                     if g.replaced_previous_match:
                         retired_match_id = match_id
-                        self.engine = None
-                        self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}
-                    if not in_game or g.replaced_previous_match:
-                        self.ranks, self.hists, self.scout = {}, {}, {}
-                        last_scout, game_ended = 0, False
+                        if gid == retired_match_id:
+                            gid = qid = None
+                        jobs.clear()
+                        live, engine = None, None
                         match_id = queue_id = None
-                    in_game = True
+                        self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}
+                    if live is None:
+                        context_client = copy.copy(self.client)
+                        live = LiveScouting(copy.copy(self.client), self.data, self.hraw.copy(),
+                                            self.rank_pu.copy(), self.jg_cache.copy(), self.pus.copy())
+                        scout, ranks, hists = {}, {}, {}
+                        jungler, jg_plan = None, None
+                        next_scout, game_ended = 0, False
+                        match_id, queue_id, next_id_check = None, None, 0
                     live_missing = False
                     last_game_time = g.t
-                    if gid is not None and gid != match_id:
+                    if gid is not None:
                         match_id, queue_id = gid, qid
                     elif qid is not None:
                         queue_id = qid
-                    g.match_id = match_id
-                    g.queue_id = queue_id
-                    if self.engine is None: self.new_engine()
-                    if g.me and not getattr(self.engine, 'prepped', False): self.prep_engine(g)
-                    self.engine.enabled = self.hint_flags(g.role)
-                    hints = [] if g.arena else self.engine.tick(g)   # подсказки Ущелья в Арене не имеют смысла
+                    scout = collect('scout') or scout
+                    people = collect('people')
+                    if people is not None:
+                        ranks, hists, pus, self.hraw = people
+                        self.pus.update(pus)
+                    enemy = g.ejg['riot'] if g.me and g.ejg and not g.arena else None
+                    if enemy != jungler:
+                        jungler, jg_plan = enemy, None
+                    jungle = collect('jungler')
+                    if jungle and jungle[0] == jungler:
+                        jg_plan = jungle[1]
+                    g.match_id, g.queue_id = match_id, queue_id
+                    g.scouting = scout, ranks, hists
+
+                    if engine is None or engine.player is not self.player: engine = self.new_engine()
+                    if g.me and not getattr(engine, 'prepped', False): self.prep_engine(g, engine)
+                    engine.enabled = self.hint_flags(g.role)
+                    engine.jg_plan = jg_plan
+                    hints = [] if g.arena else engine.tick(g)   # подсказки Ущелья в Арене не имеют смысла
                     end_event = next((e for e in g.events if e.get('EventName') == 'GameEnd'), None)
                     game_ended = game_ended or end_event is not None
                     res = end_event.get('Result') if end_event else None
-                    if now - last_scout > 90:
-                        last_scout = now
-                        self.scout = self.fetch_scout(g)
-                    if len(self.ranks) < len(g.players): self.fetch_people(g)
-                    elif g.ejg and not g.arena and self.engine.jg_plan is None and g.t < 240: self.scout_jungler(g)
                     self.q.put(('game', g, hints, res))
-                elif in_game:
+
+                    if now >= next_id_check:
+                        if start_job('context', context_client.live_match_context): next_id_check = now + 10
+                    if not game_ended and g.players and now >= next_scout:
+                        if start_job('scout', lambda g=g: self.fetch_scout(g)): next_scout = now + 90
+                    if not game_ended and 'people' not in jobs and 'jungler' not in jobs:
+                        if any(p['riot'] not in ranks for p in g.players):
+                            start_job('people', lambda g=g, live=live: self.fetch_people(g, live))
+                        elif jungler and jg_plan is None and g.t < 240:
+                            start_job('jungler', lambda g=g, live=live, enemy=jungler:
+                                      (enemy, self.scout_jungler(g, live)))
+                elif live is not None:
                     if game_ended or self.client.phase() in AFTER_GAME_PHASES:
+                        if context and (match_id is None or context[0] == match_id) and context[0] != retired_match_id:
+                            match_id = context[0] or match_id
                         retired_match_id = match_id
-                        in_game = False
-                        self.q.put(('end', None, None, None))
+                        jobs.clear()
+                        self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}
+                        self.q.put(('end', engine, match_id, None))
+                        live, engine = None, None
+                        match_id = queue_id = None
+                        last_game_time = 0
                     elif not live_missing:
                         live_missing = True
+                        next_id_check = 0
+                        jobs.pop('context', None)
                         self.q.put(('game_stale', None, None, None))
                 else:
+                    phase = self.client.phase() if loading is not None else None
+                    if (loading is not None and phase in ('GameStart', 'InProgress')
+                            and loading[0] == (self.account or {}).get('puuid')):
+                        _, self.hraw, self.rank_pu, self.jg_cache, players = loading
+                        self.q.put(('load', players, None, None))
                     if now - last_me > 60:
                         last_me = now
                         me = self.client.me()
@@ -198,7 +280,9 @@ class ApplicationServices:
                             self.q.put(('me', None, None, None))
                     if now - last_lcu > 2:
                         last_lcu = now
-                        ph = self.client.phase()
+                        ph = phase if phase is not None else self.client.phase()
+                        if ph not in ('GameStart', 'InProgress'):
+                            jobs.pop('loading', None)
                         if ph == 'ChampSelect':
                             sess = self.client.champ_select()
                             if sess:
@@ -206,49 +290,58 @@ class ApplicationServices:
                                 cs = core.parse_champ_select(sess, self.data)
                                 cs['observed_at'] = observed_at
                                 cs['allies'] = self.draft_allies(sess)
-                                queue_id, map_id = self.client.queue_and_map()
-                                cs['arena'] = queue_id == 1700
+                                draft_queue, map_id = self.client.queue_and_map()
+                                cs['arena'] = draft_queue == 1700
                                 cs['map_id'] = map_id or cs.get('map_id')
                                 self.q.put(('draft', cs, None, None))
                         elif ph is not None:
                             if self.draft is not None: self.q.put(('draft', None, None, None))
-                            if ph in ('GameStart', 'InProgress'): self.load_scout()
+                            if ph in ('GameStart', 'InProgress'):
+                                loading_context = LiveScouting(copy.copy(self.client), self.data, self.hraw.copy(),
+                                                               self.rank_pu.copy(), self.jg_cache.copy(), self.pus.copy())
+                                mine = (self.account or {}).get('puuid')
+                                start_job('loading', lambda context=loading_context, mine=mine:
+                                          self.load_scout(context, mine))
             except Exception as e:
                 log_error('опрос клиента', e)
                 self.q.put(('error', str(e), None, None))
             self.stopping.wait(1)
 
-    def scout_jungler(self, g):
+    def scout_jungler(self, g, scouting):
         """Лесник врагов: как он начинал 2–3 последние игры в лесу (для окна ганка и подсказки)."""
-        pu = self.pus.get(g.ejg['riot'])
-        if not pu or pu not in self.hraw: self.engine.jg_plan = {}; return
-        try: self.engine.jg_plan = self.jg_plan_for(pu) or {}
-        except Exception as e: log_error('разведка лесника', e); self.engine.jg_plan = {}
+        pu = scouting.pus.get(g.ejg['riot'])
+        if not pu or pu not in scouting.hraw: return {}
+        try: return self.jg_plan_for(pu, scouting) or {}
+        except Exception as e: log_error('разведка лесника', e); return {}
 
-    def jg_plan_for(self, pu):
-        if pu in self.jg_cache: return self.jg_cache[pu]
-        games = [h for h in (self.hraw.get(pu) or []) if h.get('lane') == 'JUNGLE' and h.get('gid')][:3]
-        plan = core.jungle_plan([core.jungle_game(self.client.timeline(h['gid']), self.client.game(h['gid']), pu) for h in games])
-        self.jg_cache[pu] = plan
+    def jg_plan_for(self, pu, scouting=None):
+        scouting = self if scouting is None else scouting
+        if pu in scouting.jg_cache: return scouting.jg_cache[pu]
+        games = [h for h in (scouting.hraw.get(pu) or []) if h.get('lane') == 'JUNGLE' and h.get('gid')][:3]
+        client = scouting.client
+        plan = core.jungle_plan([core.jungle_game(client.timeline(h['gid']), client.game(h['gid']), pu) for h in games])
+        scouting.jg_cache[pu] = plan
         return plan
 
-    def cid(self, key):
-        return next((i for i, c in self.data.ids.items() if c == key), None)
+    def cid(self, key, data=None):
+        data = self.data if data is None else data
+        return next((i for i, c in data.ids.items() if c == key), None)
 
-    def player_history(self, pu, champion_id, pos, riot=''):
+    def player_history(self, pu, champion_id, pos, riot='', scouting=None):
         """Вызывается фоновым опросом: готовые данные сразу, подробности догружаются."""
         if not pu: return None
-        raw = self.hraw.get(pu)
-        champion = self.data.ids.get(str(champion_id))
-        self.evidence.request(self.client, pu, raw, champion, champion_id, pos, riot)
+        scouting = self if scouting is None else scouting
+        raw = scouting.hraw.get(pu)
+        champion = scouting.data.ids.get(str(champion_id))
+        self.evidence.request(scouting.client, pu, raw, champion, champion_id, pos, riot)
         metrics, board = self.evidence.snapshot(pu, champion)
         out = core.summarize_history(raw, champion_id, pos)
         extras = player_traits.traits(raw, champion_id, pos, metrics)
         if board and champion_rank.identity(riot):
-            if time.time() - self.evidence_region_at > 300:
-                self.evidence_region = self.client.region()
-                self.evidence_region_at = time.time()
-            rank = champion_rank.lookup(board, champion, riot, self.evidence_region)
+            if time.time() - scouting.evidence_region_at > 300:
+                scouting.evidence_region = scouting.client.region()
+                scouting.evidence_region_at = time.time()
+            rank = champion_rank.lookup(board, champion, riot, scouting.evidence_region)
             if rank:
                 extras.insert(0, ('G10', f"Топ-1000 · №{rank['rank']} в мире · {rank['source']}", 'good'))
                 if out is None: out = {'n':0,'w':0,'streak':0,'on':0,'on_w':0,'kda':0,'tags':[], 'good':[], 'bad':[], 'tilt':[]}
@@ -256,21 +349,26 @@ class ApplicationServices:
         if out is not None: out['extra_comments'] = extras
         return out
 
-    def fetch_people(self, g):
+    def fetch_people(self, g, scouting):
         """Звание и история последних игр каждого из десяти через клиент (как в профиле). По одному за проход."""
+        client = scouting.client
         for p in g.players:
-            if p['riot'] in self.ranks:
-                pu = self.pus.get(p['riot'])
-                self.hists[p['riot']] = self.player_history(pu, self.cid(p['c']), p['pos'], p['riot'])
-                continue
-            pu = self.pus.get(p['riot']) or self.client.puuid(p['riot'])
-            if pu and pu in self.hraw: raw, self.ranks[p['riot']] = self.hraw[pu], self.rank_pu.get(pu)   # уже скачано на экране загрузки
-            else:
-                self.ranks[p['riot']] = self.rank_pu[pu] = self.client.rank(pu) if pu else None
-                raw = self.client.history(pu) if pu else None
-            if pu: self.hraw[pu], self.pus[p['riot']] = raw, pu
-            self.hists[p['riot']] = self.player_history(pu, self.cid(p['c']), p['pos'], p['riot'])
-            return
+            riot = p['riot']
+            pu = scouting.pus.get(riot)
+            new = riot not in scouting.ranks
+            if new:
+                pu = pu or client.puuid(riot)
+                if pu:
+                    if pu not in scouting.hraw:   # иначе история уже скачана на экране загрузки
+                        scouting.rank_pu[pu] = client.rank(pu)
+                        scouting.hraw[pu] = client.history(pu)
+                    scouting.pus[riot] = pu
+            champion_id = self.cid(p['c'], scouting.data)
+            scouting.hists[riot] = self.player_history(pu, champion_id, p['pos'], riot, scouting)
+            if new:
+                scouting.ranks[riot] = scouting.rank_pu.get(pu)
+                break
+        return scouting.ranks.copy(), scouting.hists.copy(), scouting.pus.copy(), scouting.hraw.copy()
 
     def draft_allies(self, sess):
         """Союзники в драфте: чемпион (или наведённый), роль, звание и история игр."""
@@ -280,38 +378,38 @@ class ApplicationServices:
             hidden = p.get('nameVisibilityType') == 'HIDDEN' and p.get('cellId') != sess.get('localPlayerCellId')
             pu = None if hidden else p.get('puuid')
             if pu and pu not in self.hraw:
-                self.ranks[pu] = self.rank_pu[pu] = self.client.rank(pu)
+                self.rank_pu[pu] = self.client.rank(pu)
                 self.hraw[pu] = self.client.history(pu)
             champ_id = p.get('championId') or p.get('championPickIntent') or 0
             riot = (p['gameName']+'#'+p['tagLine']) if not hidden and p.get('gameName') and p.get('tagLine') else ''
             if not riot and pu and pu == (self.account or {}).get('puuid'): riot = self.account.get('riot','')
             out.append({'c': self.data.ids.get(str(champ_id)), 'pos': core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''),
-                        'rank': self.ranks.get(pu), 'hist': self.player_history(pu, champ_id, core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''), riot),
+                        'rank': self.rank_pu.get(pu), 'hist': self.player_history(pu, champ_id, core.LCU_ROLE.get((p.get('assignedPosition') or '').lower(), ''), riot),
                         'me': p.get('cellId') == sess.get('localPlayerCellId'), 'pu': pu})
         return out
 
-    def load_scout(self):
+    def load_scout(self, scouting, mine):
         """Экран загрузки: все десять из клиента. Звание и история — по одному игроку за проход, как в игре."""
-        ps = self.client.loading()
+        client = scouting.client
+        ps = client.loading()
         if not ps: return
-        mine = (self.account or {}).get('puuid')
         my_team = next((p['team'] for p in ps if p['pu'] and p['pu'] == mine), 100)
-        todo = next((p['pu'] for p in ps if p['pu'] and p['pu'] not in self.hraw), None)
+        todo = next((p['pu'] for p in ps if p['pu'] and p['pu'] not in scouting.hraw), None)
         if todo:
-            self.rank_pu[todo] = self.client.rank(todo)
-            self.hraw[todo] = self.client.history(todo)
+            scouting.rank_pu[todo] = client.rank(todo)
+            scouting.hraw[todo] = client.history(todo)
         else:   # все истории есть: заранее смотрим, как начинает лесник врагов
             jg = next((p['pu'] for p in ps if p['pu'] and p['team'] != my_team and p['pos'] == 'jungle'), None)
-            if jg and jg not in self.jg_cache:
-                try: self.jg_plan_for(jg)
-                except Exception as e: log_error('разведка лесника', e); self.jg_cache[jg] = None
+            if jg and jg not in scouting.jg_cache:
+                try: self.jg_plan_for(jg, scouting)
+                except Exception as e: log_error('разведка лесника', e); scouting.jg_cache[jg] = None
         out = []
         for p in ps:
             pu, pos = p['pu'], core.LCU_ROLE.get(p['pos'], '')
-            out.append({'c': self.data.ids.get(str(p['champ'])), 'pos': pos, 'col': 0 if p['team'] == my_team else 1, 'pu': pu,
-                        'me': bool(pu) and pu == mine, 'name': p['name'], 'ok': not pu or pu in self.hraw, 'rank': self.rank_pu.get(pu),
-                        'hist': self.player_history(pu, p['champ'], pos, p['name'])})
-        self.q.put(('load', out, None, None))
+            out.append({'c': scouting.data.ids.get(str(p['champ'])), 'pos': pos, 'col': 0 if p['team'] == my_team else 1, 'pu': pu,
+                        'me': bool(pu) and pu == mine, 'name': p['name'], 'ok': not pu or pu in scouting.hraw, 'rank': scouting.rank_pu.get(pu),
+                        'hist': self.player_history(pu, p['champ'], pos, p['name'], scouting)})
+        return mine, scouting.hraw, scouting.rank_pu, scouting.jg_cache, out
 
     def on_loading(self, ps):
         if self.last_game is not None: return
@@ -333,7 +431,7 @@ class ApplicationServices:
             with urllib.request.urlopen(RAW + 'data/live.json', timeout=8) as r:
                 live = json.load(r)
         except Exception:
-            return self.scout
+            return None
         mine = Counter(p['c'] for p in g.players)
         for gm in live.get('games', []):
             if Counter(p['c'] for p in gm['players']) != mine:
@@ -351,7 +449,7 @@ class ApplicationServices:
                     matched[player['riot']] = scout_text(candidates[0])
             if matched:
                 return matched
-        return self.scout
+        return None
 
     def drain(self):
         deadline = time.perf_counter() + .008
@@ -362,7 +460,7 @@ class ApplicationServices:
                 try:
                     if kind == 'game': self.on_game(a, b, c)
                     elif kind == 'game_stale': self.on_game_stale()
-                    elif kind == 'end': self.on_end()
+                    elif kind == 'end': self.on_end(a, b)
                     elif kind == 'me': self.on_me(a)
                     elif kind == 'draft': self.on_draft(a)
                     elif kind == 'load': self.on_loading(a)
@@ -398,6 +496,8 @@ class ApplicationServices:
         first = self.last_game is None
         self._arena_result_id = None
         self.last_game, self.result = g, result or self.result
+        if hasattr(g, 'scouting'):
+            self.scout, self.ranks, self.hists = g.scouting
         self.live_stale = False
         if self.draft is not None:
             self.on_draft(None)
@@ -409,7 +509,7 @@ class ApplicationServices:
         if first:
             if not self.account:
                 who = self.data.who_by_riot(g.my_riot)
-                if who and who != self.who: self.set_who(who); self.new_engine()
+                if who and who != self.who: self.set_who(who)
             self.apply_visibility()
             if dash: dash.reset()
         for h in hints:
@@ -466,21 +566,21 @@ class ApplicationServices:
                 self.root.after(20000, lambda: self.arena_post(gid, puuid, attempt + 1))
         self.background(work, done)
 
-    def on_end(self):
+    def on_end(self, engine, match_id):
         g = self.last_game
-        gid = self._arena_result_id = getattr(g, 'match_id', None)
+        gid = self._arena_result_id = match_id or getattr(g, 'match_id', None)
         if g and g.arena and gid and self.s['postgame'] and self.hint_mode('postgame') != 'off':
             puuid = (self.account or {}).get('puuid')
             if puuid:
                 self.root.after(20000, lambda: self.arena_post(gid, puuid))
-        if g and g.me and getattr(g,'sr',not g.arena) and self.engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
-            res = core.postgame(self.engine, g, self.player)
+        if g and g.me and getattr(g,'sr',not g.arena) and engine and self.s['postgame'] and g.t > 300 and self.hint_mode('postgame') != 'off':
+            res = core.postgame(engine, g, self.player)
             if res:
-                res['match_id'] = getattr(g, 'match_id', None)
+                res['match_id'] = gid
                 show_postgame(self, res, self.result)
-        self.last_game, self.result, self.engine, self.scout = None, None, None, {}
+        self.last_game, self.result = None, None
+        self.scout, self.ranks, self.hists = {}, {}, {}
         self.live_stale = False
-        self.hraw, self.rank_pu, self.jg_cache = {}, {}, {}   # к следующей игре история у всех уже другая
         if self.pending_data: self.reload_data(self.pending_data)
         self.apply_visibility()
         for w in self.tab.values(): w.withdraw()
@@ -629,8 +729,9 @@ class ApplicationServices:
         """Public matchup page only. Cache includes both champions and the verified source context."""
         if not champion or not opponent or role not in core.ROLES: return None
         key = ('matchup', champion, role, opponent)
+        started = self.begin_lola_request(key)
         cached = self.lola.get(key)
-        if not self.begin_lola_request(key): return cached
+        if not started: return cached
         path = os.path.join(self.home, 'lola', f'matchup_v1_{champion}_{role}_{opponent}.json')
         def valid(value):
             meta = value.get('matchup') if isinstance(value, dict) else None
@@ -638,15 +739,15 @@ class ApplicationServices:
             return (meta.get('champion'), meta.get('role'), meta.get('opponent'), meta.get('region')) == (champion, role, opponent, 'all')
         def job():
             import matchup_data
-            value, saved = None, None
+            value, saved, fetched_at = None, None, None
             try:
                 try:
                     with open(path, encoding='utf-8') as source: saved = json.load(source)
                     saved = core.restore_lola_styles(saved) if valid(saved) else None
                 except (OSError, ValueError): pass
-                fetched_at = saved.get('fetched_at',0) if saved else 0
-                if saved and type(fetched_at) in (int,float) and time.time()-fetched_at < 12*3600:
-                    value = saved
+                saved_at = saved.get('fetched_at') if saved else None
+                if type(saved_at) in (int, float) and time.time() - saved_at < LOLA_CACHE_TTL:
+                    value, fetched_at = saved, saved_at
                 else:
                     def load_page(url):
                         request = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
@@ -660,19 +761,19 @@ class ApplicationServices:
                         except (OSError, ValueError) as error:
                             log_error(f'сборка матчапа за 30 дней {champion} против {opponent}', error)
                     if value:
-                        value['fetched_at'] = time.time()
-                        os.makedirs(os.path.dirname(path), exist_ok=True)
-                        with open(path+'.tmp', 'w', encoding='utf-8') as output: json.dump(value, output)
-                        os.replace(path+'.tmp', path)
+                        fetched_at = value['fetched_at'] = time.time()
+                        try:
+                            os.makedirs(os.path.dirname(path), exist_ok=True)
+                            with open(path+'.tmp', 'w', encoding='utf-8') as output: json.dump(value, output)
+                            os.replace(path+'.tmp', path)
+                        except OSError as error:
+                            log_error(f'кэш матчапа {champion} против {opponent}, {role}', error)
                     else: raise ValueError('Источник не подтвердил состав, роль или выборку матчапа')
             except Exception as error:
                 log_error(f'сборка {champion} против {opponent}, {role}', error)
-                if saved:
-                    value = dict(saved, stale=True)
+                value, fetched_at = cached or saved, None
             def done():
-                result = value or cached
-                if result: self.lola[key] = result
-                self.finish_lola_request(key, result, champion, role)
+                self.finish_lola_request(key, value, fetched_at, champion, role)
             try: self.root.after(0, done)
             except (RuntimeError, RuntimeError): pass
         threading.Thread(target=job, daemon=True, name='matchup-build').start()
@@ -686,17 +787,25 @@ class ApplicationServices:
         state = self.lola_state.get(key)
         cached = self.lola.get(key)
         retry_at = self.__dict__.setdefault('_lola_retry_at', {})
-        if ((cached and not cached.get('stale')) or state == 'loading'
-                or time.monotonic() < retry_at.get(key, 0)):
+        if state == 'loading' or time.monotonic() < retry_at.get(key, 0):
             return False
+        if cached and not cached.get('stale'):
+            fetched_at = self.__dict__.setdefault('_lola_fetched_at', {}).get(key)
+            if fetched_at is not None and time.time() - fetched_at < LOLA_CACHE_TTL:
+                return False
+            self.lola[key] = dict(cached, stale=True)
         self.lola_state[key] = 'loading'
         return True
 
-    def finish_lola_request(self, key, value, champion, role):
+    def finish_lola_request(self, key, value, fetched_at, champion, role):
         retry_at = self._lola_retry_at
-        state = 'stale' if value and value.get('stale') else 'ok' if value else 'fail'
+        fresh = value and fetched_at is not None
+        state = 'ok' if fresh else 'stale' if value else 'fail'
+        if value:
+            self.lola[key] = value if fresh else dict(value, stale=True)
         self.lola_state[key] = state
         if state == 'ok':
+            self.__dict__.setdefault('_lola_fetched_at', {})[key] = fetched_at
             retry_at.pop(key, None)
         else:
             delay = 30
@@ -724,11 +833,12 @@ class ApplicationServices:
 
     def lola_fetch(self, kind, champ, role):
         """Данные lolalytics в фоне с кешем на 12 часов: kind='build' — руны и сборка, 'counter' — матчапы, 'build-team' — синергия.
-        Пока грузится — None; по готовности драфт перерисуется."""
+        Пока идёт обновление, доступна последняя сохранённая версия."""
         if not champ or not role: return None
         k = (champ, role) if kind == 'build' else (kind, champ, role)
+        started = self.begin_lola_request(k)
         cached = self.lola.get(k)
-        if not self.begin_lola_request(k): return cached
+        if not started: return cached
         name = f'full_{champ}_{role}.json' if kind == 'build' else f'{kind}_{champ}_{role}.json'
         if role in ('ARAM', 'ARENA'):
             name = 'v2_' + name
@@ -744,7 +854,8 @@ class ApplicationServices:
                         saved = core.restore_lola_styles(value) if kind == 'build' else value
             except (OSError, ValueError):
                 pass
-            b = saved if saved and time.time() - modified < 12 * 3600 else None
+            b = saved if saved and time.time() - modified < LOLA_CACHE_TTL else None
+            fetched_at = modified if b else None
             try:
                 if not b:
                     def get(url):
@@ -770,6 +881,7 @@ class ApplicationServices:
                         b = {'counters': b['counters']} if isinstance(b.get('counters'), list) and (b.get('response') or {}).get('valid') is not False else None
                     if not isinstance(b, dict) or not b:
                         raise ValueError('Источник не вернул данные')
+                    fetched_at = time.time()
                     try:
                         os.makedirs(os.path.dirname(path), exist_ok=True)
                         with open(path+'.tmp', 'w', encoding='utf-8') as output:
@@ -779,11 +891,9 @@ class ApplicationServices:
                         log_error(f'кэш lolalytics {kind} {champ} {role}', error)
             except Exception as e:
                 log_error(f'lolalytics {kind} {champ} {role}', e)
-                b = dict(saved, stale=True) if saved else None
+                b, fetched_at = cached or saved, None
             def done():
-                value = b or cached
-                if value: self.lola[k] = value
-                self.finish_lola_request(k, value, champ, role)
+                self.finish_lola_request(k, b, fetched_at, champ, role)
             self.root.after(0, done)
         threading.Thread(target=job, daemon=True).start()
         return cached
@@ -941,14 +1051,15 @@ class ApplicationServices:
                     try:
                         if part == 'runes':
                             ok = bool(runes) and client.set_runes(name, runes['prim'], runes['sec'], runes['perks'],
-                                        runes.get('shards', []) if variant else None)
+                                        runes.get('shards', []) if variant else None, draft_session=current)
                         elif part == 'items':
                             acc = account or client.me() or {}
-                            ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(acc.get('id'), cid, sets, None, map_id)
+                            ok = bool(cid and sets and sets[0][1] and sets[0][1][0][1]) and client.set_items(
+                                acc.get('id'), cid, sets, None, map_id, draft_session=current)
                         else:
                             spells = (variant or {}).get('spells') or []
                             ids = [core.SPELL_ID.get(spell) for spell in spells[:2]]
-                            ok = len(ids) == 2 and None not in ids and client.set_spells(*ids)
+                            ok = len(ids) == 2 and None not in ids and client.set_spells(*ids, draft_session=current)
                         error = client.last_error or ('нет подходящих данных' if not ok else '')
                     except Exception as exc:
                         ok, error = False, str(exc)

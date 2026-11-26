@@ -45,6 +45,8 @@ class App(ApplicationServices):
         self.role_override=None;self.lola={};self.lola_state={};self.import_text='';self.cp_sel=None;self.player=None;self.engine=None
         self.draft=None;self.draft_sig=None;self.draft_observed_at=0;self.draft_deadline=None;self.imported=None;self.scout={};self.last_game=None;self.live_stale=False;self.result=None;self.keys_prev={};self.demo_on=False;self.pending_data=None;self.dash=None
         self.icons=Icons(assets);self.icons.settings=self.s;self.dialogs=[];self.pages={};self.ov={};self.tab={};self.active_page=0
+        self.scrolls = {}
+        self._pending_page_scrolls = {}
         self.window=Window(self);self.root=self.window;self.root.scheduler.failed.connect(lambda error:self.errors.append(str(error)));self.window.setWindowTitle('LoL Helper '+version);self.window.setWindowIcon(QIcon(str(Path(bundle_dir())/'icon.png')));self.window.resize(1536,864);self.window.setMinimumSize(940,640)
         for folder in (Path(bundle_dir())/'fonts',Path(bundle_dir())/'qt_ui/fonts'):
             for font in folder.glob('*.ttf'):QFontDatabase.addApplicationFont(str(font))
@@ -76,7 +78,13 @@ class App(ApplicationServices):
         ''')
         surface.cache_clear()
     def build_window(self):
-        previous_history = getattr(self, 'history_view', None)
+        stateful_pages = {1: HistoryPage, 2: ChampionPage, 3: HintsPage, 10: PoolPage}
+        page_states = {i: self.pages[i].view_state() for i in stateful_pages if i in self.pages}
+        history_was_loading = 1 in self.pages and self.pages[1].busy
+        for index, scroll in self.scrolls.items():
+            if index not in self._pending_page_scrolls:
+                self._pending_page_scrolls[index] = (scroll.horizontalScrollBar().value(),
+                                                      scroll.verticalScrollBar().value())
         old=self.window.centralWidget()
         if old:old.deleteLater()
         self.shell=Shell();self.window.setCentralWidget(self.shell);rail=Panel(kind=None,padding=8)
@@ -94,19 +102,32 @@ class App(ApplicationServices):
         self.page_title=Label('',21,'gold',serif=True);self.status_dot=Label('●',10,'good');self.status=Label('Ищу клиент League of Legends…' if not self.offline else 'Автономная проверка · клиент отключён',9,'mute');header=QWidget();header_box=QHBoxLayout(header);header_box.setContentsMargins(0,0,0,0);header_box.addWidget(self.page_title,1);header_box.addWidget(self.status_dot);header_box.addWidget(self.status);b.addWidget(header)
         self.banner=Panel(horizontal=True,padding=7);self.banner_label=Label('');self.banner.box.addWidget(self.banner_label,1);self.banner_button=Button('Обновить');self.banner.box.addWidget(self.banner_button);self.banner.hide();b.addWidget(self.banner)
         self.stack=QStackedWidget();b.addWidget(self.stack,1);self.pages={};self.scrolls={}
-        # Construct each page once. Navigation preserves filters and scroll positions.
-        kinds={0:lambda:HomePage(self),1:lambda:HistoryPage(self, previous_history),2:lambda:ChampionPage(self),3:lambda:HintsPage(self),10:lambda:PoolPage(self)}
+        kinds = {0: HomePage, **stateful_pages}
+        settings = {4: 'windows', 5: 'look', 6: 'voice', 7: 'keys', 8: 'timers', 9: 'updates'}
         for i in range(11):
-            page=kinds[i]() if i in kinds else SettingsPage(self,{4:'windows',5:'look',6:'voice',7:'keys',8:'timers',9:'updates'}[i]);self.pages[i]=page
+            page = kinds[i](self, **page_states.get(i, {})) if i in kinds else SettingsPage(self, settings[i])
+            self.pages[i] = page
             scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(page);self.scrolls[i]=scroll;self.stack.addWidget(scroll)
         self.home_view=self.pages[0];self.history_view=self.pages[1];self.champion_view=self.pages[2];self.hints_view=self.pages[3];self.pool_view=self.pages[10]
         self.home_view.refresh();self.navigate(self.active_page)
-        if previous_history and previous_history.busy:
+        if history_was_loading:
             self.history_view.load_client(background=True)
         if getattr(self,'upd',None):self.update_state(*self.upd)
     def navigate(self,index):
         self.active_page=index;self.stack.setCurrentIndex(index);self.page_title.setText(self.NAV[index][0].upper())
         for i,b in self.nav_buttons.items():b.active=i==index;b.update()
+        if index in self._pending_page_scrolls:
+            scroll = self.scrolls[index]
+            QTimer.singleShot(0, scroll, lambda: self._restore_page_scroll(index, scroll))
+    def _restore_page_scroll(self, index, scroll):
+        # Hidden pages receive their final scroll range when the stack shows them.
+        if index != self.active_page or self.scrolls.get(index) is not scroll:
+            return
+        position = self._pending_page_scrolls.pop(index, None)
+        if position is not None:
+            horizontal, vertical = position
+            scroll.horizontalScrollBar().setValue(horizontal)
+            scroll.verticalScrollBar().setValue(vertical)
     def create_overlays(self):
         _,(pw,ph),_=screens()
         classes={'hints':HintsOverlay,'perf':PerfOverlay,'lane':LaneOverlay,'inventory':InventoryOverlay,'item':ItemOverlay,'timers':TimersOverlay,'arena':ArenaOverlay}
@@ -231,9 +252,9 @@ class App(ApplicationServices):
     def reset_layout(self):
         self.s['layout'].pop(screens()[0],None);self.s.save();self.preset_layout('edges')
     def apply_settings(self):
-        index=self.active_page;self.stop_demo();self.configure_theme();self.sync_voice();core.OBJ.update(self.s['obj'])
+        self.stop_demo();self.configure_theme();self.sync_voice();core.OBJ.update(self.s['obj'])
         for w in list(self.ov.values())+list(self.tab.values()):w.close()
-        self.create_overlays();self.build_window();self.navigate(index)
+        self.create_overlays();self.build_window()
         self.draft_sig = None
         if self.draft:
             self.on_draft(self.draft)

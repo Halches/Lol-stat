@@ -1,5 +1,6 @@
 """Native UI regressions for material controls and static scroll backgrounds."""
 import os
+import gc
 import unittest
 import tkinter as tk
 from tkinter import ttk
@@ -11,6 +12,11 @@ import ui_skin
 
 @unittest.skipUnless(os.name=='nt' or os.environ.get('DISPLAY'),'Requires a native Tk display')
 class MaterialControls(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        # Finalize Tk image cycles on the UI thread before later tests spawn workers.
+        gc.collect()
+
     def setUp(self):
         self.root=tk.Tk();self.root.geometry('500x280+0+0')
         ui_skin.material_ui.Manager(self.root,ui.THEMES['lol'][1])

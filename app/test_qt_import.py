@@ -27,12 +27,12 @@ class QtServiceImportTests(unittest.TestCase):
         app.root = SimpleNamespace(after=lambda delay, fn: callbacks.put(fn))
         entered, release = threading.Event(), threading.Event()
         if not blocked: release.set()
-        def runes(*args):
+        def runes(*args, **kwargs):
             app.calls.append(('runes', args, threading.get_ident()))
             entered.set()
             self.assertTrue(release.wait(2))
             return True
-        def items(*args):
+        def items(*args, **kwargs):
             app.calls.append(('items', args, threading.get_ident()))
             return not fail_items
         app.client = SimpleNamespace(last_error='', set_runes=runes, set_items=items)
@@ -76,7 +76,7 @@ class QtServiceImportTests(unittest.TestCase):
             app.auto_import_locked(app.draft)
             callbacks.get(timeout=2)()
             self.assertIsNone(app.imported)
-            app.client.set_items = lambda *args: app.calls.append(('items', args)) or True
+            app.client.set_items = lambda *args, **kwargs: app.calls.append(('items', args)) or True
             app.auto_import_locked(app.draft)
             callbacks.get(timeout=2)()
             app.auto_import_locked(app.draft)
@@ -147,6 +147,31 @@ class QtServiceImportTests(unittest.TestCase):
         release.set()
         callbacks.get(timeout=2)()
         self.assertEqual([call[0] for call in app.calls], ['runes', 'items'])
+
+    def test_draft_cancelled_during_rune_read_never_writes(self):
+        from lcu import LCU
+
+        app, callbacks, _, _ = self.app()
+        variant = dict(app.lola_build('Ahri', 'MIDDLE')['win'],
+                       prim=8400, sec=8300,
+                       perks=[8437, 8446, 8444, 8451, 8410, 8345],
+                       shards=[5008, 5008, 5001])
+        app.lola_build = lambda *_: {'pick': variant, 'win': variant}
+        app.client = LCU()
+        writes = []
+
+        def call(path, method='GET', body=None):
+            if method != 'GET':
+                writes.append((path, method))
+            if path == '/lol-perks/v1/pages' and method == 'GET':
+                app.draft = None
+                return [{'name': 'LoL Helper: old', 'id': 3, 'isEditable': True}]
+            return None
+
+        app.client.call = call
+        app.do_import(('runes',))
+        callbacks.get(timeout=2)()
+        self.assertEqual(writes, [])
 
     def test_matchup_selection_exports_matchup_runes_and_items(self):
         app, callbacks, _, _ = self.app()

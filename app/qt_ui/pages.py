@@ -110,18 +110,19 @@ class HomePage(Page):
     def period(self,key):self.app.s['home_period']=key;self.app.s.save();self.refresh()
 
 class HistoryPage(Page):
-    def __init__(self,app,previous=None):
+    def __init__(self,app,*,source='saved',client_rows=None,client_owner=None,client_name='',
+                 query='',role='',queue='',result='all',limit=30,message=''):
         super().__init__(app)
-        self.source = previous.source if previous else 'saved'
-        self.client_rows = previous.client_rows if previous else []
-        self.client_owner = previous.client_owner if previous else None
-        self.client_name = previous.client_name if previous else ''
-        self.query = previous.query if previous else ''
-        self.role = previous.role if previous else ''
-        self.queue = previous.queue if previous else ''
-        self.result = previous.result if previous else 'all'
-        self.limit = previous.limit if previous else 30
-        self.message = previous.message if previous and not previous.busy else ''
+        self.source = source
+        self.client_rows = client_rows if client_rows is not None else []
+        self.client_owner = client_owner
+        self.client_name = client_name
+        self.query = query
+        self.role = role
+        self.queue = queue
+        self.result = result
+        self.limit = limit
+        self.message = message
         self.generation = 0
         self.busy = False
         self.account_puuid = (app.account or {}).get('puuid')
@@ -138,6 +139,10 @@ class HistoryPage(Page):
         self.summary=Panel(horizontal=True);self.box.addWidget(self.summary);self.msg=Label('',10,'mute');self.box.addWidget(self.msg)
         self.matches=QWidget();self.matches_box=QVBoxLayout(self.matches);self.matches_box.setContentsMargins(0,0,0,0);self.matches_box.setSpacing(6);self.box.addWidget(self.matches)
         self.more=Button('Показать ещё',self.show_more);self.box.addWidget(self.more);self.box.addStretch();self.refresh()
+    def view_state(self):
+        return dict(source=self.source, client_rows=self.client_rows, client_owner=self.client_owner,
+                    client_name=self.client_name, query=self.query, role=self.role, queue=self.queue,
+                    result=self.result, limit=self.limit, message='' if self.busy else self.message)
     def search_changed(self,text):self.query=text;self.limit=30;self.refresh()
     def set_filter(self,key,value):setattr(self,key,value);self.limit=30;self.refresh()
     def reset(self):
@@ -168,7 +173,7 @@ class HistoryPage(Page):
     def rows(self):return self.client_rows if self.source=='client' else history_model.saved(self.app.player.games if self.app.player else [],self.app.data,self.app.who)
     def use_source(self,key):
         self.source=key;self.limit=30
-        if key=='client' and not self.client_rows:self.load_client()
+        if key=='client' and not self.client_rows and not self.busy:self.load_client()
         else:self.refresh()
     def update_queue_choices(self, rows):
         queues = tuple(sorted({row['queue'] for row in rows if type(row.get('queue')) is int}))
@@ -257,9 +262,13 @@ class MatchDialog(QDialog):
         b.box.addStretch()
 
 class PoolPage(Page):
-    def __init__(self,app):
-        super().__init__(app);self.rows,self.source=champion_pool.load_catalog(app.data);self.role='TOP';self.mode='all';self.query='';self.filters={};self.sort='name'
-        self.title('Мой пул чемпионов');self.search=QLineEdit();self.search.setPlaceholderText('Найти чемпиона');self.search.textChanged.connect(lambda s:self.change('query',s))
+    def __init__(self,app,*,role='TOP',mode='all',query='',filters=None,sort='name',advanced_open=False):
+        super().__init__(app)
+        self.rows, self.source = champion_pool.load_catalog(app.data)
+        self.role, self.mode, self.query, self.sort = role, mode, query, sort
+        self.filters = {}
+        self.title('Мой пул чемпионов')
+        self.search=QLineEdit();self.search.setPlaceholderText('Найти чемпиона');self.search.setText(self.query);self.search.textChanged.connect(lambda s:self.change('query',s))
         self.mode_choice=combo({'all':'Все чемпионы','role':'На выбранной роли','pool':'Мой пул'},self.mode,lambda v:self.change('mode',v))
         self.box.addWidget(row(combo(core.ROLE_RU,self.role,lambda v:self.change('role',v)),self.search,self.mode_choice,combo({'name':'По имени','selected':'Выбранные сначала','year':'По году'},self.sort,lambda v:self.change('sort',v))))
         self.advanced=Panel();grid=QGridLayout();self.advanced.box.addLayout(grid)
@@ -268,15 +277,22 @@ class PoolPage(Page):
             opts={'':'Все: '+title}
             for option in champion_pool.options(self.rows,key):
                 opts[option]=champion_pool.LABELS.get(str(option),str(option))
-            c=combo(opts,'',lambda v,k=key:self.filter(k,v));grid.addWidget(c,i//4,i%4)
+            selected = (filters or {}).get(key, '')
+            if selected and selected in opts:
+                self.filters[key] = selected
+            c=combo(opts,self.filters.get(key,''),lambda v,k=key:self.filter(k,v));grid.addWidget(c,i//4,i%4)
             self.filter_choices[key] = c
-        self.advanced.hide();self.box.addWidget(row(Button('Дополнительные фильтры',lambda:self.advanced.setVisible(not self.advanced.isVisible())),Button('Сбросить фильтры',self.reset)));self.box.addWidget(self.advanced)
+        self.box.addWidget(row(Button('Дополнительные фильтры',lambda:self.advanced.setVisible(not self.advanced.isVisible())),Button('Сбросить фильтры',self.reset)));self.box.addWidget(self.advanced)
+        self.advanced.setVisible(advanced_open)
         self.msg=Label('',10,'mute');self.box.addWidget(self.msg)
         self.list=QListWidget();self.list.setViewMode(QListView.ViewMode.IconMode);self.list.setResizeMode(QListView.ResizeMode.Adjust);self.list.setMovement(QListView.Movement.Static);self.list.setIconSize(QSize(70,70));self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection);self.list.itemClicked.connect(self.toggle);self.list.setMinimumHeight(420)
         metrics = self.list.fontMetrics()
         width = max((metrics.horizontalAdvance('✓ '+r['name']) + 20 for r in self.rows), default=120)
         self.list.setGridSize(QSize(max(120,width),max(110,84+metrics.height())))
         self.box.addWidget(self.list,1);self.refresh()
+    def view_state(self):
+        return dict(role=self.role, mode=self.mode, query=self.query, filters=self.filters.copy(),
+                    sort=self.sort, advanced_open=not self.advanced.isHidden())
     def change(self,key,v):setattr(self,key,v);self.refresh()
     def filter(self,key,v):self.filters[key]=v;self.refresh()
     def reset(self):
