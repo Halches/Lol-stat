@@ -10,12 +10,18 @@ from settings_validation import clock_seconds
 import core,champion_pool
 
 class HintsPage(Page):
-    def __init__(self,app):
-        super().__init__(app);self.query='';self.scope='all';self.mode='all'
-        self.title('Подсказки');search=QLineEdit();search.setPlaceholderText('Поиск по названию, условиям и своему тексту');search.textChanged.connect(self.search)
-        self.box.addWidget(row(combo(core.ROLE_RU,app.s['hint_preset'],self.role),search,combo({'all':'Все','role':'Для роли','common':'Общие'},'all',lambda v:self.filter('scope',v)),combo({'all':'Все режимы',**MODES},'all',lambda v:self.filter('mode',v))))
+    def __init__(self,app,*,query='',scope='all',mode='all'):
+        super().__init__(app)
+        self.query, self.scope, self.mode = query, scope, mode
+        self.title('Подсказки')
+        search = QLineEdit(query)
+        search.setPlaceholderText('Поиск по названию, условиям и своему тексту')
+        search.textChanged.connect(self.search)
+        self.box.addWidget(row(combo(core.ROLE_RU,app.s['hint_preset'],self.role),search,combo({'all':'Все','role':'Для роли','common':'Общие'},scope,lambda v:self.filter('scope',v)),combo({'all':'Все режимы',**MODES},mode,lambda v:self.filter('mode',v))))
         self.box.addWidget(row(Label('Изменить только показанные:',10,'mute'),*[Button(n,lambda k=k:self.set_all(k)) for k,n in MODES.items()]))
         self.box.addWidget(Button('Режимы по умолчанию',self.reset));self.body=QWidget();self.body_box=QVBoxLayout(self.body);self.body_box.setContentsMargins(0,0,0,0);self.box.addWidget(self.body);self.box.addStretch();self.refresh()
+    def view_state(self):
+        return dict(query=self.query, scope=self.scope, mode=self.mode)
     def search(self,q):self.query=q;self.refresh()
     def filter(self,key,v):setattr(self,key,v);self.refresh()
     def role(self,role):self.app.s['hint_preset']=role;self.app.s.save();self.refresh()

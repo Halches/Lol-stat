@@ -92,10 +92,21 @@ def loadout(app,full,variant,*,title=None):
     return p
 
 class ChampionPage(Page):
-    def __init__(self,app):
-        super().__init__(app);self.champion=None;self.role='TOP';self.opponent=None;self.context='general';self.variant='pick'
-        self.title('Чемпион');self.select=champion_choice(app,changed=lambda c:self.choose(c or None));self.role_select=combo({r:core.ROLE_RU[r] for r in [*core.ROLES, 'ARAM']},self.role,lambda role:self.choose(self.champion,role));self.enemy=champion_choice(app,changed=self.select_opponent,empty='Все оппоненты');self.box.addWidget(row(self.select,self.role_select,self.enemy))
+    def __init__(self,app,*,champion=None,role='TOP',opponent=None,context='general',variant='pick'):
+        super().__init__(app)
+        self.champion, self.role, self.opponent = champion, role, opponent
+        self.context, self.variant = context, variant
+        self.app.cp_sel = (champion, role) if champion else None
+        self.title('Чемпион')
+        self.select = champion_choice(app, champion, changed=lambda c:self.choose(c or None))
+        self.role_select = combo({r:core.ROLE_RU[r] for r in [*core.ROLES, 'ARAM']}, role,
+                                 lambda selected:self.choose(self.champion, selected))
+        self.enemy = champion_choice(app, opponent, changed=self.select_opponent, empty='Все оппоненты')
+        self.box.addWidget(row(self.select,self.role_select,self.enemy))
         self.body=QWidget();self.body_box=QVBoxLayout(self.body);self.body_box.setContentsMargins(0,0,0,0);self.box.addWidget(self.body);self.box.addStretch();self.refresh()
+    def view_state(self):
+        return dict(champion=self.champion, role=self.role, opponent=self.opponent,
+                    context=self.context, variant=self.variant)
     def choose(self,champion,role=None):
         self.champion=champion;self.role=role or self.role;self.app.cp_sel=(champion,self.role) if champion else None
         for widget,val in ((self.select,champion or ''),(self.role_select,self.role)):
