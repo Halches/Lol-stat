@@ -1,0 +1,49 @@
+name: Проверка LoL Helper v3
+
+on:
+  pull_request:
+    paths:
+      - 'beta/**'
+      - 'tools/make_data.py'
+      - 'tools/history_archive.py'
+      - 'tools/update_loop.sh'
+      - '.github/workflows/desktop-pr.yml'
+      - '.github/workflows/app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: '${{ github.workspace }}/beta'
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Зависимости
+        shell: pwsh
+        run: |
+          python -m pip install PySide6-Essentials==6.12.0 Pillow==13.0.0 opencv-python-headless==4.11.0.86 numpy==2.2.6 pyinstaller==6.22.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Каталог, тесты и EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path beta/.state -Force | Out-Null
+          python beta/desktop/worker.py --catalog beta/.state/catalog.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s beta/tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location beta
+          python -m PyInstaller --noconfirm --workpath .state/qt-build --distpath out desktop/qt.spec
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $p = Start-Process out/LoLHelperBeta-Qt.exe -ArgumentList '--smoke' -WindowStyle Hidden -PassThru
+          if (-not $p.WaitForExit(120000)) { throw 'Smoke check timeout' }
+          if ($p.ExitCode -ne 0) { throw 'Smoke check failed' }
+          Pop-Location

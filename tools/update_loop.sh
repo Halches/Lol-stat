@@ -23,7 +23,7 @@ rebuild() {
   python analyze.py && python icons.py || return 1
   # средние Изумруд+ с lolalytics: обновлять раз в 3 дня
   python -c "import json,time,sys;t=json.load(open('lola.json')).get('_t','2000-01-01');sys.exit(0 if time.time()-time.mktime(time.strptime(t,'%Y-%m-%d'))>3*86400 else 1)" && python lola.py || true
-  python build.py && python ../app/make_data.py
+  python build.py && python make_data.py
 }
 
 publish() {
@@ -53,7 +53,7 @@ while :; do
   if [ "$new" != "0" ]; then
     # версию в Claude обновляем только по просьбе в чате, автоматически не запускаем
     rebuild && python fetch.py --acknowledge || exit 1
-    publish "Новые игры: $new" index.html data tools/{games,icons,seen,pending_matches,ranks,mastery,lp_history,lola,arena}.json app/data.json || exit 1
+    publish "Новые игры: $new" index.html data tools/{games,icons,seen,pending_matches,ranks,mastery,lp_history,lola,arena}.json beta/data.json || exit 1
     gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" > /dev/null || true
   elif ! git diff --quiet -- seen.json pending_matches.json || ! git ls-files --error-unmatch pending_matches.json >/dev/null 2>&1; then
     publish "Обновить очередь загрузки матчей" tools/{seen,pending_matches}.json || exit 1

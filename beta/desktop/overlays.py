@@ -13,7 +13,10 @@ from PySide6.QtWidgets import (
 )
 
 from worker import DDRAGON, foreground_game
-from qt_ui import native
+if __package__:
+    from . import native
+else:
+    import native
 from overlay_samples import SampleCard, ScoreboardDecoration
 from overlay_tab import TabFrameFinder
 from overlay_themes import DEFAULT_THEME, MAX_SCALE, MIN_SCALE, THEMES, ThemePanel, asset_folder
