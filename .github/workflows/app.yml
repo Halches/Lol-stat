@@ -3,7 +3,7 @@ name: Сборка основной версии LoL Helper
 on:
   push:
     branches: [main]
-    paths: ['beta/desktop/**', 'beta/tests/**', 'beta/web/loadout.json', 'beta/RELEASE_NOTES.txt', 'app/core.py', 'app/lcu.py', 'app/rune_catalog.py', '.github/workflows/app.yml']
+    paths: ['beta/desktop/**', 'beta/tests/**', 'beta/web/loadout.json', 'beta/RELEASE_NOTES.txt', 'beta/core.py', 'beta/lcu.py', 'beta/player_comments.py', 'beta/player_traits.py', 'beta/profile_ranks.py', 'beta/rank_labels.py', 'beta/rune_catalog.py', 'beta/tab_detect.py', '.github/workflows/app.yml']
   workflow_dispatch:
 
 permissions:
@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
     env:
       PYTHONUTF8: '1'
-      PYTHONPATH: '${{ github.workspace }}/app;${{ github.workspace }}/beta'
+      PYTHONPATH: '${{ github.workspace }}/beta'
       QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
           $p = Start-Process out/LoLHelperBeta-Qt.exe -ArgumentList '--smoke' -WindowStyle Hidden -PassThru
           if (-not $p.WaitForExit(120000)) { throw 'Smoke check timeout' }
           if ($p.ExitCode -ne 0) { throw 'Smoke check failed' }
-          # The old updater's fallback expects this exact asset name.
+          # Keep the stable asset name expected by installed v3 clients.
           Copy-Item out/LoLHelperBeta-Qt.exe out/LoLHelper.exe
           $hash = (Get-FileHash out/LoLHelper.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  LoLHelper.exe" | Set-Content out/SHA256SUMS.txt -Encoding ascii

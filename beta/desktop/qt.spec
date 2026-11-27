@@ -24,7 +24,7 @@ for voice in voice_pack.voices:
             voice_datas.append((str(clip), f"voice-pack/{voice}"))
 a = Analysis(
     [str(desktop / "qt.py")],
-    pathex=[str(beta.parent / "app"), str(beta)],
+    pathex=[str(beta)],
     datas=[(str(beta / ".state/catalog.json"), "."), (str(beta / "web/loadout.json"), "."),
            (str(desktop / "assets/lolhelper-logo.png"), "."),
            (str(desktop / "assets/roles"), "roles"), (str(desktop / "assets/ranks"), "ranks"),

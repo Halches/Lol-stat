@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 import core
 import rune_catalog
-from app_config import TIER_RU
+from rank_labels import TIER_RU
 
 
 DDRAGON = "https://ddragon.leagueoflegends.com"

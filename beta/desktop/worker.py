@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 
 if not getattr(sys, "frozen", False):
     project = Path(__file__).resolve().parents[1]
-    sys.path[:0] = [str(project.parent / "app"), str(project)]
+    sys.path.insert(0, str(project))
 
 import core
 import lcu
@@ -64,7 +64,7 @@ def read_catalog():
     if getattr(sys, "frozen", False):
         path = Path(sys._MEIPASS) / "catalog.json"
     else:
-        path = Path(__file__).resolve().parents[2] / "app/data.json"
+        path = Path(__file__).resolve().parents[1] / "data.json"
     return public_catalog(path)
 
 

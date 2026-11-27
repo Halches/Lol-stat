@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import core
 import player_comments
 import player_traits
-from app_config import TIER_RU
+from rank_labels import TIER_RU
 
 
 # Curated capabilities of champion kits. An omitted champion is not evidence of absence.
